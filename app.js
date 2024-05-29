@@ -249,6 +249,7 @@ app.put("/verifiedrainfall", (req, res) => {
   }
 });
 
+
 app.get("/masterFile", (req, res) => {
   client.query(
     "SELECT * FROM masterfile JOIN stationdatadaily ON masterfile.station_code = stationdatadaily.station_id ORDER BY station_id",

@@ -23,12 +23,12 @@ const { Client } = require('pg');
 //   database: "IRIS"
 // });
 
-const client = new Client( {
-  host:"localhost",
-  user: "postgres",
-  port: 5432,
-  password: "12345",
-  database: "iris"
+const client = new Client({
+    host: "localhost",
+    user: "postgres",
+    port: 5432,
+    password: "2020",
+    database: "IRIS"
 });
 // const client = new Client( {
 //   host:"localhost",

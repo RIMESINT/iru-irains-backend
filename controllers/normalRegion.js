@@ -1,4 +1,3 @@
-
 const express = require("express");
 const router = express.Router();
 const app = express();
@@ -13,7 +12,8 @@ async function createTableIfNotExists() {
             date DATE NOT NULL,
             region_name VARCHAR(255) NOT NULL,
             region_id INTEGER NOT NULL,
-            cumulative_rainfall_value NUMERIC(10, 2) NOT NULL
+            cumulative_rainfall_value NUMERIC(10, 2) NOT NULL,
+            rainfall_value NUMERIC(10, 2) NOT NULL
         );
     `;
 
@@ -25,38 +25,40 @@ async function createTableIfNotExists() {
     }
 }
 
-// Function to insert transformed data into the PostgreSQL table
 async function insertTransformedData(transformedData) {
-
     await createTableIfNotExists();
 
     // Truncate table if already filled
-    await client.query(" TRUNCATE TABLE  public.normal_region");
+    await client.query("TRUNCATE TABLE public.normal_region");
 
-    const insertQuery = `
-        INSERT INTO normal_region (date, region_name, region_id, cumulative_rainfall_value)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id;
+    if (transformedData.length === 0) {
+        return;
+    }
+
+    const insertQueryBase = `
+        INSERT INTO normal_region (date, region_name, region_id, cumulative_rainfall_value, rainfall_value)
+        VALUES 
     `;
 
-    for (let record of transformedData) {
-        const values = [
-            record.date,
-            record.region,
-            record.regionid,
-            record.value
-        ];
+    const values = [];
+    const valuePlaceholders = transformedData.map((record, index) => {
+        const baseIndex = index * 5;
+        values.push(record.date, record.region, record.regionid, record.value, record.rainfall_value);
+        return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5})`;
+    });
 
-        try {
-            await client.query(insertQuery, values);
-        } catch (error) {
-            console.error(`Failed to insert record: ${JSON.stringify(record)}`, error);
-            throw error;
-        }
+    const insertQuery = insertQueryBase + valuePlaceholders.join(', ');
+
+    try {
+        await client.query(insertQuery, values);
+    } catch (error) {
+        console.error("Failed to insert records", error);
+        throw error;
     }
 }
 
-exports.getnRegionDataAndInsertInNormalRegion = async (req, res) => {
+
+exports.getnRegionDataAndInsertInNormalRegion = async(req, res) => {
     try {
 
         const response = await client.query('SELECT * FROM nregion');
@@ -68,15 +70,15 @@ exports.getnRegionDataAndInsertInNormalRegion = async (req, res) => {
         // Insert transformed data into the database
         await insertTransformedData(transformedData);
 
-        res.status(200).json({  
-                                success : true,
-                                message :  "Data inserted successfully",
-                            });
+        res.status(200).json({
+            success: true,
+            message: "Data inserted successfully",
+        });
     } catch (error) {
         res.status(500).json({
-                                succes:false, 
-                                error : "Internal server error",
-                                message : error.message,
-                            });
+            succes: false,
+            error: "Internal server error",
+            message: error.message,
+        });
     }
 }

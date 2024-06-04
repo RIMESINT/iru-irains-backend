@@ -31,7 +31,14 @@ function convertDate(key) {
     let month = monthMapping[monthAbbrev];
 
     // Construct the date in the format "YYYY-MM-DD"
-    return `${currentYear}-${month}-${day}`;
+    // return `${currentYear}-${month}-${day}`;
+
+    return {
+        year: currentYear,
+        month: month,
+        day: day,
+        date : `${currentYear}-${month}-${day}`,
+    }
 }
 
 

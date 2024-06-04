@@ -14,7 +14,8 @@ async function createTableIfNotExists() {
             sub_division_name VARCHAR(255) NOT NULL,
             sub_division_id INTEGER NOT NULL,
             sub_division_code INTEGER NOT NULL,
-            cumulative_rainfall_value NUMERIC(10, 2) NOT NULL
+            cumulative_rainfall_value NUMERIC(10, 2) NOT NULL,
+            rainfall_value NUMERIC(10, 2) NOT NULL
         );
     `;
 
@@ -35,8 +36,8 @@ async function insertTransformedData(transformedData) {
     await client.query("TRUNCATE TABLE public.normal_sub_division");
 
     const insertQuery = `
-        INSERT INTO normal_sub_division (date, sub_division_name, sub_division_id, sub_division_code, cumulative_rainfall_value)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO normal_sub_division (date, sub_division_name, sub_division_id, sub_division_code, cumulative_rainfall_value, rainfall_value)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id;
     `;
 
@@ -46,6 +47,7 @@ async function insertTransformedData(transformedData) {
             record.subdivision_name,
             record.subdivision_id,
             record.subdivision_code,
+            record.value,
             record.rainfall_value
         ];
 
@@ -68,7 +70,7 @@ exports.getnSubDivisionDataAndInsertInNormalSubDivision = async (req, res) => {
         let transformedData = transformDataNormalSubDivision(data);
 
         // Insert transformed data into the database
-        await insertTransformedData(transformedData);
+         insertTransformedData(transformedData);
 
         res.status(200).json({  
                                 success : true,

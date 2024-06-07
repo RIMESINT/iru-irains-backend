@@ -77,6 +77,153 @@ app.post('/send-email', (req, res) => {
   });
 });
 
+
+
+
+
+app.get('/send-pendingVerificationRainfallStatus-email', async (req, res) => {
+  const fetchExistingStationDataFileData = async () => {
+    try {
+      const result = await client.query(
+        `SELECT * FROM existingstationdata JOIN stationdatadaily
+         ON existingstationdata.stationid = stationdatadaily.station_id 
+         ORDER BY station_id`
+      );
+      return result.rows;
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      throw err;
+    }
+  };
+  
+  const dateCalculation = (date) => {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    let newDate = date;
+    let dd = String(newDate.getDate());
+    const year = newDate.getFullYear();
+    const currmonth = months[newDate.getMonth()];
+    const selectedYear = String(year).slice(-2);
+    return `${dd.padStart(2, '0')}_${currmonth}_${selectedYear}`;
+  }
+  
+  const calculate_all_the_past_week_dates = () => {
+    var currentDate = new Date();
+    var oneWeekAgo = new Date(currentDate);
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);  
+    var calculationDates = [];
+    while (currentDate >= oneWeekAgo) {
+      calculationDates.push(dateCalculation(new Date(currentDate)))
+      currentDate.setDate(currentDate.getDate() - 1);
+    }
+    console.log("Dates from now back to one week ago:");
+    return calculationDates;
+  }
+  
+  const get_all_emails_of_MCsandRMCs = async () => {
+    try {
+      const result = await client.query(`SELECT name, username FROM login`);
+      return result.rows;
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      throw err;
+    }
+  }
+  
+  function getUsernameByName(name, users) {
+    const user = users.find(user => user.name.toLowerCase() === name.toLowerCase());
+    return user ? user.username : 'User not found';
+  }
+
+  const append_the_data = (record, verified_weekly_date_columns, weekly_dates) => {
+    let week_status = [];
+    for (let i = 0; i < verified_weekly_date_columns.length; i++) {
+      if ((record[weekly_dates[i]] !== -999.9) && (record[verified_weekly_date_columns[i]] === null || record[verified_weekly_date_columns[i]] === 'null')) {
+        week_status[i] = "Verification pending";
+      } else {
+        week_status[i] = " ";
+      }
+    }
+    return [record.station, record.district, ...week_status];
+  }
+  
+  var weekly_dates = calculate_all_the_past_week_dates();
+  var verified_weekly_date_columns = weekly_dates.map(x => `isverified_${x}`);
+  
+  var data_to_sent = {};
+  
+  const existingstationdata = await fetchExistingStationDataFileData();
+  for (let record of existingstationdata) {
+    let current_MCorRMC = record.rmc_mc;
+    let current_station_data = append_the_data(record, verified_weekly_date_columns, weekly_dates);
+    if (!data_to_sent[current_MCorRMC]) {
+      data_to_sent[current_MCorRMC] = [];
+    }
+    data_to_sent[current_MCorRMC].push(current_station_data);
+  }
+  
+  const allMcandRMClogins = await get_all_emails_of_MCsandRMCs();
+  let emailPromises = [];
+  
+  for (const key in data_to_sent) {
+    let current_mc_email = getUsernameByName(key, allMcandRMClogins);
+    let tableRows = data_to_sent[key]
+      .map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`)
+      .join('');
+
+    const htmlContent = `
+      ${key} has these number of pendings
+      <br/>
+      <table border='1'> 
+        <thead>
+          <tr>
+            <th>Station Name</th>
+            <th>District Name</th>
+            ${weekly_dates.map(date => `<th>${date}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+    `;
+    const mailOptions = {
+      from: 'manu@rimes.int',
+      to: 'balakrishna@rimes.int',
+      // to: current_mc_email,
+      subject: 'Pending verifications in this week',
+      html: htmlContent,
+    };
+
+    emailPromises.push(
+      new Promise((resolve, reject) => {
+        smtpTransport.sendMail(mailOptions, async (error, response) => {
+          var status = !error;
+          console.log('status..........', status);
+          try {
+            await client.query('INSERT INTO email_log(email, subject, message, datetime, status) VALUES($1, $2, $3, $4, $5)', [mailOptions.to, mailOptions.subject, mailOptions.html, new Date(), status]);
+            console.log(`Email sent to ${key}`);
+            resolve();
+          } catch (error) {
+            console.error('Error inserting data:', error);
+            reject(error);
+          }
+        });
+      })
+    );
+  }
+  
+  try {
+    await Promise.all(emailPromises);
+    res.status(200).send(data_to_sent);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
 app.post('/addData', (req, res) => {
   const data = req.body.data; 
   client.query('INSERT INTO existingstationdata(stationname, stationid, datetime, stationtype, neworold, lat, lng, activationdate) VALUES($1, $2, $3, $4, $5, $6, $7, $8)', [data.stationName, data.stationId, data.dateTime, data.stationType, data.newOrOld, data.lat, data.lng, data.activationDate])
@@ -547,7 +694,7 @@ app.put("/updaterainfall", (req, res) => {
 
 
 
-app.listen(3000, () => {
+app.listen(3483, () => {
   console.log("Server has been ready");
 });
 client.connect();

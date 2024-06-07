@@ -27,8 +27,8 @@ const client = new Client( {
   host:"localhost",
   user: "postgres",
   port: 5432,
-  password: "12345",
-  database: "iris"
+  password: "123456",
+  database: "IRIS"
 });
 // const client = new Client( {
 //   host:"localhost",

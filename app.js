@@ -8,6 +8,7 @@ const cors = require('cors');
 const multer = require('multer');
 const xlsx = require('xlsx');
 const nodemailer = require('nodemailer');
+require('dotenv').config();
 
 const normalRegionRoutes = require("./routes/normalsRoutes")
     // const cron = require('node-cron');
@@ -488,185 +489,11 @@ app.put("/updaterainfall", (req, res) => {
 });
 
 
-
-
-// db code start
-
-
-function extractMonthAndDate(key) {
-    const monthStr = key.match(/[a-zA-Z]+/)[0]; // Extract the alphabetic part (month)
-    const date = parseInt(key.match(/\d+/)[0], 10); // Extract the numeric part (date)
-    const year = new Date().getFullYear();
-    return { month: months[monthStr], date, year };
-}
-const months = {
-    "Jan": 1,
-    "Feb": 2,
-    "Mar": 3,
-    "Apr": 4,
-    "May": 5,
-    "Jun": 6,
-    "Jul": 7,
-    "Aug": 8,
-    "Sep": 9,
-    "Oct": 10,
-    "Nov": 11,
-    "Dec": 12
-};
-app.get('/country', async(req, res) => {
-    try {
-        const result = await client.query('SELECT * FROM ncountry ');
-        if (result.rows.length === 0) {
-            res.status(404).json({ success: false, error: 'File not found' });
-            return;
-        }
-        const data = result.rows[0]
-        let prev = 0;
-        var insert_query = "INSERT INTO normal_country (date, country_name, cumulative_rainfall_value, rainfall_value) VALUES ";
-        for (const key in data) {
-            if (data.hasOwnProperty(key) && key !== 'country_as_whole') {
-                const { month, date, year } = extractMonthAndDate(key);
-                if ((date == 1) && (month == 1 || month == 3 || month == 6 || month == 10)) {
-                    prev = 0
-                }
-                insert_query += `(  '${year}-${month}-${date}', 'INDIA', ${data[key]}, ${data[key]-prev}),`;
-                prev = data[key]
-
-            }
-        }
-        insert_query = insert_query.slice(0, -1);
-        await client.query("CREATE TABLE IF NOT EXISTS public.normal_country ( id SERIAL PRIMARY KEY, date DATE NOT NULL, country_name VARCHAR(255) NOT NULL, cumulative_rainfall_value NUMERIC(10, 2) NOT NULL, rainfall_value NUMERIC(10, 2) NOT NULL )");
-        await client.query(" TRUNCATE TABLE  public.normal_country");
-        await client.query(insert_query);
-        res.status(200).json({ message: "Data Inserted Successfully" });
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ success: false, error: 'Internal Server Error' });
-    }
-});
-
-app.get('/state', async(req, res) => {
-    try {
-        const result = await client.query('SELECT * FROM nstate ');
-        if (result.rows.length === 0) {
-            res.status(404).json({ success: false, error: 'File not found' });
-            return;
-        }
-        var insert_query = "INSERT INTO normal_state (date, state_name, state_code, cumulative_rainfall_value, rainfall_value) VALUES ";
-        result.rows.forEach(data => {
-            const state_name = data['statename']
-            const state_code = data['state_code']
-            let prev = 0;
-            for (const key in data) {
-                if (data.hasOwnProperty(key) && key !== 'statename' && key !== 'state_code') {
-                    const { month, date, year } = extractMonthAndDate(key);
-                    if ((date == 1) && (month == 1 || month == 3 || month == 6 || month == 10)) {
-                        prev = 0
-                    }
-                    insert_query += `(  '${year}-${month}-${date}', '${state_name}', ${state_code}, ${data[key]}, ${data[key] - prev}),`;
-                    prev = data[key]
-                }
-            }
-        });
-        insert_query = insert_query.slice(0, -1);
-        await client.query("CREATE TABLE IF NOT EXISTS public.normal_state ( id SERIAL PRIMARY KEY, date DATE NOT NULL, state_name VARCHAR(255) NOT NULL,  state_code integer NOT NULL, cumulative_rainfall_value NUMERIC(10, 2) NOT NULL, rainfall_value NUMERIC(10, 2) NOT NULL )");
-        await client.query(" TRUNCATE TABLE  public.normal_state");
-        await client.query(insert_query);
-        res.status(200).json({ message: insert_query });
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ success: false, error: 'Internal Server Error' });
-    }
-});
-
-
-app.get('/district', async(req, res) => {
-    try {
-        const result = await client.query('SELECT * FROM ndistrict ');
-        if (result.rows.length === 0) {
-            res.status(404).json({ success: false, error: 'File not found' });
-            return;
-        }
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS public.normal_district_details (
-              id SERIAL PRIMARY KEY,
-              region_name VARCHAR(255) NOT NULL,
-              region_code BIGINT NOT NULL,
-              subdiv_name VARCHAR(255) NOT NULL,
-              sd INT NOT NULL,
-              subdiv_code BIGINT NOT NULL,
-              state_name VARCHAR(255) NOT NULL,
-              rst INT NOT NULL,
-              state_code BIGINT NOT NULL,
-              district_name VARCHAR(255) NOT NULL,
-              ddd INT NOT NULL,
-              district_code BIGINT NOT NULL
-          )
-      `);
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS public.normal_district (
-              id SERIAL PRIMARY KEY,
-              date DATE NOT NULL,
-              cumulative_rainfall_value NUMERIC(10, 2) NOT NULL,
-              rainfall_value NUMERIC(10, 2) NOT NULL,
-              normal_district_details_id INT,
-              FOREIGN KEY (normal_district_details_id) REFERENCES public.normal_district_details(id)
-          )
-      `);
-        await client.query("TRUNCATE TABLE public.normal_district CASCADE");
-        await client.query("TRUNCATE TABLE public.normal_district_details CASCADE");
-
-        result.rows.forEach(async(data) => {
-            const region_name = data['region_name']
-            const region_code = data['region_code']
-            const subdiv_name = data['subdiv_name']
-            const sd = data['sd']
-            const subdiv_code = data['subdiv_code']
-            const state_name = data['state_name']
-            const rst = data['rst']
-            const state_code = data['state_code']
-            const district_name = data['district_name']
-            const ddd = data['ddd']
-            const district_code = data['district_code']
-
-
-            const detail_result = await client.query("INSERT INTO normal_district_details (region_name,	region_code,	subdiv_name,	sd,	subdiv_code,	state_name,	rst,	state_code,	district_name,	ddd,	district_code) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id", [region_name, region_code, subdiv_name, sd, subdiv_code, state_name, rst, state_code, district_name, ddd, district_code]);
-            const detail_result_id = detail_result.rows[0].id
-            let prev = 0
-            let insert_query = "INSERT INTO normal_district (date, cumulative_rainfall_value, rainfall_value, normal_district_details_id) VALUES "
-            for (const key in data) {
-                if (data.hasOwnProperty(key) && key !== 'region_name' && key !== 'region_code' && key !== 'subdiv_name' && key !== 'sd' && key !== 'subdiv_code' && key !== 'state_name' && key !== 'rst' && key !== 'state_code' && key !== 'district_name' && key !== 'ddd' && key !== 'district_code') {
-                    const { month, date, year } = extractMonthAndDate(key);
-                    if ((date == 1) && (month == 1 || month == 3 || month == 6 || month == 10)) {
-                        prev = 0
-                    }
-                    insert_query += `('${year}-${month}-${date}', ${data[key]}, ${data[key] - prev}, ${detail_result_id}),`
-                    prev = data[key]
-                }
-            }
-            insert_query = insert_query.slice(0, -1);
-            await client.query(insert_query);
-        });
-        res.status(200).json({ message: "District Normal Migrated Successfully" });
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ success: false, error: 'Internal Server Error' });
-    }
-});
-
-
-
-// db code end
-
-
-
+const port = process.env.PORT || 3000;
 
 app.use("/api/v1/", normalRegionRoutes);
 
-app.listen(3000, () => {
-    console.log("Server started at PORT 3000");
+app.listen(port, () => {
+    console.log(`Server started at PORT ${port}`);
 });
 client.connect();

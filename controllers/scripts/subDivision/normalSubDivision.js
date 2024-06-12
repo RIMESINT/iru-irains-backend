@@ -2,8 +2,8 @@
 const express = require("express");
 const router = express.Router();
 const app = express();
-const client = require("../connection");
-const transformDataNormalSubDivision = require("../utils/transformDataNormalSubDivison");
+const client = require("../../../connection");
+const transformDataNormalSubDivision = require("../../../utils/transformDataNormalSubDivison");
 
 // Function to create table if it doesn't exist
 async function createTableIfNotExists() {

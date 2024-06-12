@@ -2,8 +2,8 @@
 const express = require("express");
 const router = express.Router();
 const app = express();
-const client = require("../connection");
-const convertDate = require("../utils/convertDate");
+const client = require("../../../connection");
+const convertDate = require("../../../utils/convertDate");
 
 
 

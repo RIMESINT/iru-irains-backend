@@ -2,7 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const app = express();
-const client = require("../connection");
+const client = require("../../../connection");
 const { format, addDays, isAfter } = require('date-fns');
 
 function formatDate(inputDate) {
@@ -11,7 +11,7 @@ function formatDate(inputDate) {
   }
 
 
-  function calculateDeparture(data) {
+function calculateDeparture(data) {
     return data.map(entry => {
       const actual = parseFloat(entry.actual_rainfall);
       let normal = parseFloat(entry.normal_rainfall);
@@ -27,11 +27,11 @@ function formatDate(inputDate) {
         departure: departure.toFixed(2) // Keeping two decimal places
       };
     });
-  }
+}
 
-  async function  fetchData(date){
+async function fetchData(){
     try {
-        const inputDate = date; // Input date in YYYY-MM-DD format
+        const inputDate = "2024-05-01"; // Input date in YYYY-MM-DD format
         const formattedDate = formatDate(inputDate);
 
         const response =  await client.query(`
@@ -74,7 +74,7 @@ function formatDate(inputDate) {
     const end = new Date(endDate);
     const data = []
     while (!isAfter(currentDate, end)) {
-    //   console.log(format(currentDate, 'yyyy-MM-dd'));
+      // console.log(format(currentDate, 'yyyy-MM-dd'));
         data.push(await fetchData(format(currentDate, 'yyyy-MM-dd'))) 
       currentDate = addDays(currentDate, 1);
     }
@@ -94,28 +94,28 @@ exports.getDistrictData = async (req, res) => {
         //         // message1 :  data
         //     });
         // }
-        const data = await iterateDates(start_date, end_date);
+        // const data = await iterateDates(start_date, end_date);
 
   // Function to add data to the combined object
-  const combined = {};
-  const addData = (data) => {
-    data.forEach(entry => {
-      const districtCode = entry.district_code;
-      if (!combined[districtCode]) {
-        combined[districtCode] = {
-          ...entry,
-          actual_rainfall: parseFloat(entry.actual_rainfall),
-          normal_rainfall: parseFloat(entry.normal_rainfall)
-        };
-      } else {
-        combined[districtCode].actual_rainfall += parseFloat(entry.actual_rainfall);
-        combined[districtCode].normal_rainfall += parseFloat(entry.normal_rainfall);
-      }
-    });
-  };
+  // const combined = {};
+  // const addData = (data) => {
+  //   data.forEach(entry => {
+  //     const districtCode = entry.district_code;
+  //     if (!combined[districtCode]) {
+  //       combined[districtCode] = {
+  //         ...entry,
+  //         actual_rainfall: parseFloat(entry.actual_rainfall),
+  //         normal_rainfall: parseFloat(entry.normal_rainfall)
+  //       };
+  //     } else {
+  //       combined[districtCode].actual_rainfall += parseFloat(entry.actual_rainfall);
+  //       combined[districtCode].normal_rainfall += parseFloat(entry.normal_rainfall);
+  //     }
+  //   });
+  // };
 
-  data.forEach( arr => addData(arr))
-  const final = calculateDeparture(Object.values(combined))
+  // data.forEach( arr => addData(arr))
+  // const final = calculateDeparture(Object.values(combined))
 
 
 
@@ -124,7 +124,7 @@ exports.getDistrictData = async (req, res) => {
 
         res.status(200).json({  
             success : true,
-            message :  final,
+            message :  await fetchData(),
             // message1 :  data
         });
     } catch (error) {

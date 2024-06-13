@@ -50,14 +50,14 @@ const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
         SELECT 
             min(d_name) as district_name,
-            sum(normal_rainfall) as normal_rainfall,
+            min(normal_rainfall) as normal_rainfall,
             district_code,
             sum(actual_rainfall) as actual_rainfall,
             ((sum(actual_rainfall) - sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) / sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) * 100 as departure
         FROM (
             SELECT 
                 date,
-                sum(rainfall_value) as normal_rainfall, 
+                min(rainfall_value) as normal_rainfall, 
                 min(ndd.district_name) as d_name,
                 ndd.district_code,
                 avg(

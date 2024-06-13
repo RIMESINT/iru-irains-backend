@@ -13,6 +13,7 @@ require('dotenv').config();
 const regionRoutes = require("./routes/normalsRoutes")
 const districtRoutes = require("./routes/districtRoutes")
 const stationRoutes = require("./routes/stationRoutes")
+const stateRoutes = require("./routes/stateRoutes")
     // const cron = require('node-cron');
 
 // cron.schedule('0 14 * * *', () => {
@@ -50,6 +51,7 @@ const port = process.env.PORT || 3000;
 app.use("/api/v1/", regionRoutes);
 app.use("/api/v1/", districtRoutes);
 app.use("/api/v1/", stationRoutes);
+app.use("/api/v1/", stateRoutes);
 
 app.listen(port, () => {
     console.log(`Server started at PORT ${port}`);

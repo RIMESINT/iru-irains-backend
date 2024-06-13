@@ -8,6 +8,9 @@ const xlsx = require("xlsx");
 
 exports.insertStationData = async(req, res) => {
     try {
+
+        createStationDailyDataTable(); 
+        
         const filename = "Rainfall_2024.xlsx"
         console.log({fileNmae:filename});
     
@@ -81,4 +84,28 @@ exports.insertStationData = async(req, res) => {
         // await client.query(" TRUNCATE TABLE  public.normal_country");
         
 
+}
+
+
+const createStationDailyDataTable = async () => {
+      const createTableQuery = `
+        CREATE TABLE IF NOT EXISTS public.station_daily_data
+        (
+            id integer NOT NULL GENERATED ALWAYS AS IDENTITY ( INCREMENT 1 START 1 MINVALUE 1 MAXVALUE 2147483647 CACHE 1 ),
+            collection_date date,
+            data double precision,
+            station_id numeric,
+            district_code numeric,
+            created_at timestamp with time zone DEFAULT now(),
+            updated_at timestamp with time zone DEFAULT now(),
+            CONSTRAINT station_daily_data_pkey PRIMARY KEY (id)
+        )
+    `;
+
+    try {
+      await client.query(createTableQuery);
+    } catch (error) {
+      console.error("Failed to create table", error);
+      throw error;
+    }
 }

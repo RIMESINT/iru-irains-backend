@@ -51,6 +51,7 @@ const fetchBetweenDates = async (startDate, endDate) => {
         SELECT 
             state_name,
             state_code,
+			r_code AS region_code,  
             rainfall_normal_value,
             actual_state_rainfall,
             ((actual_state_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 AS departure
@@ -58,12 +59,15 @@ const fetchBetweenDates = async (startDate, endDate) => {
             SELECT 
                 MIN(state_name) AS state_name,
                 state_code,
+                MIN(r_code) AS r_code,  
                 MIN(rainfall_value) AS rainfall_normal_value,
                 (SUM(state_actual_numerator) / SUM(CASE WHEN district_area = 0 THEN 0.02 ELSE district_area END)) AS actual_state_rainfall
             FROM (
                 SELECT     
                     MIN(name) AS state_name, 
                     MIN(s_code) AS state_code,  
+                    MIN(r_code) AS r_code,  
+                    MIN(sd_code) AS sd_code,  
                     d_code AS district_code, 
                     d_area AS district_area,
                     SUM(normal_rainfall) AS rainfall_value,
@@ -74,6 +78,8 @@ const fetchBetweenDates = async (startDate, endDate) => {
                         ns.date, 
                         MIN(ndd.state_name) AS name, 
                         MIN(new_state_code) AS s_code, 
+                        MIN(region_code) AS r_code, 
+                        MIN(subdiv_code) AS sd_code, 
                         ndd.district_code AS d_code,     
                         MIN(district_area) AS d_area,
                         MIN(rainfall_value) AS normal_rainfall,

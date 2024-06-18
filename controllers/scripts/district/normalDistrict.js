@@ -27,7 +27,9 @@ exports.getnDistrictDataAndInsertInNormalDistrict = async (req, res) => {
               state_code BIGINT NOT NULL,
               district_name VARCHAR(255) NOT NULL,
               ddd INT NOT NULL,
-              district_code BIGINT NOT NULL
+              district_code BIGINT NOT NULL,
+              district_area DOUBLE PRECISION,
+              new_state_code DOUBLE PRECISION
           )
       `);
         await client.query(`
@@ -72,7 +74,24 @@ exports.getnDistrictDataAndInsertInNormalDistrict = async (req, res) => {
             }
             insert_query = insert_query.slice(0, -1);
             await client.query(insert_query);
+            
         });
+        await client.query(`WITH LatestMasterfile AS (
+            SELECT
+                DISTINCT ON (district_code) district_code,
+                district_area
+            FROM
+                masterfile
+            ORDER BY
+                district_code
+        )
+        UPDATE normal_district_details ndd
+        SET district_area = lm.district_area
+        FROM LatestMasterfile lm
+        WHERE ndd.district_code = lm.district_code`);
+        
+        await client.query(`UPDATE normal_district_details 
+        SET new_state_code = (SUBSTRING(CAST(state_code AS VARCHAR) FROM 1 FOR 1) || SUBSTRING(CAST(state_code AS VARCHAR) FROM 4 FOR 2))::DOUBLE PRECISION`);
         res.status(200).json({ message: "District Normal Migrated Successfully" });
 
     } catch (error) {

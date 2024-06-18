@@ -48,8 +48,11 @@ exports.fetchDistrictData = async (req, res) => {
 
 const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
-        SELECT 
+       SELECT 
             min(d_name) as district_name,
+            min(s_code) as state_code,
+            min(r_code) as region_code,
+            min(sd_code) as sub_division_code,
             min(normal_rainfall) as normal_rainfall,
             district_code,
             sum(actual_rainfall) as actual_rainfall,
@@ -60,6 +63,9 @@ const fetchBetweenDates = async (startDate, endDate) => {
                 min(rainfall_value) as normal_rainfall, 
                 min(ndd.district_name) as d_name,
                 ndd.district_code,
+                min(ndd.new_state_code) as s_code,
+                min(ndd.region_code) as r_code,
+                min(ndd.subdiv_code) as sd_code,
                 avg(
                     CASE 
                         WHEN sdd.data = '-999.9' THEN NULL 

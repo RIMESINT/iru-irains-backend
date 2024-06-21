@@ -1,18 +1,14 @@
 const express = require("express")
 const router = express.Router()
 
-const { getnRegionDataAndInsertInNormalRegion } = require("../controllers/normalRegion")
-const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/normalDistrict");
-const { getnSubDivisionDataAndInsertInNormalSubDivision } = require("../controllers/normalSubDivision");
-const { getnCountryDataAndInsertInNormalCountry } = require("../controllers/normalCountry");
-const { getnStateDataAndInsertInNormalState } = require("../controllers/normalState");
+const { getnRegionDataAndInsertInNormalRegion } = require("../controllers/scripts/region/normalRegion")
+const { getnCountryDataAndInsertInNormalCountry } = require("../controllers/scripts/country/normalCountry");
 
 
-// Route for user login getDistrictData
+
+// Routes for District Inofrmation
 router.get("/nRegionPrev", getnRegionDataAndInsertInNormalRegion);
-router.get("/nSubDivisionPrev", getnSubDivisionDataAndInsertInNormalSubDivision);
+// router.get("/nSubDivisionPrev", getnSubDivisionDataAndInsertInNormalSubDivision);
 router.get("/nCountryPrev", getnCountryDataAndInsertInNormalCountry);
-router.get("/nStatePrev", getnStateDataAndInsertInNormalState);
-router.get("/nDistrictPrev", getnDistrictDataAndInsertInNormalDistrict);
 
 module.exports = router;

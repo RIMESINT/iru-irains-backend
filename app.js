@@ -11,7 +11,8 @@ const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const normalRegionRoutes = require("./routes/normalsRoutes")
-    // const cron = require('node-cron');
+const normalDistrictRoutes = require("./routes/districtRoutes")
+// const cron = require('node-cron');
 
 // cron.schedule('0 14 * * *', () => {
 // });

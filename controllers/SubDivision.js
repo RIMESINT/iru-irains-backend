@@ -49,22 +49,22 @@ exports.fetchSubDivisionData = async (req, res) => {
 const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
         select 
-        state_name,
-        s_code,
+        name as subdiv_name,
+        s_code ,
         r_code as region_code,
         rainfall_normal_value,
         actual_subdiv_rainfall,
         ((actual_subdiv_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 as departure
     From (
         select 
-            min(state_name) as state_name,
+            min(name) as name,
             s_code,
             min(r_code) as r_code,
             min(rainfall_value) as rainfall_normal_value,
             (SUM(subdiv_actual_numerator) / NULLIF(SUM(district_area), 0)) AS actual_subdiv_rainfall
         FROM (
                 select 	
-                    min(name) as state_name, 
+                    min(name) as name, 
                     min(s_code) as s_code,  
                     min(r_code) as r_code,  
                     d_code as district_code, 

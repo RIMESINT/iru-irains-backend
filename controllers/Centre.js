@@ -8,7 +8,7 @@ const moment = require('moment');
 exports.getCenterDetails = async (req, res) => {
     try {
 
-        const centreType = req.query.centre_type;
+        const centreType = req.body.centre_type;
 
         const query = `
                         SELECT 

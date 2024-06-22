@@ -125,3 +125,29 @@ const fetchBetweenDates = async (startDate, endDate) => {
     }
 }
 
+exports.getAllStates = async (req, res) => {
+    try {
+        const query = `
+                        SELECT 
+                            state_name, new_state_code as state_code, region_name, region_code
+                        FROM 
+                            public.normal_district_details
+                        ORDER BY
+                            state_code`;
+        
+        const result = await client.query(query);
+
+        res.status(200).json({
+            success: true,
+            message: "state list fetched Successfully",
+            data: result?.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch state list",
+            error: error.message,
+        });
+    }
+}

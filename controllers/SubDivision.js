@@ -123,3 +123,29 @@ const fetchBetweenDates = async (startDate, endDate) => {
     }
 }
 
+exports.getAllSubDivisions = async (req, res) => {
+    try {
+        const query = `
+                        SELECT 
+                            subdiv_name, subdiv_code, region_name, region_code
+                        FROM 
+                            public.normal_district_details
+                        ORDER BY
+                            subdiv_code`;
+        
+        const result = await client.query(query);
+
+        res.status(200).json({
+            success: true,
+            message: "Sub divisions list fetched Successfully",
+            data: result?.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Sub divisions list",
+            error: error.message,
+        });
+    }
+}

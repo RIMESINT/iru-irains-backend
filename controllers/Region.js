@@ -118,3 +118,27 @@ const fetchBetweenDates = async (startDate, endDate) => {
     }
 }
 
+exports.getAllRegions = async (req, res) => {
+    try {
+        const query = `
+                    SELECT 
+                        region_name,region_code 
+                    FROM 
+                    public.normal_district_details`;
+        
+        const result = await client.query(query);
+
+        res.status(200).json({
+            success: true,
+            message: "Region list fetched Successfully",
+            data: result?.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Region list",
+            error: error.message,
+        });
+    }
+}

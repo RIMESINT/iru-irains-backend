@@ -99,3 +99,37 @@ const fetchBetweenDates = async (startDate, endDate) => {
         throw error;
     }
 }
+
+exports.getAllDistrict = async (req, res) => {
+    try {
+        const query = `
+                        SELECT 
+                            district_name, 
+                            district_code, 
+                            subdiv_name, 
+                            subdiv_code, 
+                            region_name, 
+                            region_code, 
+                            state_name, 
+                            new_state_code as state_code
+                        FROM 
+                            public.normal_district_details
+                        ORDER BY
+                            district_code`;
+        
+        const result = await client.query(query);
+
+        res.status(200).json({
+            success: true,
+            message: "District list fetched Successfully",
+            data: result?.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch District list",
+            error: error.message,
+        });
+    }
+}

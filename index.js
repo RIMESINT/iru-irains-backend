@@ -16,7 +16,7 @@ const stateRoutes = require("./routes/stateRoutes")
 const subDivisionRoutes = require("./routes/subDivisionRoutes")
 const regionRoutes = require("./routes/regionRoutes")
 const countryRoutes = require("./routes/countryRoutes")
-
+const centreRoutes = require("./routes/centreRoutes")
 // const cron = require('node-cron');
 
 // cron.schedule('0 14 * * *', () => {
@@ -58,6 +58,7 @@ app.use("/api/v1/", stateRoutes);
 app.use("/api/v1/", subDivisionRoutes);
 app.use("/api/v1/", regionRoutes);
 app.use("/api/v1/", countryRoutes);
+app.use("/api/v1/", centreRoutes);
 
 
 app.listen(port, () => {

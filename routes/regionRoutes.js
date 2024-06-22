@@ -1,7 +1,7 @@
 const express = require("express")
 const router = express.Router()
 
-const { fetchRegionData} = require("../controllers/Region")
+const { fetchRegionData, getAllRegions} = require("../controllers/Region")
 const { getnRegionDataAndInsertInNormalRegion } = require("../controllers/scripts/region/normalRegion")
 
 
@@ -12,8 +12,11 @@ const { getnRegionDataAndInsertInNormalRegion } = require("../controllers/script
 // for scripts
 router.get("/nRegionPrev", getnRegionDataAndInsertInNormalRegion);
 
-// fetch sub division data
+// fetch region data
 router.post("/fetchRegionData", fetchRegionData);
+
+//get all regions
+router.get("/getAllRegions", getAllRegions);
 
 
 module.exports = router;

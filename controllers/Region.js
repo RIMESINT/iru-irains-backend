@@ -124,7 +124,10 @@ exports.getAllRegions = async (req, res) => {
                     SELECT 
                         region_name,region_code 
                     FROM 
-                    public.normal_district_details`;
+                        public.normal_district_details
+                    GROUP BY 
+                        region_code, region_name
+                    `;
         
         const result = await client.query(query);
 

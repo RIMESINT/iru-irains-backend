@@ -106,16 +106,19 @@ exports.getAllDistrict = async (req, res) => {
                         SELECT 
                             district_name, 
                             district_code, 
-                            subdiv_name, 
-                            subdiv_code, 
-                            region_name, 
-                            region_code, 
-                            state_name, 
-                            new_state_code as state_code
+                            min(subdiv_name), 
+                            min(subdiv_code), 
+                            min(region_name), 
+                            min(region_code), 
+                            min(state_name), 
+                            min(new_state_code) as state_code
                         FROM 
                             public.normal_district_details
+                        GROUP BY
+                            district_code, district_name
                         ORDER BY
-                            district_code`;
+                            district_code
+                        `;
         
         const result = await client.query(query);
 

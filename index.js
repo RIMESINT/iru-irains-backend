@@ -64,4 +64,5 @@ app.use("/api/v1/", centreRoutes);
 app.listen(port, () => {
     console.log(`Server started at PORT ${port}`);
 });
+
 client.connect();

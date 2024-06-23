@@ -129,9 +129,10 @@ exports.getAllStates = async (req, res) => {
     try {
         const query = `
                         SELECT 
-                            state_name, new_state_code as state_code, region_name, region_code
+                            min(state_name) as state_name, new_state_code as state_code, min(region_name) as region_name, min(region_code) as region_code
                         FROM 
                             public.normal_district_details
+                            group by new_state_code
                         ORDER BY
                             state_code`;
         

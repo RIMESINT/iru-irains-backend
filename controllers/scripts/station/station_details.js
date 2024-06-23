@@ -8,7 +8,7 @@ exports.createStationDetailsTable = async (req, res) => {
         // Create the station_details table
         const createTableQuery = `
             CREATE TABLE IF NOT EXISTS station_details (
-                district_code VARCHAR,
+                district_code BIGINT,
                 station_name VARCHAR,
                 station_code BIGINT,
                 station_type VARCHAR,

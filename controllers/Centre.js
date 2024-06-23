@@ -14,25 +14,19 @@ exports.getCenterDetails = async (req, res) => {
                         SELECT 
                             ndd.region_code, 
                             sd.centre_type, 
-                            sd.centre_name, 
-                            sd.station_code, 
-                            sd.district_code, 
-                            ndd.subdiv_code
+                            sd.centre_name
                         FROM 
                             station_details AS sd
                         JOIN
                             normal_district_details AS ndd
                         ON 
-                            sd.district_code = CAST(ndd.district_code AS VARCHAR)
+                            sd.district_code = ndd.district_code 
                         and
                             sd.centre_type = $1
                         GROUP BY
-                            ndd.region_code,
                             sd.centre_type, 
                             sd.centre_name, 
-                            sd.station_code, 
-                            sd.district_code, 
-                            ndd.subdiv_code
+                            ndd.region_code
                         ORDER BY
                             region_code`;
         

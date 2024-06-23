@@ -129,12 +129,20 @@ exports.getAllStates = async (req, res) => {
     try {
         const query = `
                         SELECT 
-                            min(state_name) as state_name, new_state_code as state_code, min(region_name) as region_name, min(region_code) as region_code
+                            MIN(ndd.state_name) AS state_name, 
+                            ndd.new_state_code AS state_code, 
+                            MIN(ndd.region_name) AS region_name, 
+                            MIN(ndd.region_code) AS region_code, 
+                            MIN(sd.centre_type) AS centre_type, 
+                            MIN(sd.centre_name) AS centre_name
                         FROM 
-                            public.normal_district_details
-                            group by new_state_code
-                        ORDER BY
-                            state_code`;
+                            public.station_details AS sd
+                        JOIN 
+                            normal_district_details AS ndd 
+                        ON 
+                            ndd.district_code = sd.district_code
+                        GROUP BY 
+                            ndd.new_state_code;`;
         
         const result = await client.query(query);
 

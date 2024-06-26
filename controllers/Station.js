@@ -192,7 +192,7 @@ const fetchFilteredData = async (Date) => {
     const query = `
                 SELECT ndd.region_code,
                     ndd.region_name,
-                    ndd.new_state_code,
+                    ndd.new_state_code as state_code,
                     ndd.state_name,
                     ndd.district_code,
                     ndd.district_name,

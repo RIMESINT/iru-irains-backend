@@ -2,7 +2,7 @@ const express = require("express")
 const router = express.Router()
 const { insertStationData} = require("../controllers/scripts/station/stationDailyData")
 const { createStationDetailsTable } = require("../controllers/scripts/station/station_details")
-const { fetchStationData ,updateStationData} = require("../controllers/Station")
+const { fetchStationData ,updateStationData, addNewStation, editStation, deleteStation} = require("../controllers/Station")
 
 
 // ********************************************************************************************************
@@ -12,6 +12,9 @@ router.get("/insertStationData", insertStationData);
 router.get("/createStationDetailsTable", createStationDetailsTable);
 router.post("/fetchStationData", fetchStationData);
 router.post("/updateStationData", updateStationData);
-updateStationData
+router.post("/addNewStation", addNewStation);
+router.post("/editStation", editStation);
+router.post("/deleteStation", deleteStation);
+
 
 module.exports = router;

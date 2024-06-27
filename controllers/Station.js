@@ -4,7 +4,7 @@ const router = express.Router();
 const app = express();
 const client = require("../connection");
 const moment = require('moment');
-
+const xlsx = require('xlsx');
 
 exports.fetchStationData = async (req, res) => {
     try {
@@ -68,3 +68,20 @@ const fetchFilteredData = async (Date) => {
     }
 }
 
+exports.insertMultipleStations = async(req, res) => {
+    try {       
+        
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        const { centre_type, centre_name} = req.body;
+
+        res.status(200).json({ data: sheetData });
+
+        console.log({sheetData});
+    } catch (error) {
+        console.error("Error processing request:", error.message);
+        res.status(500).json({ error: error.message });
+    }
+}

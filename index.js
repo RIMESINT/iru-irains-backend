@@ -5,8 +5,6 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const multer = require('multer');
-const xlsx = require('xlsx');
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 

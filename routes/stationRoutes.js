@@ -2,10 +2,11 @@ const express = require("express")
 const router = express.Router()
 const { insertStationData} = require("../controllers/scripts/station/stationDailyData")
 const { createStationDetailsTable } = require("../controllers/scripts/station/station_details")
-const { fetchStationData, insertMultipleStations } = require("../controllers/Station")
 const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
+const { fetchStationData ,updateStationData, addNewStation, editStation, deleteStation, insertMultipleStations} = require("../controllers/Station")
+
 
 // ********************************************************************************************************
 //                                      Station routes
@@ -15,5 +16,10 @@ router.post("/insertMultipleStations", upload.single('file'), insertMultipleStat
 
 router.get("/createStationDetailsTable", createStationDetailsTable);
 router.post("/fetchStationData", fetchStationData);
+router.post("/updateStationData", updateStationData);
+router.post("/addNewStation", addNewStation);
+router.post("/editStation", editStation);
+router.post("/deleteStation", deleteStation);
+
 
 module.exports = router;

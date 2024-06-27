@@ -389,8 +389,7 @@ exports.insertMultipleStations = async(req, res) => {
 
         const stations = sheetData.map(station => ({
             ...station,
-            centre_type,
-            centre_name,
+            
             is_new_station: station.is_new_station === 'yes' ? 1 : 0
         }));
 

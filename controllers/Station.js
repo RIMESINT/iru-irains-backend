@@ -74,7 +74,7 @@ exports.addNewStation = async (req, res) => {
         // Check if all required parameters are provided
         if (station_name && station_id && station_type && centre_type && centre_name && is_new_station !== undefined && latitude && longitude && activation_date) {
             // Call addNewStationQuery and get the result
-            const data = await addNewStationQuery(station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activation_date);
+            const data = await addNewStationQuery({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate: activation_date});
             
             // Check if the station already exists
             if (data.success == false) {
@@ -222,23 +222,6 @@ const fetchFilteredData = async (Date) => {
     }
 }
 
-exports.insertMultipleStations = async(req, res) => {
-    try {       
-        
-        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0];
-        const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-        const { centre_type, centre_name} = req.body;
-
-        res.status(200).json({ data: sheetData });
-
-        console.log({sheetData});
-    } catch (error) {
-        console.error("Error processing request:", error.message);
-        res.status(500).json({ error: error.message });
-    }
-}
 const updateStationDataQuery = async (station_code, date, value ) => {
     const query = `
                 Update public.station_daily_data set data =$1
@@ -254,12 +237,12 @@ const updateStationDataQuery = async (station_code, date, value ) => {
 }
 
 
-const addNewStationQuery = async (station_name, station_code, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate) => {
-    let district_code = station_code.toString().substring(0, 5);
+const addNewStationQuery = async ({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate}) => {
+    let district_code = station_id.toString().substring(0, 5);
     
     // Query to check if the station already exists
     const checkQuery = `SELECT 1 FROM station_details WHERE station_code = $1`;
-    const checkValues = [station_code];
+    const checkValues = [station_id];
 
     try {
         // Check if station exists
@@ -278,7 +261,7 @@ const addNewStationQuery = async (station_name, station_code, station_type, cent
                 is_new_station, latitude, longitude, activationdate
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`;
 
-        const insertValues = [district_code, station_name, station_code, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate];
+        const insertValues = [district_code, station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate];
 
         const insertResult = await client.query(insertQuery, insertValues);
         return insertResult.rows;
@@ -394,3 +377,36 @@ const deleteStationQuery = async (station_id) => {
         throw error;
     }
 };
+
+exports.insertMultipleStations = async(req, res) => {
+    try {       
+        
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        const { centre_type, centre_name} = req.body;
+
+        const stations = sheetData.map(station => ({
+            ...station,
+            centre_type,
+            centre_name,
+            is_new_station: station.is_new_station === 'yes' ? 1 : 0
+        }));
+
+        stations.forEach((station) => {
+            addNewStationQuery(station);
+        })
+
+        res.status(200).json({ 
+            success : true,
+            message : "Station details added successfully"
+         });
+
+
+        console.log({sheetData});
+    } catch (error) {
+        console.error("Error processing request:", error.message);
+        res.status(500).json({ error: error.message });
+    }
+}

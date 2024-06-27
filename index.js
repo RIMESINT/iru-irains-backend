@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
+// const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const districtRoutes = require("./routes/districtRoutes")
@@ -37,15 +37,15 @@ app.use((req, res, next) => {
     next();
 });
 
-const smtpTransport = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // true for 465, false for other ports
-    auth: {
-        user: 'saurav@rimes.int',
-        pass: 'sxcjuiwivyptrxkp'
-    }
-});
+// const smtpTransport = nodemailer.createTransport({
+//     host: 'smtp.gmail.com',
+//     port: 587,
+//     secure: false, // true for 465, false for other ports
+//     auth: {
+//         user: 'saurav@rimes.int',
+//         pass: 'sxcjuiwivyptrxkp'
+//     }
+// });
 
 const port = process.env.PORT || 3000;
 

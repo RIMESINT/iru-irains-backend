@@ -186,8 +186,6 @@ exports.deleteStation = async (req, res) => {
 };
 
 
-
-
 const fetchFilteredData = async (Date) => {
     const query = `
                 SELECT ndd.region_code,
@@ -387,8 +385,6 @@ exports.insertMultipleStations = async(req, res) => {
         const sheetName = workbook.SheetNames[0];
         const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-        const { centre_type, centre_name} = req.body;
-
         const stations = sheetData.map(station => ({
             ...station,
             
@@ -410,4 +406,69 @@ exports.insertMultipleStations = async(req, res) => {
         console.error("Error processing request:", error.message);
         res.status(500).json({ error: error.message });
     }
+}
+
+
+exports.insertRainfallFile = async (req, res) => {
+    try {
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        const formattedData = sheetData.flatMap(row => {
+            const { station_id, station_name, centre_type, ...dateData } = row;
+            const district_code = station_id.toString().substring(0, 8);
+
+            return Object.entries(dateData).map(([date, rainfall]) => ({
+                station_id,
+                district_code,
+                date: formatDate(date),
+                rainfall
+            }));
+        });
+
+        const updateQuery = `
+            UPDATE public.station_daily_data 
+            SET data = $1
+            WHERE collection_date = $2 AND station_id = $3;
+        `;
+        
+        const insertQuery = `
+            INSERT INTO public.station_daily_data (station_id, district_code, collection_date, data)
+            VALUES ($1, $2, $3, $4);
+        `;
+
+        await Promise.all(formattedData.map(async (data) => {
+            const checkExistenceQuery = `
+                SELECT COUNT(1) FROM public.station_daily_data 
+                WHERE collection_date = $1 AND station_id = $2;
+            `;
+
+            const resExistence = await client.query(checkExistenceQuery, [data.date, data.station_id]);
+
+            if (resExistence.rows[0].count > 0) {
+                await client.query(updateQuery, [data.rainfall, data.date, data.station_id]);
+            } else {
+                await client.query(insertQuery, [data.station_id, data.district_code, data.date, data.rainfall]);
+            }
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: formattedData,
+            message: "Rainfall details added successfully"
+        });
+
+    } catch (error) {
+        console.error("Error processing request:", error.message);
+        res.status(500).json({ error: error.message });
+    }
+}
+
+// Helper function to format the date
+const formatDate = (dateStr) => {
+    const [day, month, year] = dateStr.split('_');
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthIndex = monthNames.indexOf(month);
+    return `20${year}-${(monthIndex + 1).toString().padStart(2, '0')}-${day.padStart(2, '0')}`;
 }

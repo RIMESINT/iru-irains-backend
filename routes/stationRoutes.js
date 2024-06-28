@@ -5,7 +5,7 @@ const { createStationDetailsTable } = require("../controllers/scripts/station/st
 const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
-const { fetchStationData ,updateStationData, addNewStation, editStation, deleteStation, insertMultipleStations} = require("../controllers/Station")
+const { fetchStationData ,updateStationData, addNewStation, editStation, deleteStation, insertMultipleStations, insertRainfallFile} = require("../controllers/Station")
 
 
 // ********************************************************************************************************
@@ -13,6 +13,7 @@ const { fetchStationData ,updateStationData, addNewStation, editStation, deleteS
 // ********************************************************************************************************
 router.get("/insertStationData", insertStationData);
 router.post("/insertMultipleStations", upload.single('file'), insertMultipleStations);
+router.post("/insertRainfallFile", upload.single('file'), insertRainfallFile);
 
 router.get("/createStationDetailsTable", createStationDetailsTable);
 router.post("/fetchStationData", fetchStationData);

@@ -47,6 +47,38 @@ app.use((req, res, next) => {
 //     }
 // });
 
+const generateSecretKey = () => {
+    const secretKey = crypto.randomBytes(32).toString('hex');
+    return secretKey;
+};
+
+
+const secretKey = generateSecretKey();
+app.post("/login", (req, res) => {
+    client.query(
+        `SELECT * FROM login WHERE username = '${req.body.username}' AND password = '${req.body.password}';`,
+        (err, result) => {
+            console.log(result.rows, "hhhh")
+            if (err) {
+                res.send({ message: "Server Error", err });
+            } else {
+                if (result.rows.length) {
+                    const user = {
+                        userName: req.body.username,
+                        password: req.body.password
+                    }
+                    jwt.sign({ user }, secretKey, { expiresIn: '300s' }, (err, token) => {
+                        res.json({ message: "Login successful", token: token, data: result.rows })
+                    })
+                } else {
+                    res.send({ message: "Username and Passwrod are Invalid" });
+                }
+            }
+        }
+    );
+});
+
+
 const port = process.env.PORT || 3000;
 
 app.use("/api/v1/", regionRoutes);

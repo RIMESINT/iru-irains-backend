@@ -98,8 +98,11 @@ const createStationDailyDataTable = async () => {
             district_code numeric,
             created_at timestamp with time zone DEFAULT now(),
             updated_at timestamp with time zone DEFAULT now(),
+            is_verified integer DEFAULT 0 CHECK (is_verified IN (0, 1)),
+            verified_by integer DEFAULT NULL,
+            verified_at timestamp with time zone DEFAULT now(),
             CONSTRAINT station_daily_data_pkey PRIMARY KEY (id)
-        )
+        );
     `;
 
     try {

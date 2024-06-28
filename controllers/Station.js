@@ -6,185 +6,6 @@ const client = require("../connection");
 const moment = require('moment');
 const xlsx = require('xlsx');
 
-exports.fetchStationData = async (req, res) => {
-    try {
-        let { Date } = req.body;
-
-        // Use current date if no dates are provided
-        const currentDate = moment().format('YYYY-MM-DD');
-        if (!Date ) {
-            Date =  currentDate;
-        } 
-
-        let data = await fetchFilteredData(Date);
-
-        res.status(200).json({
-            success: true,
-            message: "Station data fetched Successfully",
-            data: data
-        });
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch Station data",
-            error: error.message,
-        });
-    }
-}
-
-
-exports.updateStationData = async (req, res) => {
-    try {
-        let { station_code, date, value } = req.body;
-        
-        if(station_code && date && (value||value==0) ){
-            let data = await updateStationDataQuery(station_code, date, value );
-
-            res.status(200).json({
-                success: true,
-                message: " data updated Successfully",
-            });
-
-        }else{
-            res.status(200).json({
-                success: false,
-                message: "request pearmeters are missing",
-            });
-        }
-
-
-
-        
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch Station data",
-            error: error.message,
-        });
-    }
-}
-
-exports.addNewStation = async (req, res) => {
-    try {
-        const { station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activation_date } = req.body;
-
-        // Check if all required parameters are provided
-        if (station_name && station_id && station_type && centre_type && centre_name && is_new_station !== undefined && latitude && longitude && activation_date) {
-            // Call addNewStationQuery and get the result
-            const data = await addNewStationQuery({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate: activation_date});
-            
-            // Check if the station already exists
-            if (data.success == false) {
-                return res.status(409).json({
-                    success: data.success,
-                    message: data.message,
-                });
-            }
-            
-            // If the station was added successfully
-            return res.status(200).json({
-                success: true,
-                message: "New Station Added Successfully",
-            });
-        } else {
-            // If any of the required parameters are missing
-            return res.status(400).json({
-                success: false,
-                message: "Request parameters are missing",
-            });
-        }
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({
-            success: false,
-            message: "Failed to add new station details",
-            error: error.message,
-        });
-    }
-};
-
-
-exports.editStation = async (req, res) => {
-    try {
-        const { station_id } = req.body;
-
-        // Check if station_id is provided
-        if (!station_id) {
-            return res.status(400).json({
-                success: false,
-                message: "station_id is required",
-            });
-        }
-
-        // Call editStationQuery and get the result
-        const data = await editStationQuery(req.body);
-
-        // If no rows were updated, return an error
-        if (!data) {
-            return res.status(404).json({
-                success: false,
-                message: "Station not found",
-            });
-        }
-
-        // Return the updated station details
-        return res.status(200).json({
-            success: true,
-            message: "Station updated successfully",
-            data: data,
-        });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({
-            success: false,
-            message: "Failed to update station details",
-            error: error.message,
-        });
-    }
-};
-
-
-exports.deleteStation = async (req, res) => {
-    try {
-        const { station_id } = req.body;
-
-        // Check if station_id is provided
-        if (!station_id) {
-            return res.status(400).json({
-                success: false,
-                message: "station_id is required",
-            });
-        }
-
-        // Call deleteStationQuery and get the result
-        const data = await deleteStationQuery(station_id);
-
-        // If no rows were deleted, return an error
-        if (data.rowCount === 0) {
-            return res.status(404).json({
-                success: false,
-                message: "Station not found",
-            });
-        }
-
-        // Return success message
-        return res.status(200).json({
-            success: true,
-            message: "Station deleted successfully",
-        });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({
-            success: false,
-            message: "Failed to delete station",
-            error: error.message,
-        });
-    }
-};
-
 
 const fetchFilteredData = async (Date) => {
     const query = `
@@ -376,6 +197,236 @@ const deleteStationQuery = async (station_id) => {
     }
 };
 
+// Helper function to format the date
+const formatDate = (dateStr) => {
+    const [day, month, year] = dateStr.split('_');
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthIndex = monthNames.indexOf(month);
+    return `20${year}-${(monthIndex + 1).toString().padStart(2, '0')}-${day.padStart(2, '0')}`;
+}
+
+// update station data
+const verifyStationDataQuery = async (date, station_id, userid) => {
+    const updateQuery = `
+      UPDATE public.station_daily_data
+      SET is_verified = 1,
+          verified_at = NOW(),
+          verified_by = $3
+      WHERE collection_date = $1 AND station_id = $2
+      RETURNING *;
+    `;
+  
+    const values = [date, station_id, userid];
+  
+    try {
+      const { rows } = await client.query(updateQuery, values);
+      return rows;
+    } catch (error) {
+      throw new Error(error.message);
+    }
+};
+
+// update multiple stations
+const updateMultipleStations = async (date, station_ids, verified_by) => {
+    const updateQuery = `
+      UPDATE public.station_daily_data
+      SET is_verified = 1,
+          verified_at = NOW(),
+          verified_by = $3
+      WHERE collection_date = $1 AND station_id = ANY($2::numeric[])
+      RETURNING *;
+    `;
+  
+    const values = [date, station_ids, verified_by];
+  
+    try {
+      const { rows } = await client.query(updateQuery, values);
+      return rows;
+    } catch (error) {
+      throw new Error(error.message);
+    }
+};
+
+exports.fetchStationData = async (req, res) => {
+    try {
+        let { Date } = req.body;
+
+        // Use current date if no dates are provided
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!Date ) {
+            Date =  currentDate;
+        } 
+
+        let data = await fetchFilteredData(Date);
+
+        res.status(200).json({
+            success: true,
+            message: "Station data fetched Successfully",
+            data: data
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Station data",
+            error: error.message,
+        });
+    }
+}
+
+
+exports.updateStationData = async (req, res) => {
+    try {
+        let { station_code, date, value } = req.body;
+        
+        if(station_code && date && (value||value==0) ){
+            let data = await updateStationDataQuery(station_code, date, value );
+
+            res.status(200).json({
+                success: true,
+                message: " data updated Successfully",
+            });
+
+        }else{
+            res.status(200).json({
+                success: false,
+                message: "request pearmeters are missing",
+            });
+        }
+
+
+
+        
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Station data",
+            error: error.message,
+        });
+    }
+}
+
+exports.addNewStation = async (req, res) => {
+    try {
+        const { station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activation_date } = req.body;
+
+        // Check if all required parameters are provided
+        if (station_name && station_id && station_type && centre_type && centre_name && is_new_station !== undefined && latitude && longitude && activation_date) {
+            // Call addNewStationQuery and get the result
+            const data = await addNewStationQuery({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate: activation_date});
+            
+            // Check if the station already exists
+            if (data.success == false) {
+                return res.status(409).json({
+                    success: data.success,
+                    message: data.message,
+                });
+            }
+            
+            // If the station was added successfully
+            return res.status(200).json({
+                success: true,
+                message: "New Station Added Successfully",
+            });
+        } else {
+            // If any of the required parameters are missing
+            return res.status(400).json({
+                success: false,
+                message: "Request parameters are missing",
+            });
+        }
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to add new station details",
+            error: error.message,
+        });
+    }
+};
+
+
+exports.editStation = async (req, res) => {
+    try {
+        const { station_id } = req.body;
+
+        // Check if station_id is provided
+        if (!station_id) {
+            return res.status(400).json({
+                success: false,
+                message: "station_id is required",
+            });
+        }
+
+        // Call editStationQuery and get the result
+        const data = await editStationQuery(req.body);
+
+        // If no rows were updated, return an error
+        if (!data) {
+            return res.status(404).json({
+                success: false,
+                message: "Station not found",
+            });
+        }
+
+        // Return the updated station details
+        return res.status(200).json({
+            success: true,
+            message: "Station updated successfully",
+            data: data,
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update station details",
+            error: error.message,
+        });
+    }
+};
+
+
+exports.deleteStation = async (req, res) => {
+    try {
+        const { station_id } = req.body;
+
+        // Check if station_id is provided
+        if (!station_id) {
+            return res.status(400).json({
+                success: false,
+                message: "station_id is required",
+            });
+        }
+
+        // Call deleteStationQuery and get the result
+        const data = await deleteStationQuery(station_id);
+
+        // If no rows were deleted, return an error
+        if (data.rowCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Station not found",
+            });
+        }
+
+        // Return success message
+        return res.status(200).json({
+            success: true,
+            message: "Station deleted successfully",
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to delete station",
+            error: error.message,
+        });
+    }
+};
+
+
 exports.insertMultipleStations = async(req, res) => {
     try {       
         
@@ -463,10 +514,73 @@ exports.insertRainfallFile = async (req, res) => {
     }
 }
 
-// Helper function to format the date
-const formatDate = (dateStr) => {
-    const [day, month, year] = dateStr.split('_');
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const monthIndex = monthNames.indexOf(month);
-    return `20${year}-${(monthIndex + 1).toString().padStart(2, '0')}-${day.padStart(2, '0')}`;
+
+exports.verifyStationData = async (req, res) => {
+    try {
+      const { userid, date, station_id } = req.body;
+  
+      if (!userid || !date || !station_id) {
+        return res.status(404).json({
+          success: false,
+          message: "Parameters not found"
+        });
+      }
+  
+      const updatedRows = await verifyStationDataQuery(date, station_id, userid);
+  
+      if (updatedRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "No data found for the given date and station_id"
+        });
+      }
+  
+      res.status(200).json({
+        success: true,
+        message: "Data verified successfully",
+        data: updatedRows[0]
+      });
+  
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+}
+
+exports.verifyMultipleStationData = async (req, res) => {
+    try {
+      const { userid, date, station_ids } = req.body;
+  
+      if (!userid || !date || !station_ids) {
+        return res.status(404).json({
+          success: false,
+          message: "Parameters not found"
+        });
+      }
+  
+      const updatedRows = await updateMultipleStations(date, station_ids, userid);
+  
+      if (updatedRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "No data found for the given date and station_id"
+        });
+      }
+  
+      res.status(200).json({
+        success: true,
+        message: "Data verified successfully",
+        data: updatedRows
+      });
+  
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
 }

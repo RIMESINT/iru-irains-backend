@@ -158,6 +158,7 @@ const addNewStationQuery = async ({station_name, station_id, station_type, centr
         const insertValues = [district_code, station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate];
 
         const insertResult = await client.query(insertQuery, insertValues);
+        addNewStationLogQuery({station_name,station_code:station_id,userid:111,action:"added"})
         return insertResult.rows;
     } catch (error) {
         console.error('Error executing query', error.stack);
@@ -257,20 +258,41 @@ const editStationQuery = async (params) => {
 
 
 const deleteStationQuery = async (station_id) => {
-    const query = `
+    const getStationQuery = `
+        SELECT station_name
+        FROM station_details
+        WHERE station_code = $1;
+    `;
+
+    const deleteStationQuery = `
         DELETE FROM station_details
         WHERE station_code = $1;
     `;
 
     try {
+        // Execute the select query to get the station name
+        const getResult = await client.query(getStationQuery, [station_id]);
+        
+        if (getResult.rows.length === 0) {
+            return 'No station found';
+        }
+
+        const station_name = getResult.rows[0].station_name;
+
         // Execute the delete query
-        const result = await client.query(query, [station_id]);
-        return result;
+        const deleteResult = await client.query(deleteStationQuery, [station_id]);
+        console.log(deleteResult);
+
+        // Optionally, log the deletion action
+        addNewStationLogQuery({ station_name, station_code: station_id, userid: 111, action: "deleted" });
+
+        return deleteResult;
     } catch (error) {
         console.error('Error executing query', error.stack);
         throw error;
     }
 };
+
 
 // Helper function to format the date
 const formatDate = (dateStr) => {
@@ -319,6 +341,34 @@ const updateMultipleStations = async (date, station_ids, verified_by) => {
       return rows;
     } catch (error) {
       throw new Error(error.message);
+    }
+};
+
+
+
+const addNewStationLogQuery = async (params) => {
+    let {station_name, station_code,  userid, action} = params;
+    let district_code = station_code.toString().substring(0, 8);
+    
+    try {
+        if (!station_code || !station_name || !district_code || !userid || !action) {
+            // Station exists, return a message or handle accordingly
+            console.log('Missing Parameters');
+            return {success:false, message: 'Parameters are missing' };
+        }
+
+        // Insert new station if it doesn't exist
+        const insertQuery = `
+            INSERT INTO station_logs (station_code, station_name, district_code, log_date, userid, log_type)
+            VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4, $5);`;
+
+        const insertValues = [station_code, station_name, district_code, userid, action];
+
+        const insertResult = await client.query(insertQuery, insertValues);
+        return insertResult.rows;
+    } catch (error) {
+        console.error('Error executing query', error.stack);
+        throw error;
     }
 };
 
@@ -695,9 +745,8 @@ exports.fetchStationLogs = async (req, res) => {
         const query = `
         SELECT 
           sl.station_code,
-          sd.centre_type,
           ndd.district_name,
-          sd.station_name,
+          sl.station_name,
           'MC RANCHI' as user_name,
           sl.log_date,
           sl.log_type
@@ -707,10 +756,6 @@ exports.fetchStationLogs = async (req, res) => {
           public.normal_district_details as ndd
         ON
           sl.district_code = ndd.district_code
-        JOIN
-          public.station_details as sd 
-        ON 
-          sd.station_code = sl.station_code
         limit 50;
       `;
     

@@ -728,4 +728,4 @@ exports.fetchStationLogs = async (req, res) => {
         error: error.message
       });
     }
-  };
+};

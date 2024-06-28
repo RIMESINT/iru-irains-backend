@@ -5,7 +5,17 @@ const { createStationDetailsTable } = require("../controllers/scripts/station/st
 const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
-const { fetchStationData ,updateStationData, addNewStation, editStation, deleteStation, insertMultipleStations, insertRainfallFile, verifyStationData, verifyMultipleStationData} = require("../controllers/Station")
+const { fetchStationData,
+        updateStationData, 
+        addNewStation, 
+        editStation, 
+        deleteStation, 
+        insertMultipleStations, 
+        insertRainfallFile, 
+        verifyStationData, 
+        verifyMultipleStationData, 
+        fetchInRangeStationdata
+    } = require("../controllers/Station")
 
 
 // ********************************************************************************************************
@@ -17,6 +27,7 @@ router.post("/insertRainfallFile", upload.single('file'), insertRainfallFile);
 
 router.get("/createStationDetailsTable", createStationDetailsTable);
 router.post("/fetchStationData", fetchStationData);
+router.post("/fetchInRangeStationdata", fetchInRangeStationdata);
 router.post("/updateStationData", updateStationData);
 router.post("/addNewStation", addNewStation);
 router.post("/editStation", editStation);

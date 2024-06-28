@@ -7,39 +7,114 @@ const moment = require('moment');
 const xlsx = require('xlsx');
 
 
-const fetchFilteredData = async (Date) => {
-    const query = `
-                SELECT ndd.region_code,
-                    ndd.region_name,
-                    ndd.new_state_code as state_code,
-                    ndd.state_name,
-                    ndd.district_code,
-                    ndd.district_name,
-                    sd.station_code,
-                    sd.station_name,
-                    sd.station_type,
-                    sd.centre_type,
-                    sd.centre_name,
-                    sd.is_new_station,
-                    sd.latitude,
-                    sd.longitude,
-                    sd.activationdate,
-                    sdd.data
-                FROM public.station_details AS sd
-                JOIN public.station_daily_data AS sdd 
-                    ON sdd.station_id = sd.station_code
-                JOIN normal_district_details AS ndd 
-                    ON ndd.district_code = sdd.district_code
-                WHERE sdd.collection_date = $1`;
+// const fetchFilteredData = async (Date) => {
+//     const query = `
+//                 SELECT ndd.region_code,
+//                     ndd.region_name,
+//                     ndd.new_state_code as state_code,
+//                     ndd.state_name,
+//                     ndd.district_code,
+//                     ndd.district_name,
+//                     sd.station_code,
+//                     sd.station_name,
+//                     sd.station_type,
+//                     sd.centre_type,
+//                     sd.centre_name,
+//                     sd.is_new_station,
+//                     sd.latitude,
+//                     sd.longitude,
+//                     sd.activationdate,
+//                     sdd.data
+//                 FROM public.station_details AS sd
+//                 JOIN public.station_daily_data AS sdd 
+//                     ON sdd.station_id = sd.station_code
+//                 JOIN normal_district_details AS ndd 
+//                     ON ndd.district_code = sdd.district_code
+//                 WHERE sdd.collection_date = $1`;
 
-    try {
-        const result = await client.query(query, [Date]);
-        return result.rows;
-    } catch (error) {
-        console.error('Error executing query', error.stack);
-        throw error;
+//     try {
+//         const result = await client.query(query, [Date]);
+//         return result.rows;
+//     } catch (error) {
+//         console.error('Error executing query', error.stack);
+//         throw error;
+//     }
+// }
+
+const fetchFilteredData = async (startDate, endDate = null) => {
+    let query;
+    let values;
+  
+    if (endDate) {
+      query = `
+                SELECT  min(ndd.region_code) as region_code,
+                        min(ndd.region_name) as region_name,
+                        min(ndd.subdiv_name) as subdiv_name,
+                        min(ndd.subdiv_code) as subdiv_code,
+                        min(ndd.new_state_code) as state_code,
+                        min( ndd.state_name) as state_name,
+                        min(ndd.district_code) as district_code,
+                        min(ndd.district_name) as district_name,
+                        (sd.station_code) as station_code,
+                        min(sd.station_name) as station_name,
+                        min(sd.station_type) as station_type,
+                        min(sd.centre_type) as centre_type,
+                        min(sd.centre_name) as centre_name,
+                        min(sd.is_new_station) as is_new_station,
+                        min(sd.latitude) as latitude,
+                        min(sd.longitude) as longitude,
+                        min(sd.activationdate) as activationdate,
+                        sum(sdd.data) as data
+                    FROM public.station_details AS sd
+                    JOIN public.station_daily_data AS sdd 
+                    ON sdd.station_id = sd.station_code
+                    JOIN normal_district_details AS ndd 
+                    ON ndd.district_code = sdd.district_code
+                    WHERE sdd.collection_date BETWEEN $1 AND $2 and sdd.data != (-999.9)
+                    group by sd.station_code
+                    order by station_code
+                `;
+      values = [startDate, endDate];
+    } else {
+      query = `
+        SELECT ndd.region_code,
+               ndd.region_name,
+               ndd.subdiv_name,
+               ndd.subdiv_code,
+               ndd.new_state_code as state_code,
+               ndd.state_name,
+               ndd.district_code,
+               ndd.district_name,
+               sd.station_code,
+               sd.station_name,
+               sd.station_type,
+               sd.centre_type,
+               sd.centre_name,
+               sd.is_new_station,
+               sd.latitude,
+               sd.longitude,
+               sd.activationdate,
+               sdd.data,
+               sdd.is_verified,
+               sdd.verified_at
+        FROM public.station_details AS sd
+        JOIN public.station_daily_data AS sdd 
+          ON sdd.station_id = sd.station_code
+        JOIN normal_district_details AS ndd 
+          ON ndd.district_code = sdd.district_code
+        WHERE sdd.collection_date = $1;
+      `;
+      values = [startDate];
     }
-}
+  
+    try {
+      const result = await client.query(query, values);
+      return result.rows;
+    } catch (error) {
+      console.error('Error executing query', error.stack);
+      throw error;
+    }
+  };
 
 const updateStationDataQuery = async (station_code, date, value ) => {
     const query = `
@@ -253,11 +328,40 @@ exports.fetchStationData = async (req, res) => {
 
         // Use current date if no dates are provided
         const currentDate = moment().format('YYYY-MM-DD');
-        if (!Date ) {
+        if (!Date) {
             Date =  currentDate;
         } 
 
         let data = await fetchFilteredData(Date);
+
+        res.status(200).json({
+            success: true,
+            message: "Station data fetched Successfully",
+            data: data
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Station data",
+            error: error.message,
+        });
+    }
+}
+
+exports.fetchInRangeStationdata = async(req, res) => {
+    try {
+        let {fromDate, toDate} = req.body;
+
+        if(!fromDate || !toDate){
+            return res.status(404).json({
+                success: false,
+                message: "Parameters not found"
+              });
+        }
+
+        let data = await fetchFilteredData(fromDate, toDate);
 
         res.status(200).json({
             success: true,
@@ -584,3 +688,5 @@ exports.verifyMultipleStationData = async (req, res) => {
       });
     }
 }
+
+// exports.in

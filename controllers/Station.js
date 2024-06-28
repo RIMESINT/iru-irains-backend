@@ -205,7 +205,9 @@ const fetchFilteredData = async (Date) => {
                     sd.latitude,
                     sd.longitude,
                     sd.activationdate,
-                    sdd.data
+                    sdd.data,
+                    0 as is_verified,
+                    '2024-06-23' as verification_date
                 FROM public.station_details AS sd
                 JOIN public.station_daily_data AS sdd 
                     ON sdd.station_id = sd.station_code
@@ -238,7 +240,7 @@ const updateStationDataQuery = async (station_code, date, value ) => {
 
 
 const addNewStationQuery = async ({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate}) => {
-    let district_code = station_id.toString().substring(0, 5);
+    let district_code = station_id.toString().substring(0, 8);
     
     // Query to check if the station already exists
     const checkQuery = `SELECT 1 FROM station_details WHERE station_code = $1`;

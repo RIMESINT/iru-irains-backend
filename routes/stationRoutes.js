@@ -14,7 +14,8 @@ const { fetchStationData,
         insertRainfallFile, 
         verifyStationData, 
         verifyMultipleStationData, 
-        fetchInRangeStationdata
+        fetchInRangeStationdata,
+        fetchStationLogs,
     } = require("../controllers/Station")
 
 
@@ -34,6 +35,8 @@ router.post("/editStation", editStation);
 router.post("/deleteStation", deleteStation);
 router.post("/verifyStationData", verifyStationData);
 router.post("/verifyMultipleStationData", verifyMultipleStationData);
+
+router.get("/fetchStationLogs", fetchStationLogs);
 
 
 module.exports = router;

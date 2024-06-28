@@ -689,4 +689,43 @@ exports.verifyMultipleStationData = async (req, res) => {
     }
 }
 
-// exports.in
+exports.fetchStationLogs = async (req, res) => {
+    try {
+    
+        const query = `
+        SELECT 
+          sl.station_code,
+          sd.centre_type,
+          ndd.district_name,
+          sd.station_name,
+          'MC RANCHI' as user_name,
+          sl.log_date,
+          sl.log_type
+        FROM 
+          public.station_logs as sl
+        JOIN
+          public.normal_district_details as ndd
+        ON
+          sl.district_code = ndd.district_code
+        JOIN
+          public.station_details as sd 
+        ON 
+          sd.station_code = sl.station_code
+        limit 50;
+      `;
+    
+      const result = await client.query(query);
+      res.status(200).json({
+        success: true,
+        message: "Station logs fetched successfully",
+        data: result.rows
+      });
+    } catch (error) {
+      console.error('Error executing query', error.stack);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch station logs",
+        error: error.message
+      });
+    }
+  };

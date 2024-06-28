@@ -409,3 +409,13 @@ exports.insertMultipleStations = async(req, res) => {
         res.status(500).json({ error: error.message });
     }
 }
+
+
+exports.insertRainfallFile = async(req,res) => {
+    try {
+        
+    } catch (error) {
+        console.error("Error processing request:", error.message);
+        res.status(500).json({ error: error.message });
+    }
+}

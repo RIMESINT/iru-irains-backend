@@ -7,3 +7,7 @@ PORT = 3000
 DB_PASS= "pass"
 DB= "db"
 
+EMAIL_USER="useremail"
+EMAIL_PASS="16 digit key"
+EMAIL_PORT=mail_post
+EMAIL_HOST="mail server"

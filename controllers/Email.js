@@ -5,7 +5,8 @@ const client = require("../connection");
 
 exports.sendMail = async (req, res) => {
     try {
-        const { to, subject, text, attachments,html } = req.body;
+        const { to, subject, text , attachments, html } = req.body;
+        // const attachments = req.files.file1;
 
         if(!to){
             return res.status(400).json({message: "Please provide a valid email address"});

@@ -16,8 +16,8 @@ const { sendMail,
 router.post('/sendemail',sendMail)
 router.get('/dailyDataUpdateReminderQuery',dailyDataUpdateReminder)
 router.get('/dailyDataVerificationReminder',dailyDataVerificationReminder)
-router.post('/fetchEmailLogs',fetchEmailLogs)
-router.post('/fetchEmailGroups',fetchEmailGroups)
+router.get('/fetchEmailLogs',fetchEmailLogs)
+router.get('/fetchEmailGroups',fetchEmailGroups)
 router.post('/createEmailGroups',createEmailGroups)
 
 module.exports = router;

@@ -232,10 +232,10 @@ dailyDataVerificationReminderQuery = async (req, res) => {
 }
 
 exports.fetchEmailLogs = async (req, res) => {
-    const limit = parseInt(req.query.limit) || 25;  // Default to 10 if limit is not provided or invalid
+    // const limit = parseInt(req.query.limit) || 25;  // Default to 10 if limit is not provided or invalid
 
     try {
-        const result = await client.query('SELECT * FROM public.email_log LIMIT $1', [limit]);
+        const result = await client.query('SELECT * FROM public.email_log');
         
         res.status(200).json({
             success: true,
@@ -268,10 +268,10 @@ exports.createEmailGroups = async (req, res) => {
 };
 
 exports.fetchEmailGroups = async (req, res) => {
-    const limit = parseInt(req.query.limit) || 25;  // Default to 10 if limit is not provided or invalid
+    // const limit = parseInt(req.query.limit) || 25;  // Default to 10 if limit is not provided or invalid
 
     try {
-        const result = await client.query('SELECT * FROM public.email_group LIMIT $1', [limit]);
+        const result = await client.query('SELECT * FROM public.email_group');
         
         res.status(200).json({
             success: true,

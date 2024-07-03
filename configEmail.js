@@ -35,13 +35,13 @@ sendEmail = async ({ to, subject, text, attachments,html }) => {
         attachments: attachments
     };
     
-    console.log("Sending Email");
+    // console.log("Sending Email");
     
     try {
         const response = await smtp.sendMail(mailOptions);
         console.log('Email sent: ' + response.message);
         
-        await client.query('INSERT INTO email_log(email, subject, message, datetime, status) VALUES($1, $2, $3, $4, $5)', [mailOptions.to, mailOptions.subject, mailOptions.text, new Date(), true]);
+        await client.query('INSERT INTO email_log(email, subject, message, datetime, status) VALUES($1, $2, $3, $4, $5)', [mailOptions.to, mailOptions.subject, mailOptions.text ?? mailOptions.html, new Date(), true]);
         
         // res.status(200).json({ message: 'Email sent successfully' });
         return {success:true,message:response}
@@ -49,7 +49,7 @@ sendEmail = async ({ to, subject, text, attachments,html }) => {
         console.error('Error sending email:', error);
         
         try {
-            await client.query('INSERT INTO email_log(email, subject, message, datetime, status) VALUES($1, $2, $3, $4, $5)', [mailOptions.to, mailOptions.subject, mailOptions.text, new Date(), false]);
+            await client.query('INSERT INTO email_log(email, subject, message, datetime, status) VALUES($1, $2, $3, $4, $5)', [mailOptions.to, mailOptions.subject, mailOptions.text ?? mailOptions.html, new Date(), false]);
             
             // res.status(500).json({ error: 'Error sending email. Data inserted into log.' });
             return {success:false,message:error}

@@ -1,7 +1,7 @@
 const express = require("express")
 const router = express.Router()
 const { insertStationData} = require("../controllers/scripts/station/stationDailyData")
-const { createStationDetailsTable } = require("../controllers/scripts/station/station_details")
+const { createStationDetailsTable, insertLatLongInStationDetails } = require("../controllers/scripts/station/station_details")
 const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -16,7 +16,7 @@ const { fetchStationData,
         verifyMultipleStationData, 
         fetchInRangeStationdata,
         fetchStationLogs,
-        fetchStationDatesForData,
+        fetchAllDatesAndDataOfStation,
     } = require("../controllers/Station")
 
 
@@ -26,6 +26,8 @@ const { fetchStationData,
 router.get("/insertStationData", insertStationData);
 router.post("/insertMultipleStations", upload.single('file'), insertMultipleStations);
 router.post("/insertRainfallFile", upload.single('file'), insertRainfallFile);
+router.get("/insertLatLongInStationDetails", upload.single('file'), insertLatLongInStationDetails);
+
 
 router.get("/createStationDetailsTable", createStationDetailsTable);
 router.post("/fetchStationData", fetchStationData);
@@ -38,7 +40,7 @@ router.post("/verifyStationData", verifyStationData);
 router.post("/verifyMultipleStationData", verifyMultipleStationData);
 
 router.get("/fetchStationLogs", fetchStationLogs);
-router.post("/fetchStationDatesForData", fetchStationDatesForData);
+router.post("/fetchAllDatesAndDataOfStation", fetchAllDatesAndDataOfStation);
 
 
 module.exports = router;

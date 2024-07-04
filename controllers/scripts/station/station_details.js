@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const app = express();
 const client = require("../../../connection");
+const xlsx = require("xlsx");
 
 exports.createStationDetailsTable = async (req, res) => {
     try {
@@ -77,3 +78,44 @@ exports.createStationDetailsTable = async (req, res) => {
         await client.end();
     }
 };
+
+
+exports.insertLatLongInStationDetails = async(req, res) => {
+    try {        
+        const filename = "Rainfall_2024.xlsx"
+        console.log({fileNmae:filename});
+    
+        // Try to read the Excel file
+        const workbook = xlsx.readFile(filename);
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
+
+        // Extract data using column positions
+        const dataToInsert = jsonData.map(async (row, index) => {
+            
+        if(index > 0){
+            
+
+            let Station_id = row[jsonData[0].length-2];
+            let LON = row[jsonData[0].length-3];
+            let LAT = row[jsonData[0].length-4];
+
+            const updateQuery = {
+                text: `UPDATE station_details SET longitude = $1, latitude = $2 WHERE station_code = $3`,
+                values: [LON, LAT, Station_id]
+            };
+    
+            await client.query(updateQuery);
+        }
+    
+    });
+
+    res.status(200).json({ message: "Latitudes and longitudes updated successfully." });
+  
+    
+      } catch (error) {
+        console.error("Error processing request:", error.message);
+        res.status(500).json({ error: error.message });
+      }  
+  }

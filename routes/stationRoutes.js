@@ -16,6 +16,7 @@ const { fetchStationData,
         verifyMultipleStationData, 
         fetchInRangeStationdata,
         fetchStationLogs,
+        fetchStationDatesForData,
     } = require("../controllers/Station")
 
 
@@ -37,6 +38,7 @@ router.post("/verifyStationData", verifyStationData);
 router.post("/verifyMultipleStationData", verifyMultipleStationData);
 
 router.get("/fetchStationLogs", fetchStationLogs);
+router.post("/fetchStationDatesForData", fetchStationDatesForData);
 
 
 module.exports = router;

@@ -774,3 +774,34 @@ exports.fetchStationLogs = async (req, res) => {
       });
     }
 };
+
+exports.fetchAllDatesAndDataOfStation= async (req, res) => {
+    try {
+        const { station_id } = req.body;
+        if(!station_id){
+            return res.status(500).json({
+                success: false,
+                message: "Station_id is missing",
+              });
+        }
+        const query = `
+            SELECT 
+            collection_date,data
+            FROM public.station_daily_data
+            WHERE collection_date <= current_date AND station_id = $1; `;
+    
+      const result = await client.query(query,[station_id]);
+      res.status(200).json({
+        success: true,
+        message: "Station Dates fetched successfully",
+        data: result.rows
+      });
+    } catch (error) {
+      console.error('Error executing query', error.stack);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch station dates",
+        error: error.message
+      });
+    }
+};

@@ -3,7 +3,7 @@ const client = require("../connection");
 // const moment = require('moment');
 
 
-exports.sendMail = async (req, res) => {
+exports.sendManualMail = async (req, res) => {
     try {
         const { to, subject, text , attachments, html } = req.body;
         // const attachments = req.files.file1;
@@ -12,12 +12,69 @@ exports.sendMail = async (req, res) => {
             return res.status(400).json({message: "Please provide a valid email address"});
         }
 
-        sendEmail({to, subject, text, attachments,html})
+        const resp = await sendEmail({to, subject, text, attachments,html})
+
+        if(!resp?.success){
+            return res.status(500).json({
+                success: false,
+                message: "Failed to send Email",
+            });
+        }
 
         res.status(200).json({
             success: true,
             message: "Email Sent Successfully",
             // data: data
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to send Email",
+            error: error.message,
+        });
+    }
+}
+
+exports.sendMailToGroup = async (req, res) => {
+    try {
+        const { groupId, subject, text , attachments, html } = req.body;
+        // const attachments = req.files.file1;
+
+        if(!groupId){
+            return res.status(400).json({message: "Please provide a valid group"});
+        }
+
+        const query = `SELECT * FROM public.email_group where id = $1`;
+        
+        const result = await client.query(query, [groupId]);
+
+        const emailList = result?.rows[0]?.emails?.mails || null;
+
+        if (!emailList || emailList.length === 0) {
+            return res.status(404).json({ message: "No emails found for the provided group" });
+        }
+
+        const emailPromises = emailList.map(email => sendEmail({ to: email, subject, text, attachments, html }));
+
+        const results = await Promise.allSettled(emailPromises);
+
+        const successfulEmails = results.filter(result => result.status === true);
+        const failedEmails = results.filter(result => result?.value?.success === false);
+
+        if (failedEmails.length > 0) {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to send some emails",
+                errors: failedEmails.map(fail => fail.reason)
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Emails Sent Successfully",
+            data: results
         });
 
     } catch (error) {
@@ -252,6 +309,14 @@ exports.createEmailGroups = async (req, res) => {
     try {
         const { groupName, emails } = req.body;
 
+        // Check if the groupName already exists
+        const checkQuery = `SELECT * FROM public.email_group WHERE groupname = $1`;
+        const checkResult = await client.query(checkQuery, [groupName]);
+        
+        if (checkResult.rows.length > 0) {
+            return res.status(400).json({ message: 'Group name already exists' });
+        }
+
         // Insert data into email_group table
         const query = `
             INSERT INTO public.email_group (groupname, emails)
@@ -280,6 +345,64 @@ exports.fetchEmailGroups = async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching email groups:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+};
+
+exports.deleteEmailGroup = async (req, res) => {
+    try {
+        const {groupId} = req.body;
+
+        if (!groupId) {
+            return res.status(400).json({ message: 'Please provide a valid group ID' });
+        }
+
+        // Check if the email group exists
+        const checkQuery = `SELECT * FROM public.email_group WHERE id = $1`;
+        const checkResult = await client.query(checkQuery, [groupId]);
+
+        if (checkResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Email group not found' });
+        }
+
+        // Delete the email group
+        const deleteQuery = `DELETE FROM public.email_group WHERE id = $1`;
+        await client.query(deleteQuery, [groupId]);
+
+        res.status(200).json({ message: 'Email group deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting email group:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+};
+
+exports.updateEmailGroups = async (req, res) => {
+    try {
+        const { groupId,groupName, emails } = req.body;
+
+        if (!groupId) {
+            return res.status(400).json({ message: 'Please provide a valid group ID' });
+        }
+
+        // Check if the email group exists
+        const checkQuery = `SELECT * FROM public.email_group WHERE id = $1`;
+        const checkResult = await client.query(checkQuery, [groupId]);
+
+        if (checkResult.rows.length === 0) {
+            return res.status(404).json({ message: 'Email group not found' });
+        }
+
+        // Insert data into email_group table
+        const query = `
+            INSERT INTO public.email_group (groupname, emails)
+            VALUES ($1, $2)
+        `;
+        
+        await client.query(query, [groupName, { mails: emails }]);
+
+        res.status(201).json({ message: 'Email group created successfully' });
+    } catch (error) {
+        console.error('Error inserting email group:', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 };

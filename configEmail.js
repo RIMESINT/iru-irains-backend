@@ -24,52 +24,46 @@ smtp.verify(function (error, success) {
 
 
 
-sendEmail = async ({ to, subject, text, attachments,html }) => {
-    // const { to, subject, text, attachments,html } = req.body;
+const sendEmail = async ({ to, subject, text, attachments, html }) => {
+    // Validate input fields
+    if (!to || !subject || (!text && !html)) {
+        return { success: false, message: 'To, subject, and either text or html are required fields.' };
+    }
+
     const mailOptions = {
         from: 'ghanshyam@rimes.int',
         to: to,
         subject: subject,
         text: text,
-        html:html,
+        html: html,
         attachments: attachments
     };
-    
-    // console.log("Sending Email");
-    
+
     try {
         const response = await smtp.sendMail(mailOptions);
-        console.log('Email sent: ' + response.message);
-        
+
+        // Validate SMTP response
+        if (!response || !response.messageId) {
+            throw new Error('Invalid SMTP response.');
+        }
+
         await client.query('INSERT INTO email_log(email, subject, message, datetime, status) VALUES($1, $2, $3, $4, $5)', [mailOptions.to, mailOptions.subject, mailOptions.text ?? mailOptions.html, new Date(), true]);
-        
-        // res.status(200).json({ message: 'Email sent successfully' });
-        return {success:true,message:response}
+
+        return { success: true, message: 'Email sent successfully', response: response };
     } catch (error) {
         console.error('Error sending email:', error);
-        
+
         try {
             await client.query('INSERT INTO email_log(email, subject, message, datetime, status) VALUES($1, $2, $3, $4, $5)', [mailOptions.to, mailOptions.subject, mailOptions.text ?? mailOptions.html, new Date(), false]);
-            
-            // res.status(500).json({ error: 'Error sending email. Data inserted into log.' });
-            return {success:false,message:error}
+            return { success: false, message: 'Error sending email. Data inserted into log.', error: error };
         } catch (insertError) {
             console.error('Error inserting data into log:', insertError);
-            // res.status(500).json({ error: 'Internal server error' });
-            return {success:false,message:insertError}
-
+            return { success: false, message: 'Internal server error. Could not insert log.', error: insertError };
         }
     }
 };
 
 
-// SELECT * FROM public.station_details
-// where station_code  in (
-// 	select station_id 
-// 	from public.station_daily_data 
-// 	where collection_date = '2024-06-12' and (data = null or data =-999.9) 
-// )
-// order by centre_type,centre_name
 
 module.exports = sendEmail;
 

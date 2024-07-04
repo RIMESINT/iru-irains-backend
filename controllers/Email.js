@@ -378,10 +378,18 @@ exports.deleteEmailGroup = async (req, res) => {
 
 exports.updateEmailGroups = async (req, res) => {
     try {
-        const { groupId,groupName, emails } = req.body;
+        const { groupId, groupName, emails } = req.body;
 
         if (!groupId) {
             return res.status(400).json({ message: 'Please provide a valid group ID' });
+        }
+
+        if (!groupName) {
+            return res.status(400).json({ message: 'Please provide a valid group name' });
+        }
+
+        if (!emails || !Array.isArray(emails) || emails.length === 0) {
+            return res.status(400).json({ message: 'Please provide a valid list of emails' });
         }
 
         // Check if the email group exists
@@ -392,17 +400,17 @@ exports.updateEmailGroups = async (req, res) => {
             return res.status(404).json({ message: 'Email group not found' });
         }
 
-        // Insert data into email_group table
-        const query = `
-            INSERT INTO public.email_group (groupname, emails)
-            VALUES ($1, $2)
+        // If the group exists, update it
+        const updateQuery = `
+            UPDATE public.email_group
+            SET groupname = $1, emails = $2
+            WHERE id = $3
         `;
-        
-        await client.query(query, [groupName, { mails: emails }]);
+        await client.query(updateQuery, [groupName, { mails: emails }, groupId]);
+        return res.status(200).json({ message: 'Email group updated successfully' });
 
-        res.status(201).json({ message: 'Email group created successfully' });
     } catch (error) {
-        console.error('Error inserting email group:', error);
+        console.error('Error updating email group:', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 };

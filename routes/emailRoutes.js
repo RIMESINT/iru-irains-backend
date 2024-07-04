@@ -8,7 +8,8 @@ const { sendManualMail,
         fetchEmailLogs, 
         fetchEmailGroups,
         createEmailGroups,
-        deleteEmailGroup} = require("../controllers/Email")
+        deleteEmailGroup,
+        updateEmailGroups} = require("../controllers/Email")
 
 
 
@@ -23,5 +24,6 @@ router.get('/fetchEmailLogs',fetchEmailLogs)
 router.get('/fetchEmailGroups',fetchEmailGroups)
 router.post('/createEmailGroups',createEmailGroups)
 router.post('/deleteEmailGroup',deleteEmailGroup)
+router.post('/updateEmailGroups',updateEmailGroups)
 
 module.exports = router;

@@ -18,6 +18,7 @@ const { fetchStationData,
         fetchStationLogs,
         fetchAllDatesAndDataOfStation,
     } = require("../controllers/Station")
+const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 
 
 // ********************************************************************************************************
@@ -41,6 +42,13 @@ router.post("/verifyMultipleStationData", verifyMultipleStationData);
 
 router.get("/fetchStationLogs", fetchStationLogs);
 router.post("/fetchAllDatesAndDataOfStation", fetchAllDatesAndDataOfStation);
+
+
+
+// ********************************************************************************************************
+//                                      Station routes
+// ********************************************************************************************************
+router.get("/insertStationDataFtp", insertStationDataFtp);
 
 
 module.exports = router;

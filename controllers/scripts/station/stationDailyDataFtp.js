@@ -11,11 +11,10 @@ exports.insertStationDataFtp = async(req, res) => {
 
         createStationDailyDataTable(); 
         
-        const filename = "Rainfall_2024.xlsx"
-        console.log({fileNmae:filename});
+        // const filename = "Rainfall_2024.xlsx"
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     
         // Try to read the Excel file
-        const workbook = xlsx.readFile(filename);
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = xlsx.utils.sheet_to_json(worksheet, { header: 1 });

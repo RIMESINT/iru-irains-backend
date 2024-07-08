@@ -48,7 +48,8 @@ router.post("/fetchAllDatesAndDataOfStation", fetchAllDatesAndDataOfStation);
 // ********************************************************************************************************
 //                                      Station routes
 // ********************************************************************************************************
-router.get("/insertStationDataFtp", insertStationDataFtp);
+// router.get("/insertStationDataFtp", insertStationDataFtp);
+router.post("/insertStationDataFtp", upload.single('file'), insertStationDataFtp);
 
 
 module.exports = router;

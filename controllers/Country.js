@@ -52,7 +52,11 @@ const fetchBetweenDates = async (startDate, endDate) => {
                     'INDIA' as name,
                     rainfall_normal_value,
                     actual_rainfall,
-                    ((actual_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 AS departure
+                CASE 
+                        WHEN ((actual_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 >= 400 
+                THEN 400
+                    ELSE ((actual_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100
+                END as departure
                 FROM (
                     SELECT 
                         min(rainfall_normal_value) as rainfall_normal_value,

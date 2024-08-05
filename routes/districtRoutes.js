@@ -1,9 +1,13 @@
 const express = require("express")
 const router = express.Router()
+const multer = require('multer');
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 const { fetchDistrictData, getAllDistrict} = require("../controllers/District")
 const { fetchDistrictDataFtp} = require("../controllers/ftp/District")
 const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/scripts/district/normalDistrict");
+const { addNewDistrictDetails } = require("../controllers/scripts/district/addNormalDistrict");
 
 
 // ********************************************************************************************************
@@ -12,6 +16,8 @@ const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/sc
 
 // for scripts
 router.get("/nDistrictPrev", getnDistrictDataAndInsertInNormalDistrict);
+router.post("/addNewDistrictDetails", upload.single('file'), addNewDistrictDetails);
+
 
 
 // fetch district data

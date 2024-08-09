@@ -64,10 +64,15 @@ exports.insertStationDataFtp = async(req, res) => {
     });
 
     const queryText = "INSERT INTO station_daily_data_ftp (district_code ,station_id, collection_date, data) VALUES ";
+    const queryText1 = "INSERT INTO station_daily_data (district_code ,station_id, collection_date, data) VALUES ";
     const truncateQuery = "TRUNCATE TABLE  public.station_daily_data_ftp";
+    const truncateQuery1 = "TRUNCATE TABLE  public.station_daily_data";
     const new_query = queryText + result.join(", ") + ";";
+    const new_query1 = queryText1 + result.join(", ") + ";";
     await client.query(truncateQuery);
+    await client.query(truncateQuery1);
     await client.query(new_query);
+    await client.query(new_query1);
 
     res.status(200).json({ message: "Data Inserted Successfully" });
     

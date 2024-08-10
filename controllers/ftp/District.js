@@ -53,7 +53,7 @@ const fetchBetweenDates = async (startDate, endDate) => {
             min(s_code) as state_code,
             min(r_code) as region_code,
             min(sd_code) as sub_division_code,
-            min(normal_rainfall) as normal_rainfall,
+            sum(normal_rainfall) as normal_rainfall,
             district_code,
             sum(actual_rainfall) as actual_rainfall,
             ((sum(actual_rainfall) - sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) / sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) * 100 as departure

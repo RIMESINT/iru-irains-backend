@@ -74,7 +74,10 @@ const fetchBetweenDates = async (startDate, endDate) => {
                     d_code as district_code, 
                     sum(normal_rainfall) as rainfall_value,
                     sum(actual_rainfall) as actual_rainfall_district,
-                    d_area as district_area,
+                    CASE 
+                        WHEN ndd.district_code IN (30506001, 30506002) THEN 0 
+                        ELSE MIN(district_area) 
+                    END AS d_area,
                     (d_area*sum(actual_rainfall)) as subdiv_actual_numerator
                     from (
                         SELECT 
@@ -117,6 +120,7 @@ const fetchBetweenDates = async (startDate, endDate) => {
                                 s_code
                         )
                         as result`;
+                        // exception : we have to use 0 area for this two district 30506001, 30506002 for subdiv calculation 
 
     try {
         const result = await client.query(query, [startDate, endDate]);

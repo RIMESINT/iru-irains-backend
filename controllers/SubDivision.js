@@ -48,24 +48,21 @@ exports.fetchSubDivisionData = async (req, res) => {
 
 const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
-        select 
+       select 
         name as subdiv_name,
         s_code ,
         r_code as region_code,
         rainfall_normal_value,
         actual_subdiv_rainfall,
-        CASE 
-                WHEN ((actual_subdiv_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 >= 400 
-                THEN 400
-                ELSE ((actual_subdiv_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100
-            END as departure
+        ((actual_subdiv_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 as departure
     From (
         select 
             min(name) as name,
             s_code,
             min(r_code) as r_code,
             min(rainfall_value) as rainfall_normal_value,
-            (SUM(subdiv_actual_numerator) / NULLIF(SUM(district_area), 0)) AS actual_subdiv_rainfall
+            (SUM(CASE WHEN subdiv_actual_numerator IS NOT NULL THEN subdiv_actual_numerator ELSE 0 END) / 
+                    NULLIF(SUM(CASE WHEN subdiv_actual_numerator IS NOT NULL THEN district_area ELSE 0 END), 0)) AS actual_subdiv_rainfall
         FROM (
                 select 	
                     min(name) as name, 
@@ -73,11 +70,8 @@ const fetchBetweenDates = async (startDate, endDate) => {
                     min(r_code) as r_code,  
                     d_code as district_code, 
                     sum(normal_rainfall) as rainfall_value,
-                    sum(actual_rainfall) as actual_rainfall_district,
-                    CASE 
-                        WHEN ndd.district_code IN (30506001, 30506002) THEN 0 
-                        ELSE MIN(district_area) 
-                    END AS d_area,
+                     sum(actual_rainfall) as actual_rainfall_district,
+					d_area as district_area,
                     (d_area*sum(actual_rainfall)) as subdiv_actual_numerator
                     from (
                         SELECT 
@@ -86,7 +80,11 @@ const fetchBetweenDates = async (startDate, endDate) => {
                             MIN(subdiv_code) AS s_code, 
                             MIN(region_code) AS r_code, 
                             ndd.district_code AS d_code,
-                            min(district_area) as d_area,
+                            -- min(district_area) as d_area,
+							 CASE 
+                        WHEN ndd.district_code IN (30506001, 30506002) THEN 0 
+                        ELSE MIN(district_area) 
+                    END AS d_area,
                             MIN(ns.rainfall_value) AS normal_rainfall,
                             AVG(
                                 CASE 

@@ -48,70 +48,110 @@ exports.fetchRegionData = async (req, res) => {
 
 const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
-                SELECT 
-                    name,
-                    r_code,
-                    rainfall_normal_value,
-                    actual_rainfall,
-                    CASE 
-                        WHEN ((actual_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 >= 400 
-                THEN 400
-                    ELSE ((actual_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100
-                END as departure
+                 SELECT *,
+    ((actual_rainfall - 
+        (CASE 
+            WHEN rainfall_normal_value = 0 THEN 0.01 
+            ELSE rainfall_normal_value 
+        END)) / 
+        (CASE 
+            WHEN rainfall_normal_value = 0 THEN 0.01 
+            ELSE rainfall_normal_value 
+        END)) * 100 AS departure
+FROM (
+    SELECT  
+        MIN(name) AS name,
+        MIN(r_code) AS r_code,
+        (SUM(CASE 
+                WHEN actual_reg_num IS NOT NULL THEN actual_reg_num 
+                ELSE 0 
+            END) / 
+        NULLIF(SUM(CASE 
+                    WHEN actual_reg_num IS NOT NULL THEN s_w 
+                    ELSE 0 
+                END), 0)) AS actual_rainfall,
+        MIN(rainfall_normal_value) AS rainfall_normal_value
+    FROM (
+        SELECT 
+            name,
+            r_code,
+            s_w,
+            rainfall_normal_value,
+            actual_subdiv_rainfall * s_w AS actual_reg_num
+        FROM (
+            SELECT 
+                MIN(name) AS name,
+                s_code,
+                MIN(s_w) AS s_w,
+                MIN(r_code) AS r_code,
+                MIN(rainfall_value) AS rainfall_normal_value,
+                (SUM(CASE 
+                        WHEN subdiv_actual_numerator IS NOT NULL THEN subdiv_actual_numerator 
+                        ELSE 0 
+                    END) / 
+                NULLIF(SUM(CASE 
+                            WHEN subdiv_actual_numerator IS NOT NULL THEN district_area 
+                            ELSE 0 
+                        END), 0)) AS actual_subdiv_rainfall
+            FROM (
+                SELECT 	
+                    MIN(name) AS name, 
+                    MIN(s_code) AS s_code,  
+                    MIN(r_code) AS r_code,  
+                    d_code AS district_code, 
+                    SUM(normal_rainfall) AS rainfall_value,
+                    SUM(actual_rainfall) AS actual_rainfall_district,
+                    d_area AS district_area,
+                    MIN(s_w) AS s_w,
+                    (d_area * SUM(actual_rainfall)) AS subdiv_actual_numerator
                 FROM (
                     SELECT 
-                        MIN(name) AS name,
-                        r_code,
-                        MIN(rainfall_value) AS rainfall_normal_value,
-                        (SUM(actual_numerator) / SUM(CASE WHEN district_area = 0 THEN 0.02 ELSE district_area END)) AS actual_rainfall
-                    FROM (
-                        SELECT     
-                            MIN(name) AS name, 
-                            MIN(r_code) AS r_code,  
-                            d_code AS district_code, 
-                            d_area AS district_area,
-                            SUM(normal_rainfall) AS rainfall_value,
-                            SUM(actual_rainfall) AS actual_rainfall_district,
-                            (d_area * SUM(actual_rainfall)) AS actual_numerator
-                        FROM (
-                            SELECT 
-                                nr.date, 
-                                MIN(ndd.region_name) AS name, 
-                                MIN(region_code) AS r_code, 
-                                ndd.district_code AS d_code,     
-                                MIN(district_area) AS d_area,
-                                MIN(rainfall_value) AS normal_rainfall,
-                                AVG(
-                                    CASE 
-                                        WHEN sdd.data = '-999.9' THEN NULL 
-                                        ELSE sdd.data 
-                                    END
-                                ) AS actual_rainfall
-                            FROM 
-                                station_daily_data AS sdd 
-                            JOIN
-                                normal_district_details AS ndd
-                            ON 
-                                sdd.district_code = ndd.district_code
-                            JOIN
-                                normal_region AS nr
-                            ON 
-                                ndd.region_code = nr.region_id
-                            AND 
-                                nr.date = sdd.collection_date
-                            WHERE 
-                                date BETWEEN $1 AND $2
-                            GROUP BY
-                                ndd.district_code,
-                                nr.date 
-                        ) AS sub_query
-                        GROUP BY
-                            d_code,
-                            d_area
-                    ) AS sub2
+                        ns.date, 
+                        MIN(ndd.region_name) AS name, 
+                        MIN(subdiv_code) AS s_code, 
+                        MIN(region_code) AS r_code, 
+                        ndd.district_code AS d_code,
+                        MIN(subdiv_weight) AS s_w,
+                        CASE 
+                            WHEN ndd.district_code IN (30506001, 30506002) THEN 0 
+                            ELSE MIN(district_area) 
+                        END AS d_area,
+                        MIN(ns.rainfall_value) AS normal_rainfall,
+                        AVG(
+                            CASE 
+                                WHEN sdd.data = '-999.9' THEN NULL 
+                                ELSE sdd.data 
+                            END
+                        ) AS actual_rainfall
+                    FROM 
+                        station_daily_data AS sdd 
+                    JOIN
+                        normal_district_details AS ndd
+                    ON 
+                        sdd.district_code = ndd.district_code
+                    JOIN
+                        normal_region AS ns
+                    ON 
+                        ndd.region_code = ns.region_id
+                    AND 
+                        ns.date = sdd.collection_date
+                    WHERE  
+                        ns.date BETWEEN $1 AND $2
                     GROUP BY
-                        r_code
-                ) AS result`;
+                        ndd.district_code,
+                        ns.date
+                ) AS sub_query2
+                GROUP BY
+                    d_code,
+                    d_area
+            ) AS sub2
+            GROUP BY
+                s_code
+        ) AS result
+    ) AS subquery
+    GROUP BY 
+        r_code
+) AS final_subquery;`;
 
     try {
         const result = await client.query(query, [startDate, endDate]);

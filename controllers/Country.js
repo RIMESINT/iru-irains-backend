@@ -136,7 +136,7 @@ FROM (
                                     END
                                 ) AS actual_rainfall
                             FROM 
-                                station_daily_data_ftp AS sdd 
+                                station_daily_data AS sdd 
                             JOIN
                                 normal_district_details AS ndd
                             ON 

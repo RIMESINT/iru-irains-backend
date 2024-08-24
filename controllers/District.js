@@ -31,7 +31,7 @@ exports.fetchDistrictData = async (req, res) => {
         const specificTime = "12:01";
         const specificDateTime = `${currentDate} ${specificTime}`;
 
-        let data = await fetchBetweenDates(startDate, endDate, specificDateTime);
+        let data = await fetchBetweenDates(startDate, endDate, currentDate, specificDateTime);
 
         res.status(200).json({
             success: true,
@@ -49,7 +49,7 @@ exports.fetchDistrictData = async (req, res) => {
     }
 }
 
-const fetchBetweenDates = async (startDate, endDate, specificDateTime) => {
+const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
     let additionalCondition = '';
     if (endDate === currentDate) {
         additionalCondition = ` AND updated_at < '${specificDateTime}'`;

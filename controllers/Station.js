@@ -118,7 +118,7 @@ const fetchFilteredData = async (startDate, endDate = null) => {
 
 const updateStationDataQuery = async (station_code, date, value ) => {
     const query = `
-                Update public.station_daily_data set data =$1
+                Update public.station_daily_data set data =$1, updated_at =now()
                 WHERE collection_date = $2 and station_id = $3;`;  
 
     try {

@@ -28,7 +28,11 @@ exports.fetchCountryData = async (req, res) => {
             });
         }
 
-        let data = await fetchBetweenDates(startDate, endDate);
+        // let data = await fetchBetweenDates(startDate, endDate);
+        const specificTime = "07:50:15.744983+00";
+        const specificDateTime = `${currentDate} ${specificTime}`;
+
+        let data = await fetchBetweenDates(startDate, endDate, currentDate, specificDateTime);
 
         res.status(200).json({
             success: true,
@@ -46,7 +50,11 @@ exports.fetchCountryData = async (req, res) => {
     }
 }
 
-const fetchBetweenDates = async (startDate, endDate) => {
+const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
+    let additionalCondition = '';
+    if (endDate === currentDate) {
+        additionalCondition = ` AND updated_at < '${specificDateTime}'`;
+    }
     const query = `
                 SELECT *,
 	'INDIA' as name,
@@ -146,7 +154,7 @@ FROM (
                             ON 
                                 ns.date = sdd.collection_date
                             WHERE  
-                                ns.date BETWEEN $1 AND $2
+                                ns.date BETWEEN $1 AND $2 ${additionalCondition}
                             GROUP BY
                                 ndd.district_code,
                                 ns.date

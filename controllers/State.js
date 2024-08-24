@@ -28,7 +28,12 @@ exports.fetchStateData = async (req, res) => {
             });
         }
 
-        let data = await fetchBetweenDates(startDate, endDate);
+        const specificTime = "07:50:15.744983+00";
+        const specificDateTime = `${currentDate} ${specificTime}`;
+
+        let data = await fetchBetweenDates(startDate, endDate, currentDate, specificDateTime);
+
+        // let data = await fetchBetweenDates(startDate, endDate);
 
         res.status(200).json({
             success: true,
@@ -46,7 +51,11 @@ exports.fetchStateData = async (req, res) => {
     }
 }
 
-const fetchBetweenDates = async (startDate, endDate) => {
+const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
+    let additionalCondition = '';
+    if (endDate === currentDate) {
+        additionalCondition = ` AND updated_at < '${specificDateTime}'`;
+    }
     const query = `
         SELECT 
             state_name,
@@ -103,7 +112,7 @@ const fetchBetweenDates = async (startDate, endDate) => {
                     AND 
                         ns.date = sdd.collection_date
                     WHERE 
-                        date BETWEEN $1 AND $2
+                        date BETWEEN $1 AND $2 ${additionalCondition}
                     GROUP BY
                         ndd.district_code,
                         ns.date 

@@ -28,7 +28,7 @@ exports.fetchDistrictData = async (req, res) => {
             });
         }
 
-        const specificTime = "12:00:15.744983+00";
+        const specificTime = "07:50:15.744983+00";
         const specificDateTime = `${currentDate} ${specificTime}`;
 
         let data = await fetchBetweenDates(startDate, endDate, currentDate, specificDateTime);

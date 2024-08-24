@@ -28,7 +28,7 @@ exports.fetchDistrictData = async (req, res) => {
             });
         }
 
-        const specificTime = "12:01";
+        const specificTime = "12:00:15.744983+00";
         const specificDateTime = `${currentDate} ${specificTime}`;
 
         let data = await fetchBetweenDates(startDate, endDate, currentDate, specificDateTime);
@@ -98,6 +98,8 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         GROUP BY 
             district_code;
     `;
+
+    console.log(query);
 
     try {
         const result = await client.query(query, [startDate, endDate]);

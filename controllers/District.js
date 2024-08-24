@@ -28,7 +28,10 @@ exports.fetchDistrictData = async (req, res) => {
             });
         }
 
-        let data = await fetchBetweenDates(startDate, endDate);
+        const specificTime = "12:01";
+        const specificDateTime = `${currentDate} ${specificTime}`;
+
+        let data = await fetchBetweenDates(startDate, endDate, specificDateTime);
 
         res.status(200).json({
             success: true,
@@ -46,7 +49,12 @@ exports.fetchDistrictData = async (req, res) => {
     }
 }
 
-const fetchBetweenDates = async (startDate, endDate) => {
+const fetchBetweenDates = async (startDate, endDate, specificDateTime) => {
+    let additionalCondition = '';
+    if (endDate === currentDate) {
+        additionalCondition = ` AND updated_at < '${specificDateTime}'`;
+    }
+
     const query = `
       SELECT 
             min(d_name) as district_name,
@@ -82,7 +90,7 @@ const fetchBetweenDates = async (startDate, endDate) => {
                 ON ndd.district_code = sdd.district_code 
                 AND sdd.collection_date = nd.date
             WHERE 
-                date BETWEEN $1 AND $2
+                date BETWEEN $1 AND $2 ${additionalCondition}
             GROUP BY 
                 ndd.district_code, 
                 date

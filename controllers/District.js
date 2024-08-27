@@ -90,7 +90,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                 ON ndd.district_code = sdd.district_code 
                 AND sdd.collection_date = nd.date
             WHERE 
-                date BETWEEN $1 AND $2 ${additionalCondition}
+                date BETWEEN $1 AND $2 
             GROUP BY 
                 ndd.district_code, 
                 date

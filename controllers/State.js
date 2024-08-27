@@ -112,7 +112,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                     AND 
                         ns.date = sdd.collection_date
                     WHERE 
-                        date BETWEEN $1 AND $2 ${additionalCondition}
+                        date BETWEEN $1 AND $2 
                     GROUP BY
                         ndd.district_code,
                         ns.date 

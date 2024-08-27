@@ -114,7 +114,7 @@ const query = `
                         AND 
                             ns.date = sdd.collection_date
                         WHERE 
-                            ns.date BETWEEN $1 AND $2 ${additionalCondition}
+                            ns.date BETWEEN $1 AND $2 
                         GROUP BY
                             ndd.district_code,
                             ns.date

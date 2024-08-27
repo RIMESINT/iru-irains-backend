@@ -6,20 +6,35 @@ const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 const { fetchStationData,
-        updateStationData, 
+        // updateStationData, 
         addNewStation, 
         editStation, 
         deleteStation, 
         insertMultipleStations, 
-        insertRainfallFile, 
-        verifyStationData, 
-        verifyMultipleStationData, 
+        // insertRainfallFile, 
+        // verifyStationData, 
+        // verifyMultipleStationData, 
         fetchInRangeStationdata,
         fetchStationLogs,
         fetchAllDatesAndDataOfStation,
     } = require("../controllers/Station")
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 
+const { 
+    fetchStationDataNew,
+    updateStationData, 
+    // addNewStation, 
+    // editStation, 
+    // deleteStation, 
+    // insertMultipleStations, 
+    insertRainfallFile, 
+    verifyStationData, 
+    verifyMultipleStationData, 
+    fetchInRangeStationdataNew,
+    // fetchStationLogs,
+    // fetchAllDatesAndDataOfStation,
+    AddDailyStationData
+} = require("../controllers/StationDataUpdates")
 
 // ********************************************************************************************************
 //                                      Station routes
@@ -31,8 +46,10 @@ router.get("/insertLatLongInStationDetails", upload.single('file'), insertLatLon
 
 
 router.get("/createStationDetailsTable", createStationDetailsTable);
-router.post("/fetchStationData", fetchStationData);
-router.post("/fetchInRangeStationdata", fetchInRangeStationdata);
+router.post("/fetchStationDataNew", fetchStationData);
+router.post("/fetchStationData", fetchStationDataNew);
+router.post("/fetchInRangeStationdata", fetchInRangeStationdataNew);
+router.post("/fetchInRangeStationdataNew", fetchInRangeStationdata);
 router.post("/updateStationData", updateStationData);
 router.post("/addNewStation", addNewStation);
 router.post("/editStation", editStation);
@@ -50,6 +67,7 @@ router.post("/fetchAllDatesAndDataOfStation", fetchAllDatesAndDataOfStation);
 // ********************************************************************************************************
 // router.get("/insertStationDataFtp", insertStationDataFtp);
 router.post("/insertStationDataFtp", upload.single('file'), insertStationDataFtp);
+router.get("/AddDailyStationData", AddDailyStationData);  //testing 
 
 
 module.exports = router;

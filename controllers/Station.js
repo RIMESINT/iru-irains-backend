@@ -116,19 +116,19 @@ const fetchFilteredData = async (startDate, endDate = null) => {
     }
   };
 
-const updateStationDataQuery = async (station_code, date, value ) => {
-    const query = `
-                Update public.station_daily_data set data =$1, updated_at =now()
-                WHERE collection_date = $2 and station_id = $3;`;  
+// const updateStationDataQuery = async (station_code, date, value ) => {
+//     const query = `
+//                 Update public.station_daily_data set data =$1, updated_at =now()
+//                 WHERE collection_date = $2 and station_id = $3;`;  
 
-    try {
-        const result = await client.query(query, [value, date,station_code ]);
-        return result.rows;
-    } catch (error) {
-        console.error('Error executing query', error.stack);
-        throw error;
-    }
-}
+//     try {
+//         const result = await client.query(query, [value, date,station_code ]);
+//         return result.rows;
+//     } catch (error) {
+//         console.error('Error executing query', error.stack);
+//         throw error;
+//     }
+// }
 
 
 const addNewStationQuery = async ({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate}) => {
@@ -430,37 +430,37 @@ exports.fetchInRangeStationdata = async(req, res) => {
 }
 
 
-exports.updateStationData = async (req, res) => {
-    try {
-        let { station_code, date, value } = req.body;
+// exports.updateStationData = async (req, res) => {
+//     try {
+//         let { station_code, date, value } = req.body;
         
-        if(station_code && date && (value||value==0) ){
-            let data = await updateStationDataQuery(station_code, date, value );
+//         if(station_code && date && (value||value==0) ){
+//             let data = await updateStationDataQuery(station_code, date, value );
 
-            res.status(200).json({
-                success: true,
-                message: " data updated Successfully",
-            });
+//             res.status(200).json({
+//                 success: true,
+//                 message: " data updated Successfully",
+//             });
 
-        }else{
-            res.status(200).json({
-                success: false,
-                message: "request pearmeters are missing",
-            });
-        }
+//         }else{
+//             res.status(200).json({
+//                 success: false,
+//                 message: "request pearmeters are missing",
+//             });
+//         }
 
 
 
         
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch Station data",
-            error: error.message,
-        });
-    }
-}
+//     } catch (error) {
+//         console.error(error);
+//         res.status(500).json({
+//             success: false,
+//             message: "Failed to fetch Station data",
+//             error: error.message,
+//         });
+//     }
+// }
 
 exports.addNewStation = async (req, res) => {
     try {
@@ -612,132 +612,132 @@ exports.insertMultipleStations = async(req, res) => {
 }
 
 
-exports.insertRainfallFile = async (req, res) => {
-    try {
-        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0];
-        const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+// exports.insertRainfallFile = async (req, res) => {
+//     try {
+//         const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+//         const sheetName = workbook.SheetNames[0];
+//         const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-        const formattedData = sheetData.flatMap(row => {
-            const { station_id, station_name, centre_type, ...dateData } = row;
-            const district_code = station_id.toString().substring(0, 8);
+//         const formattedData = sheetData.flatMap(row => {
+//             const { station_id, station_name, centre_type, ...dateData } = row;
+//             const district_code = station_id.toString().substring(0, 8);
 
-            return Object.entries(dateData).map(([date, rainfall]) => ({
-                station_id,
-                district_code,
-                date: formatDate(date),
-                rainfall
-            }));
-        });
+//             return Object.entries(dateData).map(([date, rainfall]) => ({
+//                 station_id,
+//                 district_code,
+//                 date: formatDate(date),
+//                 rainfall
+//             }));
+//         });
 
-        const updateQuery = `
-            UPDATE public.station_daily_data 
-            SET data = $1
-            WHERE collection_date = $2 AND station_id = $3;
-        `;
+//         const updateQuery = `
+//             UPDATE public.station_daily_data 
+//             SET data = $1
+//             WHERE collection_date = $2 AND station_id = $3;
+//         `;
         
-        const insertQuery = `
-            INSERT INTO public.station_daily_data (station_id, district_code, collection_date, data)
-            VALUES ($1, $2, $3, $4);
-        `;
+//         const insertQuery = `
+//             INSERT INTO public.station_daily_data (station_id, district_code, collection_date, data)
+//             VALUES ($1, $2, $3, $4);
+//         `;
 
-        await Promise.all(formattedData.map(async (data) => {
-            const checkExistenceQuery = `
-                SELECT COUNT(1) FROM public.station_daily_data 
-                WHERE collection_date = $1 AND station_id = $2;
-            `;
+//         await Promise.all(formattedData.map(async (data) => {
+//             const checkExistenceQuery = `
+//                 SELECT COUNT(1) FROM public.station_daily_data 
+//                 WHERE collection_date = $1 AND station_id = $2;
+//             `;
 
-            const resExistence = await client.query(checkExistenceQuery, [data.date, data.station_id]);
+//             const resExistence = await client.query(checkExistenceQuery, [data.date, data.station_id]);
 
-            if (resExistence.rows[0].count > 0) {
-                await client.query(updateQuery, [data.rainfall, data.date, data.station_id]);
-            } else {
-                await client.query(insertQuery, [data.station_id, data.district_code, data.date, data.rainfall]);
-            }
-        }));
+//             if (resExistence.rows[0].count > 0) {
+//                 await client.query(updateQuery, [data.rainfall, data.date, data.station_id]);
+//             } else {
+//                 await client.query(insertQuery, [data.station_id, data.district_code, data.date, data.rainfall]);
+//             }
+//         }));
 
-        res.status(200).json({
-            success: true,
-            data: formattedData,
-            message: "Rainfall details added successfully"
-        });
+//         res.status(200).json({
+//             success: true,
+//             data: formattedData,
+//             message: "Rainfall details added successfully"
+//         });
 
-    } catch (error) {
-        console.error("Error processing request:", error.message);
-        res.status(500).json({ error: error.message });
-    }
-}
+//     } catch (error) {
+//         console.error("Error processing request:", error.message);
+//         res.status(500).json({ error: error.message });
+//     }
+// }
 
 
-exports.verifyStationData = async (req, res) => {
-    try {
-      const { userid, date, station_id } = req.body;
+// exports.verifyStationData = async (req, res) => {
+//     try {
+//       const { userid, date, station_id } = req.body;
   
-      if (!userid || !date || !station_id) {
-        return res.status(404).json({
-          success: false,
-          message: "Parameters not found"
-        });
-      }
+//       if (!userid || !date || !station_id) {
+//         return res.status(404).json({
+//           success: false,
+//           message: "Parameters not found"
+//         });
+//       }
   
-      const updatedRows = await verifyStationDataQuery(date, station_id, userid);
+//       const updatedRows = await verifyStationDataQuery(date, station_id, userid);
   
-      if (updatedRows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "No data found for the given date and station_id"
-        });
-      }
+//       if (updatedRows.length === 0) {
+//         return res.status(404).json({
+//           success: false,
+//           message: "No data found for the given date and station_id"
+//         });
+//       }
   
-      res.status(200).json({
-        success: true,
-        message: "Data verified successfully",
-        data: updatedRows[0]
-      });
+//       res.status(200).json({
+//         success: true,
+//         message: "Data verified successfully",
+//         data: updatedRows[0]
+//       });
   
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-}
+//     } catch (error) {
+//       console.error(error);
+//       res.status(500).json({
+//         success: false,
+//         error: error.message
+//       });
+//     }
+// }
 
-exports.verifyMultipleStationData = async (req, res) => {
-    try {
-      const { userid, date, station_ids } = req.body;
+// exports.verifyMultipleStationData = async (req, res) => {
+//     try {
+//       const { userid, date, station_ids } = req.body;
   
-      if (!userid || !date || !station_ids) {
-        return res.status(404).json({
-          success: false,
-          message: "Parameters not found"
-        });
-      }
+//       if (!userid || !date || !station_ids) {
+//         return res.status(404).json({
+//           success: false,
+//           message: "Parameters not found"
+//         });
+//       }
   
-      const updatedRows = await updateMultipleStations(date, station_ids, userid);
+//       const updatedRows = await updateMultipleStations(date, station_ids, userid);
   
-      if (updatedRows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "No data found for the given date and station_id"
-        });
-      }
+//       if (updatedRows.length === 0) {
+//         return res.status(404).json({
+//           success: false,
+//           message: "No data found for the given date and station_id"
+//         });
+//       }
   
-      res.status(200).json({
-        success: true,
-        message: "Data verified successfully",
-        data: updatedRows
-      });
+//       res.status(200).json({
+//         success: true,
+//         message: "Data verified successfully",
+//         data: updatedRows
+//       });
   
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-}
+//     } catch (error) {
+//       console.error(error);
+//       res.status(500).json({
+//         success: false,
+//         error: error.message
+//       });
+//     }
+// }
 
 exports.fetchStationLogs = async (req, res) => {
     try {

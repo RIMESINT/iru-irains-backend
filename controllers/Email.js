@@ -92,19 +92,19 @@ exports.dailyDataUpdateReminder = async (req, res) => {
     try {
         dailyDataUpdateReminderQuery()
 
-        res.status(200).json({
-            success: true,
-            message: "Email Sent Successfully",
-            // data: data
-        });
+        // res.status(200).json({
+        //     success: true,
+        //     message: "Email Sent Successfully",
+        //     // data: data
+        // });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to send Email",
-            error: error.message,
-        });
+        // res.status(500).json({
+        //     success: false,
+        //     message: "Failed to send Email",
+        //     error: error.message,
+        // });
     }
 }
 
@@ -113,19 +113,19 @@ exports.dailyDataVerificationReminder = async (req, res) => {
     try {
         dailyDataVerificationReminderQuery()
 
-        res.status(200).json({
-            success: true,
-            message: "Email Sent Successfully",
-            // data: data
-        });
+        // res.status(200).json({
+        //     success: true,
+        //     message: "Email Sent Successfully",
+        //     // data: data
+        // });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to send Email",
-            error: error.message,
-        });
+        // res.status(500).json({
+        //     success: false,
+        //     message: "Failed to send Email",
+        //     error: error.message,
+        // });
     }
 }
 

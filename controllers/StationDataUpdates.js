@@ -382,18 +382,18 @@ exports.AddDailyStationData = async (req, res) => {
         await removePrevData();
         await copyDataFromUpdatesToStationDailyData();
         console.log("Cron : Data is migrated")
-      res.status(200).json({
-        success: true,
-        message: "Data verified successfully",
-        // data: updatedRows
-      });
+      // res.status(200).json({
+      //   success: true,
+      //   message: "Data verified successfully",
+      //   // data: updatedRows
+      // });
   
     } catch (error) {
       console.error(error);
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
+      // res.status(500).json({
+      //   success: false,
+      //   error: error.message
+      // });
     }
 }
 

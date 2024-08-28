@@ -263,35 +263,30 @@ exports.insertRainfallFile = async (req, res) => {
                 station_id,
                 district_code,
                 date: formatDate(date),
-                rainfall
+                rainfall:rainfall??-999.9
             }));
         });
 
-        const updateQuery = `
-            UPDATE public.station_daily_data_updates
-            SET data = $1
-            WHERE collection_date = $2 AND station_id = $3;
-        `;
-        
-        const insertQuery = `
+        const upsertQuery = `
             INSERT INTO public.station_daily_data_updates (station_id, district_code, collection_date, data)
-            VALUES ($1, $2, $3, $4);
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (station_id, collection_date)
+            DO UPDATE SET data = EXCLUDED.data;
         `;
 
-        await Promise.all(formattedData.map(async (data) => {
-            const checkExistenceQuery = `
-                SELECT COUNT(1) FROM public.station_daily_data_updates 
-                WHERE collection_date = $1 AND station_id = $2;
-            `;
+        const values = formattedData.map(data => [
+            data.station_id,
+            data.district_code,
+            data.date,
+            data.rainfall
+        ]);
 
-            const resExistence = await client.query(checkExistenceQuery, [data.date, data.station_id]);
-
-            if (resExistence.rows[0].count > 0) {
-                await client.query(updateQuery, [data.rainfall, data.date, data.station_id]);
-            } else {
-                await client.query(insertQuery, [data.station_id, data.district_code, data.date, data.rainfall]);
-            }
-        }));
+        // Use a transaction to batch the operations
+        await client.query('BEGIN');
+        for (const value of values) {
+            await client.query(upsertQuery, value);
+        }
+        await client.query('COMMIT');
 
         res.status(200).json({
             success: true,
@@ -300,6 +295,7 @@ exports.insertRainfallFile = async (req, res) => {
         });
 
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error("Error processing request:", error.message);
         res.status(500).json({ error: error.message });
     }

@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const cronJob =require('./controllers/CronJobs')
 // const nodemailer = require('nodemailer');
 require('dotenv').config();
 
@@ -91,7 +92,6 @@ app.use("/api/v1/", regionRoutes);
 app.use("/api/v1/", countryRoutes);
 app.use("/api/v1/", centreRoutes);
 app.use("/api/v1/", emailRoutes);
-
 
 app.listen(port, () => {
     console.log(`Server started at PORT ${port}`);

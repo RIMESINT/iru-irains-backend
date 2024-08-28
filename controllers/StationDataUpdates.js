@@ -356,7 +356,7 @@ exports.verifyMultipleStationData = async (req, res) => {
           message: "No data found for the given date and station_id"
         });
       }
-  
+ 
       res.status(200).json({
         success: true,
         message: "Data verified successfully",
@@ -381,7 +381,7 @@ exports.AddDailyStationData = async (req, res) => {
 
         await removePrevData();
         await copyDataFromUpdatesToStationDailyData();
-        
+        console.log("Cron : Data is migrated")
       res.status(200).json({
         success: true,
         message: "Data verified successfully",

@@ -135,7 +135,7 @@ exports.dailyDataVerificationReminder = async (req, res) => {
 dailyDataUpdateReminderQuery = async (req, res) => {
     try {
 
-        const allEmail = `SELECT distinct username FROM public.login limit 2`;
+        const allEmail = `SELECT distinct username FROM public.login `;
 
         const query = `WITH matched_stations AS (
                         SELECT 
@@ -152,7 +152,7 @@ dailyDataUpdateReminderQuery = async (req, res) => {
                                 SELECT 
                                     station_id 
                                 FROM 
-                                    public.station_daily_data 
+                                    public.station_daily_data_updates
                                 WHERE 
                                     collection_date = CURRENT_DATE 
                                     AND (data IS NULL OR data = -999.9)
@@ -231,7 +231,7 @@ dailyDataVerificationReminderQuery = async (req, res) => {
                                 SELECT 
                                     station_id 
                                 FROM 
-                                    public.station_daily_data 
+                                    public.station_daily_data_updates
                                 WHERE 
                                     collection_date = CURRENT_DATE 
                                     AND (data IS NOT NULL AND data != (-999.9)) AND is_verified = 0

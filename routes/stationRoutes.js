@@ -12,7 +12,7 @@ const { fetchStationData,
         deleteStation, 
         insertMultipleStations, 
         fetchStationDataInRadius,
-        // insertRainfallFile, 
+        fetchStationWithMaxRainfall, 
         // verifyStationData, 
         // verifyMultipleStationData, 
         fetchInRangeStationdata,
@@ -69,6 +69,7 @@ router.post("/fetchAllDatesAndDataOfStation", fetchAllDatesAndDataOfStation);
 // router.get("/insertStationDataFtp", insertStationDataFtp);
 router.post("/insertStationDataFtp", upload.single('file'), insertStationDataFtp);
 router.post("/fetchStationDataInRadius", fetchStationDataInRadius);
+router.post("/fetchStationWithMaxRainfall", fetchStationWithMaxRainfall);
 router.get("/AddDailyStationData", AddDailyStationData);  //testing 
 
 

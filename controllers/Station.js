@@ -455,6 +455,64 @@ const fetchFilteredDataInRange = async (Date, lat,long,range) => {
     }
   };
 
+  const fetchStationWithMaxRainfallQuery = async (startDate,endDate,limit) => {
+    let query;
+    let values;
+  
+
+     query = `
+    			SELECT 
+    ndd.region_code AS region_code,
+    ndd.region_name AS region_name,
+    ndd.subdiv_name AS subdiv_name,
+    ndd.subdiv_code AS subdiv_code,
+    ndd.new_state_code AS state_code,
+    ndd.state_name AS state_name,
+    ndd.district_code AS district_code,
+    ndd.district_name AS district_name,
+    sd.station_code AS station_code,
+    sd.station_name AS station_name,
+    sd.station_type AS station_type,
+    sd.centre_type AS centre_type,
+    sd.centre_name AS centre_name,
+    sd.is_new_station AS is_new_station,
+    sd.latitude AS latitude,
+    sd.longitude AS longitude,
+    sd.activationdate AS activationdate,
+    sdd.data AS data,
+	sdd.collection_date as date
+FROM 
+    public.station_details AS sd
+JOIN 
+    public.station_daily_data AS sdd 
+    ON sdd.station_id = sd.station_code
+JOIN 
+    normal_district_details AS ndd 
+    ON ndd.district_code = sdd.district_code
+WHERE 
+    sdd.collection_date BETWEEN $1 AND $2 
+    AND sdd.data != -999.9
+ORDER BY 
+    sdd.data DESC
+LIMIT $3;
+
+		
+`;
+
+      values = [startDate,endDate,limit];
+    
+  
+    try {
+      const result = await client.query(query, values);
+      return result.rows;
+    } catch (error) {
+      console.error('Error executing query', error.stack);
+      throw error;
+    }
+  };
+
+  
+
 
 exports.fetchStationData = async (req, res) => {
     try {
@@ -904,6 +962,38 @@ exports.fetchStationDataInRadius = async (req, res) => {
         } 
 
         let data = await fetchFilteredDataInRange(Date,lat,long,range);
+
+        res.status(200).json({
+            success: true,
+            message: "Station data fetched Successfully",
+            data: data
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Station data",
+            error: error.message,
+        });
+    }
+}
+
+exports.fetchStationWithMaxRainfall = async (req, res) => {
+    try {
+        let {startDate, endDate,limit } = req.body;
+
+        // Use current date if no dates are provided
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!startDate||!endDate||!limit) {
+            res.status(500).json({
+                success: false,
+                message: "parameters are missinng",
+                // error: error.message,
+            });
+        } 
+
+        let data = await fetchStationWithMaxRainfallQuery(startDate,endDate,limit);
 
         res.status(200).json({
             success: true,

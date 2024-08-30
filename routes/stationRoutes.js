@@ -11,6 +11,7 @@ const { fetchStationData,
         editStation, 
         deleteStation, 
         insertMultipleStations, 
+        fetchStationDataInRadius,
         // insertRainfallFile, 
         // verifyStationData, 
         // verifyMultipleStationData, 
@@ -67,6 +68,7 @@ router.post("/fetchAllDatesAndDataOfStation", fetchAllDatesAndDataOfStation);
 // ********************************************************************************************************
 // router.get("/insertStationDataFtp", insertStationDataFtp);
 router.post("/insertStationDataFtp", upload.single('file'), insertStationDataFtp);
+router.post("/fetchStationDataInRadius", fetchStationDataInRadius);
 router.get("/AddDailyStationData", AddDailyStationData);  //testing 
 
 

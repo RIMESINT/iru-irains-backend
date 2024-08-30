@@ -372,6 +372,90 @@ const addNewStationLogQuery = async (params) => {
     }
 };
 
+
+const fetchFilteredDataInRange = async (Date, lat,long,range) => {
+    let query;
+    let values;
+  
+
+     query = `
+    			SELECT ndd.region_code,
+               ndd.region_name,
+               ndd.subdiv_name,
+               ndd.subdiv_code,
+               ndd.new_state_code as state_code,
+               ndd.state_name,
+               ndd.district_code,
+               ndd.district_name,
+               sd.station_code,
+               sd.station_name,
+               sd.station_type,
+               sd.centre_type,
+               sd.centre_name,
+               sd.is_new_station,
+               sd.latitude,
+               sd.longitude,
+               sd.activationdate,
+               sdd.data,
+               sdd.is_verified,
+               sdd.verified_at,
+			   sd.distance_km
+        FROM 
+(WITH params AS (
+        SELECT 
+            $1::numeric AS lat_point,  
+            $2::numeric AS lon_point,  
+            $3::numeric AS radius_km         
+    )
+    SELECT
+        district_code,
+        station_name,
+        station_code,
+        station_type,
+        station_type_old,
+        centre_type,
+        centre_name,
+        is_new_station,
+        latitude,
+        longitude,
+        activationdate,
+        created_at,
+        updated_at,
+        6371 * 2 * ASIN(SQRT(
+            POWER(SIN((radians(latitude::numeric) - radians(params.lat_point)) / 2), 2) +
+            COS(radians(params.lat_point)) * COS(radians(latitude::numeric)) *
+            POWER(SIN((radians(longitude::numeric) - radians(params.lon_point)) / 2), 2)
+        )) AS distance_km
+    FROM
+        public.station_details, params
+    WHERE
+        6371 * 2 * ASIN(SQRT(
+            POWER(SIN((radians(latitude::numeric) - radians(params.lat_point)) / 2), 2) +
+            COS(radians(params.lat_point)) * COS(radians(latitude::numeric)) *
+            POWER(SIN((radians(longitude::numeric) - radians(params.lon_point)) / 2), 2)
+        )) <= params.radius_km) AS sd
+
+		JOIN public.station_daily_data AS sdd 
+          ON sdd.station_id = sd.station_code
+        JOIN normal_district_details AS ndd 
+          ON ndd.district_code = sdd.district_code
+        WHERE sdd.collection_date = $4;
+		
+`;
+
+      values = [lat,long,range,Date];
+    
+  
+    try {
+      const result = await client.query(query, values);
+      return result.rows;
+    } catch (error) {
+      console.error('Error executing query', error.stack);
+      throw error;
+    }
+  };
+
+
 exports.fetchStationData = async (req, res) => {
     try {
         let { Date } = req.body;
@@ -805,3 +889,35 @@ exports.fetchAllDatesAndDataOfStation= async (req, res) => {
       });
     }
 };
+
+
+
+
+exports.fetchStationDataInRadius = async (req, res) => {
+    try {
+        let {Date, lat,long,range } = req.body;
+
+        // Use current date if no dates are provided
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!Date) {
+            Date =  currentDate;
+        } 
+
+        let data = await fetchFilteredDataInRange(Date,lat,long,range);
+
+        res.status(200).json({
+            success: true,
+            message: "Station data fetched Successfully",
+            data: data
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Station data",
+            error: error.message,
+        });
+    }
+}
+

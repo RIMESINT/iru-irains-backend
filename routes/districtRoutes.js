@@ -5,7 +5,7 @@ const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 const { fetchDistrictData, getAllDistrict} = require("../controllers/District")
-const { fetchDistrictDataFtp} = require("../controllers/ftp/District")
+const { fetchDistrictDataFtp, fetchDistrictDataInBunchOfDatesFtp} = require("../controllers/ftp/District")
 const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/scripts/district/normalDistrict");
 const { addNewDistrictDetails } = require("../controllers/scripts/district/addNormalDistrict");
 
@@ -17,6 +17,7 @@ const { addNewDistrictDetails } = require("../controllers/scripts/district/addNo
 // for scripts
 router.get("/nDistrictPrev", getnDistrictDataAndInsertInNormalDistrict);
 router.post("/addNewDistrictDetails", upload.single('file'), addNewDistrictDetails);
+router.post("/addNewDistrictDetails", upload.single('file'), addNewDistrictDetails);
 
 
 
@@ -24,6 +25,9 @@ router.post("/addNewDistrictDetails", upload.single('file'), addNewDistrictDetai
 router.post("/fetchDistrictData", fetchDistrictData);
 // fetch district data
 router.get("/getAllDistrict", getAllDistrict);
+
+router.post("/fetchDistrictDataInBunchOfDatesFtp", fetchDistrictDataInBunchOfDatesFtp);
+
 
 
 // ********************************************************************************************************

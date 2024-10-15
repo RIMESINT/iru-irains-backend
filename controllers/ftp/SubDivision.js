@@ -154,3 +154,171 @@ exports.getAllSubDivisions = async (req, res) => {
         });
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+exports.fetchSubDivisionDataInBunchOfDatesFtp = async (req, res) => {
+    try {
+        let { dateRanges } = req.body; // Expecting an array of date range objects
+
+        // Use current date if no dateRanges are provided
+        const currentDate = moment().format('YYYY-MM-DD');
+        
+        // Check if dateRanges is provided and has valid entries
+        if (!dateRanges || !Array.isArray(dateRanges) || dateRanges.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide valid date ranges",
+            });
+        }
+
+        // Validate and format date ranges
+        const formattedDateRanges = await Promise.all(dateRanges.map(async (range) => {
+            let { startDate, endDate } = range;
+
+            // Set to current date if no dates are provided
+            if (!startDate && !endDate) {
+                startDate = endDate = currentDate;
+            } else if (!startDate) {
+                startDate = endDate;
+            } else if (!endDate) {
+                endDate = startDate;
+            }
+
+            // Ensure startDate is less than or equal to endDate
+            if (moment(startDate).isAfter(endDate)) {
+                throw new Error("startDate should be less than or equal to endDate");
+            }
+
+            return [startDate, endDate]; // Changed to return an array [startDate, endDate]
+        }));
+
+        // Fetch data for all date ranges
+        const dataPromises = formattedDateRanges.map(range => 
+            fetchBetweenInBunchOfDates(range)  // Passing [startDate, endDate] array
+        );
+        
+        const results = await Promise.all(dataPromises);
+        
+        // Flatten the results array if needed
+        const combinedResults = results.flat();
+
+
+        res.status(200).json({
+            success: true,
+            message: "Sub division data fetched Successfully",
+            data: combinedResults, // Combined results for all date ranges
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Sub division data",
+            error: error.message,
+        });
+    }
+}
+
+const fetchBetweenInBunchOfDates = async (dateRange) => {
+    const [startDate, endDate] = dateRange;  // Destructure the array [startDate, endDate]
+    const query = `
+        select 
+        name as subdiv_name,
+        s_code,
+        r_code as region_code,
+        rainfall_normal_value,
+        actual_subdiv_rainfall,
+        ((actual_subdiv_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 as departure
+        From (
+            select 
+                min(name) as name,
+                s_code,
+                min(r_code) as r_code,
+                min(rainfall_value) as rainfall_normal_value,
+                (SUM(CASE WHEN subdiv_actual_numerator IS NOT NULL THEN subdiv_actual_numerator ELSE 0 END) / 
+                        NULLIF(SUM(CASE WHEN subdiv_actual_numerator IS NOT NULL THEN district_area ELSE 0 END), 0)) AS actual_subdiv_rainfall
+            FROM (
+                    select 	
+                        min(name) as name, 
+                        min(s_code) as s_code,  
+                        min(r_code) as r_code,  
+                        d_code as district_code, 
+                        sum(normal_rainfall) as rainfall_value,
+                         sum(actual_rainfall) as actual_rainfall_district,
+                        d_area as district_area,
+                        (d_area*sum(actual_rainfall)) as subdiv_actual_numerator
+                        from (
+                            SELECT 
+                                ns.date, 
+                                MIN(ndd.subdiv_name) AS name, 
+                                MIN(subdiv_code) AS s_code, 
+                                MIN(region_code) AS r_code, 
+                                ndd.district_code AS d_code,
+                                 CASE 
+                                    WHEN ndd.district_code IN (30506001, 30506002) THEN 0 
+                                    ELSE MIN(district_area) 
+                                END AS d_area,
+                                MIN(ns.rainfall_value) AS normal_rainfall,
+                                AVG(
+                                    CASE 
+                                        WHEN sdd.data = '-999.9' THEN NULL 
+                                        ELSE sdd.data 
+                                    END
+                                ) AS actual_rainfall
+                            FROM 
+                                station_daily_data_ftp AS sdd 
+                            JOIN
+                                normal_district_details AS ndd
+                            ON 
+                                sdd.district_code = ndd.district_code
+                            JOIN
+                                normal_sub_division AS ns
+                            ON 
+                                ndd.subdiv_code = ns.sub_division_id
+                            AND 
+                                ns.date = sdd.collection_date
+                            WHERE 
+                                ns.date BETWEEN $1 AND $2
+                            GROUP BY
+                                ndd.district_code,
+                                ns.date
+                        ) as sub_query2
+                        GROUP BY
+                            d_code,
+                            d_area
+                        ) as sub2
+                    GROUP BY
+                        s_code
+                )
+            as result`;
+
+    try {
+        const result = await client.query(query, [startDate, endDate]);  // Pass the individual dates
+        const rowsWithDates = result.rows.map(row => ({
+            ...row,  // Spread the existing row properties
+            startDate,  // Add startDate
+            endDate    // Add endDate
+
+        }));        
+        return rowsWithDates;
+    } catch (error) {
+        console.error('Error executing query', error.stack);
+        throw error;
+    }
+}
+

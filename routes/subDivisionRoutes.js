@@ -2,7 +2,7 @@ const express = require("express")
 const router = express.Router()
 
 const { fetchSubDivisionData, getAllSubDivisions} = require("../controllers/SubDivision")
-const { fetchSubDivisionDataFtp} = require("../controllers/ftp/SubDivision")
+const { fetchSubDivisionDataFtp, fetchSubDivisionDataInBunchOfDatesFtp} = require("../controllers/ftp/SubDivision")
 const { getnSubDivisionDataAndInsertInNormalSubDivision } = require("../controllers/scripts/subDivision/normalSubDivision");
 
 
@@ -18,6 +18,8 @@ router.get("/nSubDivisionPrev", getnSubDivisionDataAndInsertInNormalSubDivision)
 router.post("/fetchSubDivisionData", fetchSubDivisionData);
 // fetch sub division list
 router.get("/getAllSubDivisions", getAllSubDivisions);
+
+router.post('/fetchSubDivisionOfBunchDate', fetchSubDivisionDataInBunchOfDatesFtp)
 
 
 

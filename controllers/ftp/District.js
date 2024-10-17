@@ -150,68 +150,104 @@ exports.getAllDistrict = async (req, res) => {
 
 
 
+exports.getLatestFiveYearDataOfDistrictFtp = async (req, res) => {
+    // Define state_code and district_code outside of the try block
 
+    console.log('req.body', req.body);
+    
+    const { startDate, endDate, district_code } = req.body;
 
+    try {
 
+        // Validate inputs
+        if (!startDate || !endDate || !district_code) {
+            return res.status(400).json({
+                success: false,
+                message: "State code and district code are required",
+            });
+        }
 
+        // Query to fetch last 5 years' monthly data
+        const query = `select * ,
+      (((actual_rainfall) - (CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) / (CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) * 100 as departure
+from (
+select DATE_TRUNC('month', date) as date,
+avg(normal_rainfall) as normal_rainfall,
+avg(actual_rainfall) as actual_rainfall
+from (SELECT date,
+            min(d_name) as district_name,
+            min(s_code) as state_code,
+            min(r_code) as region_code,
+            min(sd_code) as sub_division_code,
+            sum(normal_rainfall) as normal_rainfall,
+            district_code,
+            sum(actual_rainfall) as actual_rainfall
+        FROM (
+            SELECT 
+                date,
+                min(rainfall_value) as normal_rainfall, 
+                min(ndd.district_name) as d_name,
+                ndd.district_code,
+                min(ndd.new_state_code) as s_code,
+                min(ndd.region_code) as r_code,
+                min(ndd.subdiv_code) as sd_code,
+                avg(
+                    CASE 
+                        WHEN sdd.data = '-999.9' THEN NULL 
+                        ELSE sdd.data 
+                    END
+                ) as actual_rainfall
+            FROM 
+                public.normal_district nd
+            JOIN 
+                public.normal_district_details ndd
+                ON nd.normal_district_details_id = ndd.id
+            JOIN 
+                public.station_daily_data_ftp sdd 
+                ON ndd.district_code = sdd.district_code 
+                AND sdd.collection_date = nd.date
+            WHERE 
+                date BETWEEN $1 AND $2 and ndd.district_code = $3
+            GROUP BY 
+                ndd.district_code, 
+                date
+        ) as test
+        GROUP BY 
+            district_code,
+			date)
 
+			group by district_code, 
+			DATE_TRUNC('month', date)
+			)`;
+        
+        const result = await client.query(query, [startDate, endDate, district_code]);
 
+        console.log('result.rows' ,result.rows);
 
+        // Handle empty results
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No data found for the given state and district over the last five years",
+            });
+        }
 
+        // Send successful response
+        res.status(200).json({
+            success: true,
+            message: "Monthly rainfall data for the past years fetched successfully",
+            data: result.rows
+        });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    } catch (error) {
+        console.error(`Error fetching data for state_code: ${state_code}, district_code: ${district_code}, error`);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch monthly rainfall data",
+            error: error.message
+        });
+    }
+};
 
 
 

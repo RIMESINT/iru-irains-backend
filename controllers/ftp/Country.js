@@ -348,7 +348,7 @@ FROM (
         ) AS final_subquery
     )
 	group by date
-) AS outer_query
+) AS outer_query )
 `;
 
     try {

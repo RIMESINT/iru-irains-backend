@@ -48,47 +48,60 @@ exports.fetchDistrictDataFtp = async (req, res) => {
 
 const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
-       SELECT 
-            min(d_name) as district_name,
-            min(s_code) as state_code,
-            min(r_code) as region_code,
-            min(sd_code) as sub_division_code,
-            sum(normal_rainfall) as normal_rainfall,
-            district_code,
-            sum(actual_rainfall) as actual_rainfall,
-            ((sum(actual_rainfall) - sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) / sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) * 100 as departure
-        FROM (
-            SELECT 
-                date,
-                min(rainfall_value) as normal_rainfall, 
-                min(ndd.district_name) as d_name,
-                ndd.district_code,
-                min(ndd.new_state_code) as s_code,
-                min(ndd.region_code) as r_code,
-                min(ndd.subdiv_code) as sd_code,
-                avg(
-                    CASE 
-                        WHEN sdd.data = '-999.9' THEN NULL 
-                        ELSE sdd.data 
-                    END
-                ) as actual_rainfall
-            FROM 
-                public.normal_district nd
-            JOIN 
-                public.normal_district_details ndd
-                ON nd.normal_district_details_id = ndd.id
-            JOIN 
-                public.station_daily_data_ftp sdd 
-                ON ndd.district_code = sdd.district_code 
-                AND sdd.collection_date = nd.date
-            WHERE 
-                date BETWEEN $1 AND $2
-            GROUP BY 
-                ndd.district_code, 
-                date
-        ) as test
+       SELECT *,
+    (
+        (actual_rainfall - 
+            CASE 
+                WHEN normal_rainfall = 0 THEN 0.01 
+                ELSE normal_rainfall 
+            END) / 
+        CASE 
+            WHEN normal_rainfall = 0 THEN 0.01 
+            ELSE normal_rainfall 
+        END
+    ) * 100 AS departure
+FROM (
+    SELECT 
+        MIN(d_name) AS district_name,
+        MIN(s_code) AS state_code,
+        MIN(r_code) AS region_code,
+        MIN(sd_code) AS sub_division_code,
+        SUM(normal_rainfall) AS normal_rainfall,
+        district_code,
+        SUM(actual_rainfall) AS actual_rainfall
+    FROM (
+        SELECT 
+            date,
+            MIN(rainfall_value) AS normal_rainfall, 
+            MIN(ndd.district_name) AS d_name,
+            ndd.district_code,
+            MIN(ndd.new_state_code) AS s_code,
+            MIN(ndd.region_code) AS r_code,
+            MIN(ndd.subdiv_code) AS sd_code,
+            AVG(
+                CASE 
+                    WHEN sdd.data = '-999.9' THEN NULL 
+                    ELSE sdd.data 
+                END
+            ) AS actual_rainfall
+        FROM 
+            public.normal_district nd
+        JOIN 
+            public.normal_district_details ndd ON nd.normal_district_details_id = ndd.id
+        JOIN 
+            public.station_daily_data_ftp sdd ON ndd.district_code = sdd.district_code 
+            AND sdd.collection_date = nd.date
+        WHERE 
+            date BETWEEN $1 AND $2
         GROUP BY 
-            district_code;
+            ndd.district_code, 
+            date
+    ) AS test
+    GROUP BY 
+        district_code
+    ORDER BY 
+        district_name
+) AS final_result;
     `;
 
     try {

@@ -18,6 +18,7 @@ const countryRoutes = require("./routes/countryRoutes")
 const centreRoutes = require("./routes/centreRoutes")
 const emailRoutes = require("./routes/emailRoutes")
 const pdfRoutes = require("./routes/pdfRoutes")
+const resetPassRoutes = require("./routes/resetPassRoutes")
 // const cron = require('node-cron');
 
 // cron.schedule('0 14 * * *', () => {
@@ -94,6 +95,7 @@ app.use("/api/v1/", countryRoutes);
 app.use("/api/v1/", centreRoutes);
 app.use("/api/v1/", emailRoutes);
 app.use("/api/v1/", pdfRoutes);
+app.use("/api/v1/", resetPassRoutes);
 
 app.listen(port, () => {
     console.log(`Server started at PORT ${port}`);

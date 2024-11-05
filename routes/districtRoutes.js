@@ -8,6 +8,7 @@ const { fetchDistrictData, getAllDistrict, getLatestFiveYearDataOfDistrict} = re
 const { fetchDistrictDataFtp, fetchDistrictDataInBunchOfDatesFtp,getLatestFiveYearDataOfDistrictFtp} = require("../controllers/ftp/District")
 const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/scripts/district/normalDistrict");
 const { addNewDistrictDetails } = require("../controllers/scripts/district/addNormalDistrict");
+const { inserNewDistrictAndNormalValues } = require("../controllers/scripts/AddDistrictAndNormals");
 
 
 // ********************************************************************************************************
@@ -17,7 +18,7 @@ const { addNewDistrictDetails } = require("../controllers/scripts/district/addNo
 // for scripts
 router.get("/nDistrictPrev", getnDistrictDataAndInsertInNormalDistrict);
 router.post("/addNewDistrictDetails", upload.single('file'), addNewDistrictDetails);
-router.post("/addNewDistrictDetails", upload.single('file'), addNewDistrictDetails);
+router.post("/inserNewDistrictAndNormalValues", upload.single('file'), inserNewDistrictAndNormalValues);
 
 
 

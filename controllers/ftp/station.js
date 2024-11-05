@@ -6,7 +6,7 @@ const xlsx = require('xlsx');
 const client = require("../../connection"); 
 
 
-exports.fetchStationUnifiedFile = async (req, res) => {
+exports.fetchStationUnifiedFileFtp = async (req, res) => {
     try {
         let { startDate, endDate, districtCodes } = req.body;
 
@@ -60,7 +60,7 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
         const result = await client.query(query, [districtCodes, startDate, endDate]);
 
         // Disconnect the client after query execution
-        await client.end();
+        // await client.end();
 
         // Return the fetched data
         return result.rows;

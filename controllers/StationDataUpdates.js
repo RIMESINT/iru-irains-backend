@@ -418,9 +418,6 @@ const removePrevData = async () => {
       console.error(error);
       throw new Error(error.message);
     }
-    
-
-    
 }
 
 

@@ -37,6 +37,12 @@ const {
     AddDailyStationData
 } = require("../controllers/StationDataUpdates")
 
+
+
+const {
+    fetchStationUnifiedFile,
+} = require("../controllers/ftp/station")
+
 // ********************************************************************************************************
 //                                      Station routes
 // ********************************************************************************************************
@@ -58,6 +64,8 @@ router.post("/deleteStation", deleteStation);
 router.post("/verifyStationData", verifyStationData);
 router.post("/verifyMultipleStationData", verifyMultipleStationData);
 
+
+
 router.get("/fetchStationLogs", fetchStationLogs);
 router.post("/fetchAllDatesAndDataOfStation", fetchAllDatesAndDataOfStation);
 
@@ -71,6 +79,14 @@ router.post("/insertStationDataFtp", upload.single('file'), insertStationDataFtp
 router.post("/fetchStationDataInRadius", fetchStationDataInRadius);
 router.post("/fetchStationWithMaxRainfall", fetchStationWithMaxRainfall);
 router.get("/AddDailyStationData", AddDailyStationData);  //testing 
+
+
+
+// ********************************************************************************************************
+//                                     FTP Station routes
+// ********************************************************************************************************
+router.post("/fetchFilteredStationUnifiedFile", fetchStationUnifiedFile);
+
 
 
 module.exports = router;

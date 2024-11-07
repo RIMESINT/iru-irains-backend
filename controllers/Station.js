@@ -1060,8 +1060,9 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
         // SQL Query to fetch the filtered data
         const query = `
             SELECT *
-            FROM public.station_daily_data
-            WHERE district_code = ANY($1) 
+            FROM public.station_daily_data as sddf
+			join station_details as sd on sd.station_code = sddf.station_id
+            WHERE sddf.district_code = ANY($1) 
             AND collection_date BETWEEN $2 AND $3;
         `;
 

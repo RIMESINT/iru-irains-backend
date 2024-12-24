@@ -1052,6 +1052,7 @@ exports.fetchStationUnifiedFile = async (req, res) => {
     }
 };
 
+
 // created by balu on oct 22
 const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes) => {
     try {
@@ -1079,6 +1080,63 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
         throw error;
     }
 };
+
+
+
+
+
+
+
+
+
+exports.dataActions = async (req, res) => {
+    try {
+        let { startDate } = req.body;
+
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!startDate) {
+            startDate = currentDate;
+        }
+
+
+        // Fetch filtered data using client query
+        let data = await dataActionsTable(startDate);
+
+        res.status(200).json({
+            success: true,
+            message: "Station data fetched successfully",
+            data: data,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch station data",
+            error: error.message,
+        });
+    }
+};
+
+const dataActionsTable = async (startDate) => {
+
+    try {
+        // SQL Query to fetch the filtered data for a specific date from data_actions table
+        const query = `
+            SELECT *
+            FROM public.data_actions
+            WHERE updated_at::date = $1;
+        `;
+        
+        // Execute the query using the client
+        const result = await client.query(query, [startDate]);
+
+        // Return the fetched data
+        return result.rows;3
+    } catch (error) {
+        console.error('Error fetching data actions:', error);
+        throw error;
+    }
+}
 
 
 

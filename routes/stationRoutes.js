@@ -18,7 +18,8 @@ const { fetchStationData,
         fetchInRangeStationdata,
         fetchStationLogs,
         fetchAllDatesAndDataOfStation,
-        fetchStationUnifiedFile
+        fetchStationUnifiedFile,
+        dataActions,
     } = require("../controllers/Station")
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 
@@ -83,7 +84,7 @@ router.post("/fetchStationDataInRadius", fetchStationDataInRadius);
 router.post("/fetchStationWithMaxRainfall", fetchStationWithMaxRainfall);
 router.get("/AddDailyStationData", AddDailyStationData);  //testing 
 router.post("/fetchFilteredStationUnifiedFile", fetchStationUnifiedFile);
-
+router.post("/dataActions", dataActions);
 
 
 
@@ -91,6 +92,7 @@ router.post("/fetchFilteredStationUnifiedFile", fetchStationUnifiedFile);
 //                                     FTP Station routes
 // ********************************************************************************************************
 router.post("/fetchFilteredStationUnifiedFileFtp", fetchStationUnifiedFileFtp);
+
 
 
 

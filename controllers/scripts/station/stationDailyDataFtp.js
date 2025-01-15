@@ -71,7 +71,8 @@ exports.insertStationDataFtp = async(req, res) => {
     const new_query = queryText + result.join(", ") + `
     ON CONFLICT (station_id, collection_date, district_code) 
     DO UPDATE SET 
-      data = EXCLUDED.data;
+      data = EXCLUDED.data
+    WHERE station_daily_data_ftp.data != EXCLUDED.data;
     `;
     await client.query(new_query);
     // await client.query(new_query1);

@@ -34,7 +34,7 @@ exports.insertStationDataFtp = async(req, res) => {
     
     // Helper function to format date
     function formatDate(dateStr) {
-      const date = new Date(`2024-${dateStr}`);
+      const date = new Date(`2025-${dateStr}`);
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const day = String(date.getDate()).padStart(2, '0');

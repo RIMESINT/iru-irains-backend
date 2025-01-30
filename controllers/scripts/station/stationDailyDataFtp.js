@@ -64,20 +64,29 @@ exports.insertStationDataFtp = async(req, res) => {
     });
 
     // const queryText = "INSERT INTO station_daily_data_ftp (district_code ,station_id, collection_date, data) VALUES ";
+    // const queryText = `
+    // INSERT INTO station_daily_data_ftp (district_code, station_id, collection_date, data) 
+    // VALUES `;
+//     const new_query1 = `
+//     UPDATE station_daily_data_ftp 
+// SET data = $4
+// WHERE (station_id = $2 AND collection_date = $3 AND district_code = $1) 
+//   AND data != $4;
+//     `;
+
     const queryText = `
-    INSERT INTO station_daily_data_ftp (district_code, station_id, collection_date, data) 
-    VALUES `;
+   INSERT INTO station_daily_data_ftp (district_code, station_id, collection_date, data) 
+VALUES `;
     
     const new_query = queryText + result.join(", ") + `
     ON CONFLICT (station_id, collection_date, district_code) 
-    DO UPDATE SET 
-      data = EXCLUDED.data
-    WHERE station_daily_data_ftp.data != EXCLUDED.data;
+DO NOTHING 
     `;
     await client.query(new_query);
     // await client.query(new_query1);
 
     res.status(200).json({ message: "Data Inserted Successfully" });
+    
     
       } catch (error) {
         console.error("Error processing request:", error.message);
@@ -118,3 +127,5 @@ const createStationDailyDataTable = async () => {
       throw error;
     }
 }
+
+

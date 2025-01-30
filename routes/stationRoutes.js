@@ -6,6 +6,7 @@ const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 const { fetchStationData,
+
         // updateStationData, 
         addNewStation, 
         editStation, 
@@ -37,6 +38,7 @@ const {
     // fetchStationLogs,
     // fetchAllDatesAndDataOfStation,
     AddDailyStationData,
+    fetchStationDataIncludingVerification,
     
 
 } = require("../controllers/StationDataUpdates")
@@ -59,6 +61,7 @@ router.get("/insertLatLongInStationDetails", upload.single('file'), insertLatLon
 router.get("/createStationDetailsTable", createStationDetailsTable);
 router.post("/fetchStationDataNew", fetchStationData);
 router.post("/fetchStationData", fetchStationDataNew);
+router.post("/fetchStationDataIncludingVerification", fetchStationDataIncludingVerification);
 router.post("/fetchInRangeStationdata", fetchInRangeStationdataNew);
 router.post("/fetchInRangeStationdataNew", fetchInRangeStationdata);
 router.post("/updateStationData", updateStationData);

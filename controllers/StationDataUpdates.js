@@ -82,6 +82,94 @@ const fetchFilteredData = async (startDate, endDate = null) => {
       throw error;
     }
 };
+const fetchFilteredDataIncludingVerification = async (startDate) => {
+  const query = `
+    WITH station_pairs AS (
+        SELECT 
+            s1.station_code::bigint AS source_station,  
+            s2.station_code::bigint AS nearby_station,
+            CASE WHEN sd.data = -999.9 THEN NULL ELSE sd.data END AS data, 
+            sd.collection_date,
+            (
+                6371 * acos(
+                    LEAST(1.0, GREATEST(-1.0, 
+                        cos(radians(s1.latitude)) * cos(radians(s2.latitude)) *
+                        cos(radians(s2.longitude) - radians(s1.longitude)) +
+                        sin(radians(s1.latitude)) * sin(radians(s2.latitude))
+                    ))
+                )
+            ) AS distance_km
+        FROM public.station_details s1
+        JOIN public.station_details s2 
+            ON s1.station_code <> s2.station_code  
+        LEFT JOIN public.station_daily_data_ftp sd 
+            ON s2.station_code = sd.station_id
+        WHERE 
+            s1.latitude IS NOT NULL AND s1.longitude IS NOT NULL 
+            AND s2.latitude IS NOT NULL AND s2.longitude IS NOT NULL 
+            AND sd.collection_date = $1
+    ),
+    station_stats AS (
+        SELECT 
+            source_station,
+            COALESCE(AVG(data), 0) AS mean_data,
+            COALESCE(STDDEV(data), 1) AS stddev_data  
+        FROM station_pairs
+        WHERE distance_km <= 10 AND data IS NOT NULL  
+        GROUP BY source_station
+    ),
+    z_scores AS (
+        SELECT
+            sp.source_station,
+            sp.nearby_station,
+            sp.data,
+            ss.mean_data,
+            ss.stddev_data,
+            (sp.data - ss.mean_data) / NULLIF(ss.stddev_data, 0) AS z_score
+        FROM station_pairs sp
+        LEFT JOIN station_stats ss ON sp.source_station = ss.source_station
+        WHERE sp.distance_km <= 10 AND sp.data IS NOT NULL  
+    ),
+    percentiles AS (
+        SELECT 
+            source_station,
+            nearby_station,
+            z_score,
+            PERCENT_RANK() OVER (PARTITION BY source_station ORDER BY z_score) * 100 AS z_percentile
+        FROM z_scores
+    )
+    SELECT 
+        sd.station_code AS source_station,
+        CASE 
+            WHEN sd.latitude IS NULL OR sd.longitude IS NULL THEN 'Invalid Location Point' 
+            ELSE COALESCE(
+                MIN(
+                    CASE
+                        WHEN zp.z_percentile >= 30 AND zp.z_percentile <= 70 THEN 'Average'
+                        WHEN zp.z_percentile < 30 THEN 'Low Deviated'
+                        WHEN zp.z_percentile > 70 THEN 'Highly Deviated'
+                       
+                    END
+                ), 
+                'Average'  
+            ) 
+        END AS deviation_status
+    FROM public.station_details sd
+    LEFT JOIN percentiles zp ON sd.station_code = zp.source_station
+    GROUP BY sd.station_code, sd.latitude, sd.longitude
+    ORDER BY sd.station_code;
+  `;
+
+  const values = [startDate];
+
+  try {
+    const result = await client.query(query, values);
+    return result.rows;
+  } catch (error) {
+    console.error('Error executing query', error.stack);
+    throw error;
+  }
+};
 
 const updateStationDataQuery = async (station_code, date, value ) => {
     const query = `
@@ -182,6 +270,38 @@ exports.fetchStationDataNew = async (req, res) => {
         });
     }
 }
+
+
+
+exports.fetchStationDataIncludingVerification = async (req, res) => {
+  try {
+      let { Date } = req.body;
+
+      // Use current date if no dates are provided
+      const currentDate = moment().format('YYYY-MM-DD');
+      if (!Date) {
+          Date =  currentDate;
+      } 
+
+      let data = await fetchFilteredDataIncludingVerification(Date);
+
+      res.status(200).json({
+          success: true,
+          message: "Station data fetched Successfully",
+          data: data
+      });
+
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({
+          success: false,
+          message: "Failed to fetch Station data",
+          error: error.message,
+      });
+  }
+}
+
+
 
 exports.fetchInRangeStationdataNew = async(req, res) => {
     try {

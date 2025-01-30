@@ -79,7 +79,6 @@ exports.insertStationDataFtp = async(req, res) => {
 
     res.status(200).json({ message: "Data Inserted Successfully" });
     
-    
       } catch (error) {
         console.error("Error processing request:", error.message);
         res.status(500).json({ error: error.message });

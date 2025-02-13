@@ -102,7 +102,7 @@ const fetchFilteredDataIncludingVerification = async (startDate) => {
         FROM public.station_details s1
         JOIN public.station_details s2 
             ON s1.station_code <> s2.station_code  
-        LEFT JOIN public.station_daily_data_ftp sd 
+        LEFT JOIN public.station_daily_data_updates sd 
             ON s2.station_code = sd.station_id
         WHERE 
             s1.latitude IS NOT NULL AND s1.longitude IS NOT NULL 
@@ -376,7 +376,7 @@ exports.insertRainfallFile = async (req, res) => {
         const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
         const formattedData = sheetData.flatMap(row => {
-            const { station_id, station_name, centre_type, ...dateData } = row;
+            const { district_name, station_id, station_name, centre_type, ...dateData } = row;
             const district_code = station_id.toString().substring(0, 8);
 
             return Object.entries(dateData).map(([date, rainfall]) => ({
@@ -539,7 +539,6 @@ const removePrevData = async () => {
       throw new Error(error.message);
     }
 }
-
 
 const copyDataFromUpdatesToStationDailyData = async () => {
     try {

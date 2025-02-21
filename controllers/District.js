@@ -118,7 +118,7 @@ exports.getAllDistrict = async (req, res) => {
                             ndd.district_code, 
                             MIN(subdiv_name), 
                             MIN(subdiv_code), 
-                            MIN(region_name), 
+                            MIN(region_name) as region_name, 
                             MIN(region_code), 
                             MIN(state_name), 
                             MIN(new_state_code) AS state_code,

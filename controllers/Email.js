@@ -195,7 +195,8 @@ dailyDataUpdateReminderQuery = async (req, res) => {
                 trows+=`</tbody>
                         </table>`
 
-                sendEmail({to:"ghanshyampal789@gmail.com",subject:item.username,html:trows})  
+                const subjectmatter = `iRAINS Remainder : Please update the station data for the given below stations`
+                sendEmail({to:item.username,subject:subjectmatter,html:trows})  
                 console.log(trows);
             }
             
@@ -260,6 +261,7 @@ dailyDataVerificationReminderQuery = async (req, res) => {
          result.rows.map(async item => {
             const result1 = await client.query(query,[item.username]);
             if(result1.rows[0]){
+
                 let trows = `<table border='1'> 
                                 <thead>
                                 <tr>
@@ -273,8 +275,9 @@ dailyDataVerificationReminderQuery = async (req, res) => {
                 })
                 trows+=`</tbody>
                         </table>`
-
-                sendEmail({to:"ghanshyampal789@gmail.com",subject:item.username,html:trows})  
+                
+                const subjectmatter = `iRAINS DataUpdate Remainder : Please verify the station data for the given below stations`
+                sendEmail({to:item.username,subject:subjectmatter,html:trows})  
                 console.log(trows);            
             }
             

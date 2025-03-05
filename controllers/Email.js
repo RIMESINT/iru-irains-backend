@@ -195,8 +195,8 @@ dailyDataUpdateReminderQuery = async (req, res) => {
                 trows+=`</tbody>
                         </table>`
 
-                const subjectmatter = `iRAINS Remainder : Please update the station data for the given below stations`
-                sendEmail({to:item.username,subject:subjectmatter,html:trows})  
+                const subjectmatter = `iRAINS DataUpdate Remainder : Please update the station data for the given below stations`
+                sendEmail({to:"ghanshyampal789@gmail.com",subject:subjectmatter,html:trows})  
                 console.log(trows);
             }
             
@@ -276,8 +276,8 @@ dailyDataVerificationReminderQuery = async (req, res) => {
                 trows+=`</tbody>
                         </table>`
                 
-                const subjectmatter = `iRAINS DataUpdate Remainder : Please verify the station data for the given below stations`
-                sendEmail({to:item.username,subject:subjectmatter,html:trows})  
+                const subjectmatter = `iRAINS Verification Remainder : Please verify the station data for the given below stations`
+                sendEmail({to:"ghanshyampal789@gmail.com",subject:subjectmatter,html:trows})  
                 console.log(trows);            
             }
             

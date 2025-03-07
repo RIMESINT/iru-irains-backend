@@ -70,6 +70,18 @@ app.post("/login", (req, res) => {
 
 const port = process.env.PORT || 3000;
 
+app.use("/api/v1/", regionRoutes);
+app.use("/api/v1/", districtRoutes);
+app.use("/api/v1/", stationRoutes);
+app.use("/api/v1/", stateRoutes);
+app.use("/api/v1/", subDivisionRoutes);
+app.use("/api/v1/", regionRoutes);
+app.use("/api/v1/", countryRoutes);
+app.use("/api/v1/", centreRoutes);
+app.use("/api/v1/", emailRoutes);
+app.use("/api/v1/", pdfRoutes);
+app.use("/api/v1/", resetPassRoutes);
+
 // Use HTTPS Server
 https.createServer(options, app).listen(port, () => {
     console.log(`Secure HTTPS Server started at PORT ${port}`);

@@ -1,105 +1,78 @@
+const https = require("https"); 
+const fs = require("fs"); 
 const client = require("./connection");
 const express = require("express");
 const app = express();
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-const cronJob =require('./controllers/CronJobs')
-// const nodemailer = require('nodemailer');
-require('dotenv').config();
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+require("dotenv").config();
 
-const districtRoutes = require("./routes/districtRoutes")
-const stationRoutes = require("./routes/stationRoutes")
-const stateRoutes = require("./routes/stateRoutes")
-const subDivisionRoutes = require("./routes/subDivisionRoutes")
-const regionRoutes = require("./routes/regionRoutes")
-const countryRoutes = require("./routes/countryRoutes")
-const centreRoutes = require("./routes/centreRoutes")
-const emailRoutes = require("./routes/emailRoutes")
-const pdfRoutes = require("./routes/pdfRoutes")
-const resetPassRoutes = require("./routes/resetPassRoutes")
-// const cron = require('node-cron');
+const districtRoutes = require("./routes/districtRoutes");
+const stationRoutes = require("./routes/stationRoutes");
+const stateRoutes = require("./routes/stateRoutes");
+const subDivisionRoutes = require("./routes/subDivisionRoutes");
+const regionRoutes = require("./routes/regionRoutes");
+const countryRoutes = require("./routes/countryRoutes");
+const centreRoutes = require("./routes/centreRoutes");
+const emailRoutes = require("./routes/emailRoutes");
+const pdfRoutes = require("./routes/pdfRoutes");
+const resetPassRoutes = require("./routes/resetPassRoutes");
 
-// cron.schedule('0 14 * * *', () => {
-// });
+// Load SSL Certificate
+const options = {
+    key: fs.readFileSync("/etc/apache2/private.key"),  
+    cert: fs.readFileSync("/etc/apache2/*.imd.gov.in.crt"),  
+    ca: fs.readFileSync("/etc/apache2/emSign-SSL-CA-G1.crt"),  
+};
 
 app.use(cors());
-app.use(bodyParser.json({ limit: '10mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+app.use(bodyParser.json({ limit: "10mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
 
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
-    res.header(
-        "Access-Control-Allow-Headers",
-        "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-    );
-    res.header(
-        "Access-Control-Allow-Methods",
-        "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    );
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     next();
 });
 
-// const smtpTransport = nodemailer.createTransport({
-//     host: 'smtp.gmail.com',
-//     port: 587,
-//     secure: false, // true for 465, false for other ports
-//     auth: {
-//         user: 'saurav@rimes.int',
-//         pass: 'sxcjuiwivyptrxkp'
-//     }
-// });
-
+// Generate JWT Secret Key
 const generateSecretKey = () => {
-    const secretKey = crypto.randomBytes(32).toString('hex');
-    return secretKey;
+    return crypto.randomBytes(32).toString("hex");
 };
 
-
 const secretKey = generateSecretKey();
+
 app.post("/login", (req, res) => {
     client.query(
         `SELECT * FROM login WHERE username = '${req.body.username}' AND password = '${req.body.password}';`,
         (err, result) => {
-            console.log(result.rows, "hhhh")
             if (err) {
                 res.send({ message: "Server Error", err });
             } else {
                 if (result.rows.length) {
                     const user = {
                         userName: req.body.username,
-                        password: req.body.password
-                    }
-                    jwt.sign({ user }, secretKey, { expiresIn: '300s' }, (err, token) => {
-                        res.json({ message: "Login successful", token: token, data: result.rows })
-                    })
+                        password: req.body.password,
+                    };
+                    jwt.sign({ user }, secretKey, { expiresIn: "300s" }, (err, token) => {
+                        res.json({ message: "Login successful", token: token, data: result.rows });
+                    });
                 } else {
-                    res.send({ message: "Username and Passwrod are Invalid" });
+                    res.send({ message: "Username and Password are Invalid" });
                 }
             }
         }
     );
 });
 
-
 const port = process.env.PORT || 3000;
 
-app.use("/api/v1/", regionRoutes);
-app.use("/api/v1/", districtRoutes);
-app.use("/api/v1/", stationRoutes);
-app.use("/api/v1/", stateRoutes);
-app.use("/api/v1/", subDivisionRoutes);
-app.use("/api/v1/", regionRoutes);
-app.use("/api/v1/", countryRoutes);
-app.use("/api/v1/", centreRoutes);
-app.use("/api/v1/", emailRoutes);
-app.use("/api/v1/", pdfRoutes);
-app.use("/api/v1/", resetPassRoutes);
-
-app.listen(port, () => {
-    console.log(`Server started at PORT ${port}`);
+// Use HTTPS Server
+https.createServer(options, app).listen(port, () => {
+    console.log(`Secure HTTPS Server started at PORT ${port}`);
 });
-
 
 client.connect();

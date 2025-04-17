@@ -21,6 +21,7 @@ const { fetchStationData,
         fetchAllDatesAndDataOfStation,
         fetchStationUnifiedFile,
         dataActions,
+        fetchStationDataNWP,
     } = require("../controllers/Station")
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 
@@ -60,6 +61,7 @@ router.get("/insertLatLongInStationDetails", upload.single('file'), insertLatLon
 
 router.get("/createStationDetailsTable", createStationDetailsTable);
 router.post("/fetchStationDataNew", fetchStationData);
+router.post("/station_data_for_nwp", fetchStationDataNWP);
 router.post("/fetchStationData", fetchStationDataNew);
 router.post("/fetchStationDataIncludingVerification", fetchStationDataIncludingVerification);
 router.post("/fetchInRangeStationdata", fetchInRangeStationdataNew);

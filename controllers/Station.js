@@ -1141,6 +1141,109 @@ const dataActionsTable = async (startDate) => {
 
 
 
+const fetchFilteredDataNWP = async (startDate, endDate = null) => {
+    let query;
+    let values;
+  
+    if (endDate) {
+      query = `
+                SELECT  
+                        min(ndd.region_name) as region_name,
+                        min(ndd.subdiv_name) as subdiv_name,
+                        min( ndd.state_name) as state_name,
+                        min(ndd.district_name) as district_name,
+                        (sd.station_code) as station_code,
+                        min(sd.station_name) as station_name,
+                        min(sd.station_type) as station_type,
+                        min(sd.centre_type) as centre_type,
+                        min(sd.centre_name) as centre_name,
+                        min(sd.latitude) as latitude,
+                        min(sd.longitude) as longitude,
+                        sum(sdd.data) as rainfall_data_in_mm
+                    FROM public.station_details AS sd
+                    JOIN public.station_daily_data AS sdd 
+                    ON sdd.station_id = sd.station_code
+                    JOIN normal_district_details AS ndd 
+                    ON ndd.district_code = sdd.district_code
+                    WHERE sdd.collection_date BETWEEN $1 AND $2 and sdd.data != (-999.9)
+                    group by sd.station_code
+                    order by station_code
+                `;
+      values = [startDate, endDate];
+    } else {
+      query = `
+        SELECT 
+               ndd.region_name,
+               ndd.subdiv_name,
+               ndd.state_name,
+               ndd.district_name,
+               sd.station_code,
+               sd.station_name,
+               sd.station_type,
+               sd.centre_type,
+               sd.centre_name,
+               sd.latitude,
+               sd.longitude,
+               sdd.data as rainfall_data_in_mm
+        FROM public.station_details AS sd
+        JOIN public.station_daily_data AS sdd 
+          ON sdd.station_id = sd.station_code
+        JOIN normal_district_details AS ndd 
+          ON ndd.district_code = sdd.district_code
+        WHERE sdd.collection_date = $1;
+      `;
+      values = [startDate];
+    }
+  
+    try {
+      const result = await client.query(query, values);
+      return result.rows;
+    } catch (error) {
+      console.error('Error executing query', error.stack);
+      throw error;
+    }
+  };
+
+
+  exports.fetchStationDataNWP = async (req, res) => {
+    try {
+
+        let { user,pass } = req.body;
+        if(user=="IMD_NWP" && pass=="!Md@15O#nWp"){
+        const currentTime = moment();
+        const cutoffTime = moment().set({ hour: 13, minute: 59 });
+        
+        const effectiveDate = currentTime.isAfter(cutoffTime)
+          ? currentTime.format('YYYY-MM-DD')
+          : currentTime.subtract(1, 'day').format('YYYY-MM-DD');
+
+        let data = await fetchFilteredDataNWP(effectiveDate);
+
+        res.status(200).json({
+            success: true,
+            message: "Station data fetched Successfully",
+            date:effectiveDate,
+            data: data
+        });
+    }
+    else{
+        res.status(500).json({
+            success: false,
+            message: "You are not authorized to use this API",
+            // data: data
+        });
+    }
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Station data",
+            // error: error.message,
+        });
+    }
+}
+
 
 
 

@@ -9,7 +9,7 @@ const convertDate = require("../../utils/convertDate");
 
 //     // Helper function to format date
 function formatDate(dateStr) {
-    const date = new Date(`2024-${dateStr}`);
+    const date = new Date(`2025-${dateStr}`);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -159,6 +159,11 @@ exports.inserNewDistrictAndNormalValues = async (req, res) => {
 
       await client.query('BEGIN');  // Start transaction
 
+      // ✅ Update the sequence before any inserts
+      await client.query(`
+      SELECT setval('normal_district_id_seq', (SELECT MAX(id) FROM normal_district));
+      `);
+
       for (const row of rows) {
           // Step 1: Insert district information
           const infoId = await insertDistrict(row.district_name, row.district_code, row.district_area);
@@ -181,8 +186,9 @@ exports.inserNewDistrictAndNormalValues = async (req, res) => {
           }
 
           // Remove last comma and execute the query
+          console.log('Before',insertQuery)
           insertQuery = insertQuery.slice(0, -1);
-          console.log(insertQuery);
+          console.log('After',insertQuery);
           await client.query(insertQuery);
       }
 
@@ -204,59 +210,59 @@ const insertDistrict = async (d_name,d_code,d_area) =>{
   const state = parseInt(strValue[0] + strValue[3] + strValue[4], 10);
 
   const insertInfoText = `INSERT INTO normal_district_details (
-                      district_code,
-                      district_name,
-                      district_area,   
-                      ddd,
-                      region_name,
-                      region_code,
-                      state_code,
-                      new_state_code,
-                      state_name,
-                      rst,
-                      subdiv_code,
-                      subdiv_name,
-                      sd,
-                      subdiv_weight
-                  )
-                  (SELECT 
-                      $1 AS district_code,                    
-                      $2 AS district_name,                    
-                      $3 AS district_area,                    
-                      $4 AS ddd,                    
-                      nd1.region_name,
-                      nd1.region_code,
-                      nd1.state_code,
-                      nd1.new_state_code,
-                      nd1.state_name,
-                      nd1.rst,
-                      nd2.subdiv_code,
-                      nd2.subdiv_name,
-                      nd2.sd,
-                      nd2.subdiv_weight
-                  FROM 
-                      (SELECT region_name, region_code, state_code, new_state_code, state_name, rst 
-                      FROM normal_district_details 
-                      WHERE new_state_code = $5 
-                      LIMIT 1) AS nd1
-                  JOIN 
-                      (SELECT subdiv_code, subdiv_name, sd, subdiv_weight 
-                      FROM normal_district_details 
-                      WHERE subdiv_code = $6 
-                      LIMIT 1) AS nd2 
-                  ON 
-                      nd1.new_state_code = nd2.subdiv_code) RETURNING id;
+                        district_code,
+                        district_name,
+                        district_area,
+                        ddd,
+                        region_name,
+                        region_code,
+                        state_code,
+                        new_state_code,
+                        state_name,
+                        rst,
+                        subdiv_code,
+                        subdiv_name,
+                        sd,
+                        subdiv_weight
+                    )
+                    SELECT 
+                        $1 AS district_code,      
+                        $2 AS district_name,
+                        $3 AS district_area,
+                        $4 AS ddd,
+                        nd1.region_name,
+                        nd1.region_code,
+                        nd1.state_code,
+                        nd1.new_state_code,
+                        nd1.state_name,
+                        nd1.rst,
+                        nd2.subdiv_code,
+                        nd2.subdiv_name,
+                        nd2.sd,
+                        nd2.subdiv_weight
+                    FROM 
+                        (SELECT region_name, region_code, state_code, new_state_code, state_name, rst 
+                        FROM normal_district_details 
+                        WHERE new_state_code = $5 
+                        LIMIT 1) AS nd1
+                    CROSS JOIN 
+                        (SELECT subdiv_code, subdiv_name, sd, subdiv_weight 
+                        FROM normal_district_details 
+                        WHERE subdiv_code = $6
+                        LIMIT 1) AS nd2
+                    RETURNING id;
                   `
 
 //   const insertInfoText = `
 //   INSERT INTO info (district_code, district_name, district_area)
 //   VALUES ($1, $2, $3) RETURNING info_id
 // `;
+
 const infoResult = await client.query(insertInfoText, [
   d_code,
   d_name,
   d_area,
-  parseInt(strValue.slice(0, 1), 10),
+  parseInt(strValue.slice(-3), 10),
   state,subdiv
 ]);
 console.log("id ",infoResult.rows[0].id)

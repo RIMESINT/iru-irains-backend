@@ -167,6 +167,115 @@ const addNewStationQuery = async ({station_name, station_id, station_type, centr
 };
 
 
+const updateStationQuery = async (client, {
+  station_id,
+  station_name,
+  district_name,
+  station_type,
+  centre_type,
+  centre_name,
+  latitude,
+  longitude,
+  activationdate,
+}) => {
+  // Derive district_code from station_id (first 8 digits)
+  let district_code = station_id.toString().substring(0, 8);
+
+  // Query to check if the station exists
+  const checkQuery = `SELECT station_name FROM station_details WHERE station_code = $1`;
+  const checkValues = [station_id];
+
+  try {
+    // Check if station exists
+    const checkResult = await client.query(checkQuery, checkValues);
+
+    if (checkResult.rowCount === 0) {
+      return {
+        success: false,
+        message: `Station with ID ${station_id} does not exist`,
+      };
+    }
+ 
+    // // Verify station_name and district_code match
+    // const existingStation = checkResult.rows[0];
+    // if (existingStation.station_name !== station_name || existingStation.district_code !== district_code) {
+    //   return {
+    //     success: false,
+    //     message: `Station name or district code mismatch for station_id ${station_id}`,
+    //   };
+    // }
+
+    // Build dynamic update query for non-empty fields
+    const updateFields = [];
+    const updateValues = [];
+    let paramCount = 1;
+
+    if (station_type !== null && station_type !== '' && station_type !== undefined) {
+      updateFields.push(`station_type = $${paramCount++}`);
+      updateValues.push(station_type);
+    }
+    if (centre_type !== null && centre_type !== '' && centre_type !== undefined) {
+      updateFields.push(`centre_type = $${paramCount++}`);
+      updateValues.push(centre_type);
+    }
+    if (centre_name !== null && centre_name !== '' && centre_name !== undefined) {
+      updateFields.push(`centre_name = $${paramCount++}`);
+      updateValues.push(centre_name);
+    }
+    if (latitude !== null && latitude !== '' && latitude !== undefined) {
+      updateFields.push(`latitude = $${paramCount++}`);
+      updateValues.push(latitude);
+    }
+    if (longitude !== null && longitude !== '' && longitude !== undefined) {
+      updateFields.push(`longitude = $${paramCount++}`);
+      updateValues.push(longitude);
+    }
+    if (activationdate !== null && activationdate !== '' && activationdate !== undefined) {
+      updateFields.push(`activationdate = $${paramCount++}`);
+      updateValues.push(activationdate);
+    }
+    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
+
+    if (updateFields.length === 1) {
+      // Only updated_at would be set, no changes to apply
+      return {
+        success: true,
+        message: `No editable fields provided for station_id ${station_id}, skipped`,
+      };
+    }
+
+    // Add station_code to the query parameters
+    updateValues.push(station_id);
+
+    // Constructічного
+
+    // Construct the update query
+    const updateQuery = `
+      UPDATE station_details
+      SET ${updateFields.join(', ')}
+      WHERE station_code = $${paramCount}
+    `;
+
+    // Execute the update query
+    await client.query(updateQuery, updateValues);
+
+    // Log the update action
+    addNewStationLogQuery({ station_name, station_code: station_id, userid: 111, action: "edited" });
+
+
+    return {
+      success: true,
+      message: `Station ${station_name} (${station_id}) updated successfully`,
+    };
+  } catch (error) {
+    console.error('Error executing query', error.stack);
+    return {
+      success: false,
+      message: `Error updating station ${station_id}: ${error.message}`,
+    };
+  }
+};
+
 
 const editStationQuery = async (params) => {
     const {
@@ -752,6 +861,169 @@ exports.insertMultipleStations = async(req, res) => {
         res.status(500).json({ error: error.message });
     }
 }
+
+
+exports.EditMultipleStations = async (req, res) => {
+  try {
+    // Start a transaction
+    await client.query('BEGIN');
+
+    // Read the Excel file from the request buffer
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    // Required columns
+    const requiredColumns = [
+      'district_name',
+      'station_name',
+      'station_id',
+      'centre_type',
+      'station_type',
+      'latitude',
+      'longitude',
+      'activationdate',
+    ];
+
+    // Validate columns
+    if (sheetData.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'Excel file is empty',
+      });
+    }
+
+    const actualColumns = Object.keys(sheetData[0]);
+    const missingColumns = requiredColumns.filter((col) => !actualColumns.includes(col));
+    if (missingColumns.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: `Missing required columns: ${missingColumns.join(', ')}`,
+      });
+    }
+
+    // Get valid centre names from login table
+    const loginQuery = `SELECT * FROM login`; // Assuming column '1' is 'is_active'
+    const loginResult = await client.query(loginQuery);
+    const validCentreNames = new Set(loginResult.rows.map(row => row.name.toUpperCase()));
+
+    // Process each station with validations
+    const results = await Promise.all(
+      sheetData.map(async (station, index) => {
+        // Validate latitude and longitude precision
+        let errors = [];
+        if (station.latitude !== undefined && station.latitude !== null && station.latitude !== '') {
+          const latStr = station.latitude.toString();
+          const decimalMatch = latStr.match(/\.(\d+)/);
+          if (!decimalMatch || decimalMatch[1].length !== 4) {
+            errors.push(`Latitude must have exactly 4 decimal places (Row ${index + 2})`);
+          }
+        }
+        if (station.longitude !== undefined && station.longitude !== null && station.longitude !== '') {
+          const lngStr = station.longitude.toString();
+          const decimalMatch = lngStr.match(/\.(\d+)/);
+          if (!decimalMatch || decimalMatch[1].length !== 4) {
+            errors.push(`Longitude must have exactly 4 decimal places (Row ${index + 2})`);
+          }
+        }
+
+        // Validate activationdate format (YYYY-MM-DD)
+        if (station.activationdate !== undefined && station.activationdate !== null && station.activationdate !== '') {
+          const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+          if (!dateRegex.test(station.activationdate)) {
+            errors.push(`Activation date must be in YYYY-MM-DD format (Row ${index + 2})`);
+          } else {
+            // Verify it's a valid date
+            const date = new Date(station.activationdate);
+            if (isNaN(date.getTime())) {
+              errors.push(`Invalid activation date (Row ${index + 2})`);
+            }
+          }
+        }
+
+        // Validate centre_type format (MC NAME or RMC NAME) and check against login table
+        if (station.centre_type !== undefined && station.centre_type !== null && station.centre_type !== '') {
+          const centreTypeRegex = /^(MC|RMC) [A-Z]+$/;
+          if (!centreTypeRegex.test(station.centre_type)) {
+            errors.push(`Centre type must be in 'MC NAME' or 'RMC NAME' format with uppercase NAME (Row ${index + 2})`);
+          } else {
+
+            // Check if centre_type exists in login table
+            if (!validCentreNames.has(station.centre_type)) {
+              errors.push(`Centre type ${station.centre_type} not found in login table (Row ${index + 2})`);
+            }
+          }
+        }
+
+        if (errors.length > 0) {
+          return {
+            success: false,
+            message: `Validation failed for station_id ${station.station_id}: ${errors.join('; ')}`,
+          };
+        }
+
+        // Capitalize names
+        const district_name = station.district_name ? station.district_name.toUpperCase() : null;
+        const station_name = station.station_name ? station.station_name.toUpperCase() : null;
+
+        // Split and capitalize centre_type and centre_name
+        let centre_type = null;
+        let centre_name = null;
+        if (station.centre_type) {
+          const [type, name] = station.centre_type.split(' ');
+          centre_type = type ? type.toUpperCase() : null;
+          centre_name = name ? name.toUpperCase() : null;
+        }
+
+        // Prepare station data for update
+        const stationData = {
+          station_id: station.station_id,
+          station_name,
+          district_name,
+          station_type: station.station_type ? station.station_type.toUpperCase() : null,
+          centre_type,
+          centre_name,
+          latitude: station.latitude || null,
+          longitude: station.longitude || null,
+          activationdate: station.activationdate || null,
+        };
+
+        // Call update function
+        return await updateStationQuery(client, stationData);
+      })
+    );
+
+    // Check results for success/failure
+    const errors = results.filter((result) => !result.success);
+    if (errors.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'Some stations could not be updated',
+        errors: errors.map((e) => e.message),
+      });
+    }
+
+    // Commit the transaction if all updates succeed
+    await client.query('COMMIT');
+
+    res.status(200).json({
+      success: true,
+      message: 'Station details updated successfully',
+    });
+
+    console.log({ sheetData });
+  } catch (error) {
+    // Rollback on any error
+    await client.query('ROLLBACK');
+    console.error('Error processing request:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+
 
 
 // exports.insertRainfallFile = async (req, res) => {

@@ -11,7 +11,8 @@ const { fetchStationData,
         addNewStation, 
         editStation, 
         deleteStation, 
-        insertMultipleStations, 
+        insertMultipleStations,
+        EditMultipleStations, 
         fetchStationDataInRadius,
         fetchStationWithMaxRainfall, 
         // verifyStationData, 
@@ -57,6 +58,8 @@ router.get("/insertStationData", insertStationData);
 router.post("/insertMultipleStations", upload.single('file'), insertMultipleStations);
 router.post("/insertRainfallFile", upload.single('file'), insertRainfallFile);
 router.get("/insertLatLongInStationDetails", upload.single('file'), insertLatLongInStationDetails);
+router.post("/EditMultipleStations", upload.single('file'), EditMultipleStations);
+
 
 
 router.get("/createStationDetailsTable", createStationDetailsTable);

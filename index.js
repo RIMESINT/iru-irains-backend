@@ -19,6 +19,7 @@ const centreRoutes = require("./routes/centreRoutes");
 const emailRoutes = require("./routes/emailRoutes");
 const pdfRoutes = require("./routes/pdfRoutes");
 const resetPassRoutes = require("./routes/resetPassRoutes");
+const blockRoutes = require("./routes/blockRoutes");
 
 // Load SSL Certificate
 const options = {
@@ -81,10 +82,19 @@ app.use("/api/v1/", centreRoutes);
 app.use("/api/v1/", emailRoutes);
 app.use("/api/v1/", pdfRoutes);
 app.use("/api/v1/", resetPassRoutes);
+app.use("/api/v1/", blockRoutes);
+
 
 // Use HTTPS Server
 https.createServer(options, app).listen(port, () => {
     console.log(`Secure HTTPS Server started at PORT ${port}`);
 });
+
+
+
+// app.listen(3000, () => {
+//     console.log(`Server running at http://localhost:${port}`);
+// });
+
 
 client.connect();

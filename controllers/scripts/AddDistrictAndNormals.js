@@ -149,6 +149,61 @@ exports.insertStationDataFtpzx = async(req, res) => {
 // }
 
 
+// exports.inserNewDistrictAndNormalValues = async (req, res) => {
+//   try {
+//       // Read the Excel file from the uploaded buffer
+//       const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+//       const sheetName = workbook.SheetNames[0];
+//       const worksheet = workbook.Sheets[sheetName];
+//       const rows = xlsx.utils.sheet_to_json(worksheet);
+
+//       await client.query('BEGIN');  // Start transaction
+
+//       // ✅ Update the sequence before any inserts
+//       await client.query(`
+//       SELECT setval('normal_district_id_seq', (SELECT MAX(id) FROM normal_district));
+//       `);
+
+//       for (const row of rows) {
+//           // Step 1: Insert district information
+//           const infoId = await insertDistrict(row.district_name, row.district_code, row.district_area);
+
+//           // Step 2: Prepare and insert date-wise data into the 'normal_district' table
+//           let insertQuery = "INSERT INTO normal_district (date, cumulative_rainfall_value, rainfall_value, normal_district_details_id) VALUES ";
+//           let prev = 0;
+
+//           for (const [key, value] of Object.entries(row)) {
+//               if (key !== "district_code" && key !== "district_name" && key !== "district_area") {
+//                   const { month, date, year, day } = formatDate(key);
+
+//                   if (day === 1 && (month === 1 || month === 3 || month === 6 || month === 10)) {
+//                       prev = 0;  // Reset cumulative value quarterly
+//                   }
+
+//                   insertQuery += `('${date}', ${value}, ${value - prev}, ${infoId}),`;
+//                   prev = value;
+//               }
+//           }
+
+//           // Remove last comma and execute the query
+//           console.log('Before',insertQuery)
+//           insertQuery = insertQuery.slice(0, -1);
+//           console.log('After',insertQuery);
+//           await client.query(insertQuery);
+//       }
+
+//       await client.query('COMMIT');  // Commit transaction
+//       console.log("Data insertion completed.");
+//       res.status(200).json({ message: "Data insertion completed successfully." });
+      
+//   } catch (error) {
+//       await client.query('ROLLBACK');  // Rollback transaction on error
+//       console.error("Error during data insertion:", error);
+//       res.status(500).json({ error: "Data insertion failed." });
+//   }
+// };
+
+
 exports.inserNewDistrictAndNormalValues = async (req, res) => {
   try {
       // Read the Excel file from the uploaded buffer
@@ -164,33 +219,67 @@ exports.inserNewDistrictAndNormalValues = async (req, res) => {
       SELECT setval('normal_district_id_seq', (SELECT MAX(id) FROM normal_district));
       `);
 
+      // for (const row of rows) {
+      //     // Step 1: Insert district information
+      //     const infoId = await insertDistrict(row.district_name, row.district_code, row.district_area);
+
+      //     // Step 2: Prepare and insert date-wise data into the 'normal_district' table
+      //     let insertQuery = "INSERT INTO normal_district (date, cumulative_rainfall_value, rainfall_value, normal_district_details_id) VALUES ";
+      //     let prev = 0;
+
+      //     for (const [key, value] of Object.entries(row)) {
+      //         if (key !== "district_code" && key !== "district_name" && key !== "district_area") {
+      //             const { month, date, year, day } = formatDate(key);
+      //             console.log("line 178 called",month, date, year, day,);
+      //             if (day === 1 && (month === 1 || month === 3 || month === 6 || month === 10)) {
+      //               console.log("inside if");
+      //                 prev = 0;  // Reset cumulative value quarterly
+
+      //             }
+
+      //             insertQuery += `('${date}', ${value}, ${value - prev}, ${infoId}),`;
+      //             console.log('line 184 called',`('${date}', ${value}, ${value - prev}, ${infoId}),`)
+      //             prev = value;
+      //         }
+      //     }
+
+      //     // Remove last comma and execute the query
+      //     // console.log('Before',insertQuery)
+      //     insertQuery = insertQuery.slice(0, -1);
+
+      //     // console.log('After',insertQuery);
+      //     await client.query(insertQuery);
+      // }
+
       for (const row of rows) {
-          // Step 1: Insert district information
-          const infoId = await insertDistrict(row.district_name, row.district_code, row.district_area);
+    // Step 1: Insert district information
+    const infoId = await insertDistrict(row.district_name, row.district_code, row.district_area);
 
-          // Step 2: Prepare and insert date-wise data into the 'normal_district' table
-          let insertQuery = "INSERT INTO normal_district (date, cumulative_rainfall_value, rainfall_value, normal_district_details_id) VALUES ";
-          let prev = 0;
+    // Step 2: Prepare and insert date-wise data into the 'normal_district' table
+    let insertQuery = "INSERT INTO normal_district (date, cumulative_rainfall_value, rainfall_value, normal_district_details_id) VALUES ";
+    let prev = 0;
 
-          for (const [key, value] of Object.entries(row)) {
-              if (key !== "district_code" && key !== "district_name" && key !== "district_area") {
-                  const { month, date, year, day } = formatDate(key);
+    for (const [key, value] of Object.entries(row)) {
+        if (key !== "district_code" && key !== "district_name" && key !== "district_area") {
+            const { month, date, year, day } = formatDate(key);
 
-                  if (day === 1 && (month === 1 || month === 3 || month === 6 || month === 10)) {
-                      prev = 0;  // Reset cumulative value quarterly
-                  }
+            // Convert month and day to numbers
+            const monthNum = parseInt(month, 10);
+            const dayNum = parseInt(day, 10);
 
-                  insertQuery += `('${date}', ${value}, ${value - prev}, ${infoId}),`;
-                  prev = value;
-              }
-          }
+            if (dayNum === 1 && (monthNum === 1 || monthNum === 3 || monthNum === 6 || monthNum === 10)) {
+                prev = 0; // Reset cumulative value quarterly
+            }
 
-          // Remove last comma and execute the query
-          console.log('Before',insertQuery)
-          insertQuery = insertQuery.slice(0, -1);
-          console.log('After',insertQuery);
-          await client.query(insertQuery);
-      }
+            insertQuery += `('${date}', ${value}, ${value - prev}, ${infoId}),`;
+            prev = value;
+        }
+    }
+
+    // Remove last comma and execute the query
+    insertQuery = insertQuery.slice(0, -1);
+    await client.query(insertQuery);
+}
 
       await client.query('COMMIT');  // Commit transaction
       console.log("Data insertion completed.");
@@ -202,7 +291,6 @@ exports.inserNewDistrictAndNormalValues = async (req, res) => {
       res.status(500).json({ error: "Data insertion failed." });
   }
 };
-
 
 const insertDistrict = async (d_name,d_code,d_area) =>{
   const strValue = d_code.toString();

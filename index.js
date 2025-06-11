@@ -9,6 +9,8 @@ const bodyParser = require("body-parser");
 const cors = require("cors");
 require("dotenv").config();
 
+require("./controllers/CronJobs.js"); // Adjust path if cron.js is in a different directory, e.g., "./src/cron"
+
 const districtRoutes = require("./routes/districtRoutes");
 const stationRoutes = require("./routes/stationRoutes");
 const stateRoutes = require("./routes/stateRoutes");

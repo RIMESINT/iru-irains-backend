@@ -1458,7 +1458,7 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
                sd.longitude,
                sdd.data as rainfall_data_in_mm
         FROM public.station_details AS sd
-        JOIN public.station_daily_data AS sdd 
+        JOIN public.station_daily_data_updates AS sdd 
           ON sdd.station_id = sd.station_code
         JOIN normal_district_details AS ndd 
           ON ndd.district_code = sdd.district_code

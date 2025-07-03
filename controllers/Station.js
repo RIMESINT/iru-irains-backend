@@ -1485,9 +1485,12 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
         const currentTime = moment();
         const cutoffTime = moment().set({ hour: 13, minute: 59 });
         
-        const effectiveDate = currentTime.isAfter(cutoffTime)
-          ? currentTime.format('YYYY-MM-DD')
-          : currentTime.subtract(1, 'day').format('YYYY-MM-DD');
+        // const effectiveDate = currentTime.isAfter(cutoffTime)
+        //   ? currentTime.format('YYYY-MM-DD')
+        //   : currentTime.subtract(1, 'day').format('YYYY-MM-DD');
+
+        const effectiveDate = currentTime.format('YYYY-MM-DD')
+
 
         let data = await fetchFilteredDataNWP(effectiveDate);
 

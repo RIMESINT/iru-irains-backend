@@ -1,4 +1,3 @@
-
 const express = require("express");
 const router = express.Router();
 const app = express();
@@ -67,7 +66,9 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             min(centre_name) as centre_name,
             min(centre_type) as centre_type,
             min(sub_division_code) as sub_division_code,
-            sum(actual_rainfall) as actual_rainfall
+            sum(normal_rainfall) as normal_rainfall,
+            sum(actual_rainfall) as actual_rainfall,
+            ((sum(actual_rainfall) - sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) / sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) * 100 as departure
         FROM (
             SELECT 
                 sd.block_name,
@@ -80,6 +81,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                 ndd.region_code,
                 sd.centre_name,
                 sd.centre_type,
+                min(rainfall_value) as normal_rainfall, 
                 ndd.subdiv_code as sub_division_code,
                 avg(
                     CASE 
@@ -88,7 +90,10 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                     END
                 ) as actual_rainfall
             FROM 
+                public.normal_block nb
+            JOIN
                 public.station_details sd
+                on sd.block_code = nb.block_id
             JOIN 
                 public.normal_district_details ndd
                 ON sd.district_code = ndd.district_code

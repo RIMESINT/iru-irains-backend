@@ -52,67 +52,91 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
     if (endDate === currentDate) {
         additionalCondition = ` AND sdd.updated_at < '${specificDateTime}'`;
     }
-
     const query = `
-      SELECT 
-            min(block_name) as block_name,
-            block_code,
-            min(district_name) as district_name,
-            min(district_code) as district_code,
-            min(state_name) as state_name,
-            min(state_code) as state_code,
-            min(region_name) as region_name,
-            min(region_code) as region_code,
-            min(centre_name) as centre_name,
-            min(centre_type) as centre_type,
-            min(sub_division_code) as sub_division_code,
-            sum(actual_rainfall) as actual_rainfall
-        FROM (
-            SELECT 
-                sd.block_name,
-                sd.block_code,
-                ndd.district_name,
-                ndd.district_code,
-                ndd.state_name,
-                ndd.new_state_code as state_code,
-                ndd.region_name,
-                ndd.region_code,
-                sd.centre_name,
-                sd.centre_type,
-                ndd.subdiv_code as sub_division_code,
-                avg(
-                    CASE 
-                        WHEN sdd.data = '-999.9' THEN NULL 
-                        ELSE sdd.data::FLOAT 
-                    END
-                ) as actual_rainfall
-            FROM 
-                public.station_details sd
-            JOIN 
-                public.normal_district_details ndd
-                ON sd.district_code = ndd.district_code
-            LEFT JOIN 
-                public.station_daily_data sdd 
-                ON sd.district_code = sdd.district_code
-                AND sdd.collection_date BETWEEN $1 AND $2
-                ${additionalCondition}
-            GROUP BY 
-                sd.block_code,
-                sd.block_name,
-
-                ndd.district_name,
-                ndd.district_code,
-                ndd.state_name,
-                ndd.new_state_code,
-                ndd.region_name,
-                ndd.region_code,
-                sd.centre_name,
-                sd.centre_type,
-                ndd.subdiv_code
-        ) as test
+    SELECT 
+        min(block_name) as block_name,
+        block_code,
+        min(district_name) as district_name,
+        min(district_code) as district_code,
+        min(state_name) as state_name,
+        min(state_code) as state_code,
+        min(region_name) as region_name,
+        min(region_code) as region_code,
+        min(centre_name) as centre_name,
+        min(centre_type) as centre_type,
+        min(sub_division_code) as sub_division_code,
+        sum(normal_rainfall) as normal_rainfall,
+        sum(actual_rainfall) as actual_rainfall,
+        CASE 
+          WHEN sum(normal_rainfall) IS NULL THEN NULL
+          ELSE 
+            ((sum(actual_rainfall) - sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) 
+            / sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) * 100
+        END as departure
+    FROM (
+        SELECT 
+            sd.block_name,
+            sd.block_code,
+            ndd.district_name,
+            ndd.district_code,
+            ndd.state_name,
+            ndd.new_state_code as state_code,
+            ndd.region_name,
+            ndd.region_code,
+            sd.centre_name,
+            sd.centre_type,
+            ndd.subdiv_code as sub_division_code,
+    
+            -- normal_rainfall from normal_block, LEFT JOIN: may be NULL
+            avg(nb.rainfall_value) as normal_rainfall,
+    
+            -- actual_rainfall from station_daily_data
+            avg(
+                CASE 
+                    WHEN sdd.data = '-999.9' THEN NULL 
+                    ELSE sdd.data::FLOAT 
+                END
+            ) as actual_rainfall
+    
+        FROM 
+            public.station_details sd
+    
+        JOIN 
+            public.normal_district_details ndd
+            ON sd.district_code = ndd.district_code
+    
+        LEFT JOIN 
+            public.station_daily_data sdd 
+            ON sd.station_code = sdd.station_id
+            AND sdd.collection_date BETWEEN $1 AND $2
+            ${additionalCondition}
+    
+        -- NOTE: LEFT JOIN normal_block so it doesn’t filter missing normals
+        LEFT JOIN 
+            public.normal_block nb 
+            ON sd.block_code = nb.block_id 
+            AND nb.date = sdd.collection_date
+    
+        WHERE 
+            sd.block_code IS NOT NULL
+    
         GROUP BY 
-            block_code;
+            sd.block_code,
+            sd.block_name,
+            ndd.district_name,
+            ndd.district_code,
+            ndd.state_name,
+            ndd.new_state_code,
+            ndd.region_name,
+            ndd.region_code,
+            sd.centre_name,
+            sd.centre_type,
+            ndd.subdiv_code
+    ) as test
+    GROUP BY 
+        block_code;
     `;
+    
 
     console.log('Generated query:', query);
     console.log('Query parameters:', [startDate, endDate, specificDateTime]);

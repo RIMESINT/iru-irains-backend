@@ -9,4 +9,4 @@ const job2 = schedule.scheduleJob('30 12 * * *', dailyDataUpdateReminder);
 const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder);
 
 //4:29PM
-const job4 = schedule.scheduleJob('29 16 * * *', AddDailyStationData);
+// const job4 = schedule.scheduleJob('29 16 * * *', AddDailyStationData);

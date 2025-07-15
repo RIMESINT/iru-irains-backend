@@ -541,12 +541,14 @@ const removePrevData = async () => {
 }
 
 const copyDataFromUpdatesToStationDailyData = async () => {
+  console.log('544')
     try {
         const copyQuery = `
             INSERT INTO public.station_daily_data (collection_date, data, station_id, district_code, created_at, updated_at, is_verified, verified_by, verified_at)
             SELECT collection_date, data, station_id, district_code, created_at, updated_at, is_verified, verified_by, verified_at
             FROM public.station_daily_data_updates
-            WHERE collection_date >= CURRENT_DATE - INTERVAL '31 days';
+            WHERE collection_date >= CURRENT_DATE - INTERVAL '31 days'
+            ON CONFLICT DO NOTHING;
         `;
 
         await client.query(copyQuery);

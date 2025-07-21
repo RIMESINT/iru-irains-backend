@@ -49,6 +49,7 @@ const {
 
 const {
     fetchStationUnifiedFileFtp,
+    fetchLatestAwsExcelData,
 } = require("../controllers/ftp/station")
 
 // ********************************************************************************************************
@@ -100,6 +101,7 @@ router.post("/dataActions", dataActions);
 //                                     FTP Station routes
 // ********************************************************************************************************
 router.post("/fetchFilteredStationUnifiedFileFtp", fetchStationUnifiedFileFtp);
+router.post("/fetchLatestAwsExcelData", fetchLatestAwsExcelData);
 
 
 

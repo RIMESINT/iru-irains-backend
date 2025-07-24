@@ -49,6 +49,73 @@ exports.fetchDistrictData = async (req, res) => {
     }
 }
 
+// --------------------------------- Previous Formula ---------------------------------------
+
+// const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
+//     let additionalCondition = '';
+//     if (endDate === currentDate) {
+//         additionalCondition = ` AND updated_at < '${specificDateTime}'`;
+//     }
+
+//     const query = `
+    //   SELECT 
+    //         min(d_name) as district_name,
+    //         min(s_code) as state_code,
+    //         min(r_code) as region_code,
+    //         min(sd_code) as sub_division_code,
+    //         sum(normal_rainfall) as normal_rainfall,
+    //         district_code,
+    //         sum(actual_rainfall) as actual_rainfall,
+    //         ((sum(actual_rainfall) - sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) / sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) * 100 as departure
+    //     FROM (
+    //         SELECT 
+    //             date,
+    //             min(rainfall_value) as normal_rainfall, 
+    //             min(ndd.district_name) as d_name,
+    //             ndd.district_code,
+    //             min(ndd.new_state_code) as s_code,
+    //             min(ndd.region_code) as r_code,
+    //             min(ndd.subdiv_code) as sd_code,
+    //             avg(
+    //                 CASE 
+    //                     WHEN sdd.data = '-999.9' THEN NULL 
+    //                     ELSE sdd.data 
+    //                 END
+    //             ) as actual_rainfall
+    //         FROM 
+    //             public.normal_district nd
+    //         JOIN 
+    //             public.normal_district_details ndd
+    //             ON nd.normal_district_details_id = ndd.id
+    //         JOIN 
+    //             public.station_daily_data sdd 
+    //             ON ndd.district_code = sdd.district_code 
+    //             AND sdd.collection_date = nd.date
+    //         WHERE 
+    //             date BETWEEN $1 AND $2 
+    //         GROUP BY 
+    //             ndd.district_code, 
+    //             date
+    //     ) as test
+    //     GROUP BY 
+    //         district_code;
+//     `;
+
+//     console.log(query);
+
+//     try {
+//         const result = await client.query(query, [startDate, endDate]);
+//         return result.rows;
+//     } catch (error) {
+//         console.error('Error executing query', error.stack);
+//         throw error;
+//     }
+// }
+
+// ------------------------------------------------------------------------------------------
+
+
+
 const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
     let additionalCondition = '';
     if (endDate === currentDate) {
@@ -56,47 +123,45 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
     }
 
     const query = `
-      SELECT 
-            min(d_name) as district_name,
-            min(s_code) as state_code,
-            min(r_code) as region_code,
-            min(sd_code) as sub_division_code,
-            sum(normal_rainfall) as normal_rainfall,
-            district_code,
-            sum(actual_rainfall) as actual_rainfall,
-            ((sum(actual_rainfall) - sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) / sum(CASE WHEN normal_rainfall = 0 THEN 0.01 ELSE normal_rainfall END)) * 100 as departure
-        FROM (
-            SELECT 
-                date,
-                min(rainfall_value) as normal_rainfall, 
-                min(ndd.district_name) as d_name,
-                ndd.district_code,
-                min(ndd.new_state_code) as s_code,
-                min(ndd.region_code) as r_code,
-                min(ndd.subdiv_code) as sd_code,
-                avg(
-                    CASE 
-                        WHEN sdd.data = '-999.9' THEN NULL 
-                        ELSE sdd.data 
-                    END
-                ) as actual_rainfall
-            FROM 
-                public.normal_district nd
-            JOIN 
-                public.normal_district_details ndd
-                ON nd.normal_district_details_id = ndd.id
-            JOIN 
-                public.station_daily_data sdd 
-                ON ndd.district_code = sdd.district_code 
-                AND sdd.collection_date = nd.date
-            WHERE 
-                date BETWEEN $1 AND $2 
-            GROUP BY 
-                ndd.district_code, 
-                date
-        ) as test
-        GROUP BY 
-            district_code;
+    WITH daily_actuals AS (
+        SELECT 
+            sdd.collection_date AS date,
+            sdd.district_code,
+            AVG(NULLIF(sdd.data::numeric, -999.9)) AS actual_rainfall
+        FROM station_daily_data sdd
+        WHERE sdd.collection_date BETWEEN $1 AND $2
+        GROUP BY sdd.collection_date, sdd.district_code
+    )
+    
+    SELECT 
+        MIN(ndd.district_name) AS district_name,
+        MIN(ndd.new_state_code) AS state_code,
+        MIN(ndd.region_code) AS region_code,
+        MIN(ndd.subdiv_code) AS sub_division_code,
+        ndd.district_code,
+        SUM(nd.rainfall_value) AS normal_rainfall,
+        SUM(da.actual_rainfall) AS actual_rainfall,
+        CASE
+            WHEN SUM(da.actual_rainfall) IS NULL THEN NULL
+            WHEN SUM(da.actual_rainfall) = 0 THEN -100
+            ELSE (
+                (SUM(da.actual_rainfall) - 
+                 SUM(CASE WHEN nd.rainfall_value = 0 THEN 0.01 ELSE nd.rainfall_value END)) / 
+                 SUM(CASE WHEN nd.rainfall_value = 0 THEN 0.01 ELSE nd.rainfall_value END)
+            ) * 100
+        END AS departure
+    FROM 
+        normal_district nd
+    JOIN 
+        normal_district_details ndd
+        ON nd.normal_district_details_id = ndd.id
+    LEFT JOIN 
+        daily_actuals da
+        ON da.date = nd.date AND da.district_code = ndd.district_code
+    WHERE 
+        nd.date BETWEEN $1 AND $2
+    GROUP BY 
+        ndd.district_code;    
     `;
 
     console.log(query);
@@ -109,6 +174,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         throw error;
     }
 }
+
 
 exports.getAllDistrict = async (req, res) => {
     try {

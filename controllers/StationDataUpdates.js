@@ -522,12 +522,12 @@ const removePrevData = async () => {
     try {
         const deleteQueryForTemp = `
         DELETE FROM public.station_daily_data_updates
-        WHERE collection_date < CURRENT_DATE - INTERVAL '31 days';
+        WHERE collection_date < CURRENT_DATE - INTERVAL '60 days';
         `;
 
         const deleteQueryStationDailyData = `
         DELETE FROM public.station_daily_data
-        WHERE collection_date >= CURRENT_DATE - INTERVAL '31 days';
+        WHERE collection_date >= CURRENT_DATE - INTERVAL '60 days';
         `;
 
         await client.query(deleteQueryForTemp);
@@ -547,7 +547,7 @@ const copyDataFromUpdatesToStationDailyData = async () => {
             INSERT INTO public.station_daily_data (collection_date, data, station_id, district_code, created_at, updated_at, is_verified, verified_by, verified_at)
             SELECT collection_date, data, station_id, district_code, created_at, updated_at, is_verified, verified_by, verified_at
             FROM public.station_daily_data_updates
-            WHERE collection_date >= CURRENT_DATE - INTERVAL '31 days'
+            WHERE collection_date >= CURRENT_DATE - INTERVAL '60 days'
             ON CONFLICT DO NOTHING;
         `;
 

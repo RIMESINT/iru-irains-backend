@@ -163,13 +163,17 @@ const query = `
                 AVG(
                     CASE 
                         WHEN sdd.data::numeric = -999.9 THEN NULL 
+                        WHEN sdd.data::numeric < 0 THEN NULL  -- ✅ filter out negative rainfall
                         ELSE sdd.data::numeric
                     END
                 ) AS daily_avg_rainfall
             FROM station_daily_data sdd
-            JOIN normal_district_details ndd ON sdd.district_code = ndd.district_code
-            WHERE sdd.collection_date BETWEEN $1 AND $2
-            GROUP BY sdd.collection_date, ndd.district_code, ndd.subdiv_code
+            JOIN normal_district_details ndd 
+                ON sdd.district_code = ndd.district_code
+            WHERE 
+                sdd.collection_date BETWEEN $1 AND $2
+            GROUP BY 
+                sdd.collection_date, ndd.district_code, ndd.subdiv_code
         ),
 
         subdiv_district_totals AS (
@@ -220,6 +224,7 @@ const query = `
             END AS departure
         FROM subdiv_actuals sa
         LEFT JOIN subdiv_normals sn ON sa.s_code = sn.s_code;
+
         `;
                         // exception : we have to use 0 area for this two district 30506001, 30506002 for subdiv calculation 
 

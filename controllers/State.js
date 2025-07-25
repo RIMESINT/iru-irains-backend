@@ -157,13 +157,16 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             sdd.collection_date,
             AVG(CASE 
                 WHEN sdd.data::numeric = -999.9 THEN NULL
+                WHEN sdd.data::numeric < 0 THEN NULL  -- ✅ Skip negative values
                 ELSE sdd.data::numeric
             END) AS daily_avg_rainfall
         FROM station_daily_data sdd
         JOIN normal_district_details ndd 
             ON sdd.district_code = ndd.district_code
-        WHERE sdd.collection_date BETWEEN $1 and $2
-        GROUP BY sdd.collection_date, ndd.district_code, ndd.new_state_code
+        WHERE 
+            sdd.collection_date BETWEEN $1 AND $2
+        GROUP BY 
+            sdd.collection_date, ndd.district_code, ndd.new_state_code
     ),
     
     district_totals AS (
@@ -193,7 +196,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             state_code,
             SUM(rainfall_value) AS rainfall_normal_value
         FROM normal_state
-        WHERE date BETWEEN $1 and $2
+        WHERE date BETWEEN $1 AND $2
         GROUP BY state_code
     )
     
@@ -213,7 +216,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             ) * 100
         END AS departure
     FROM state_actuals sa
-    LEFT JOIN state_normals sn ON sa.state_code = sn.state_code;
+    LEFT JOIN state_normals sn ON sa.state_code = sn.state_code;    
     `;
 
     try {

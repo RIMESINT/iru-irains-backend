@@ -127,9 +127,11 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         SELECT 
             sdd.collection_date AS date,
             sdd.district_code,
-            AVG(NULLIF(sdd.data::numeric, -999.9)) AS actual_rainfall
+            AVG(NULLIF(sdd.data::numeric, -999.9)) AS raw_rainfall
         FROM station_daily_data sdd
-        WHERE sdd.collection_date BETWEEN $1 AND $2
+        WHERE 
+            sdd.collection_date BETWEEN $1 AND $2
+            AND sdd.data::numeric >= 0  -- ✅ Exclude negative values
         GROUP BY sdd.collection_date, sdd.district_code
     )
     
@@ -140,12 +142,12 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         MIN(ndd.subdiv_code) AS sub_division_code,
         ndd.district_code,
         SUM(nd.rainfall_value) AS normal_rainfall,
-        SUM(da.actual_rainfall) AS actual_rainfall,
+        SUM(da.raw_rainfall) AS actual_rainfall,
         CASE
-            WHEN SUM(da.actual_rainfall) IS NULL THEN NULL
-            WHEN SUM(da.actual_rainfall) = 0 THEN -100
+            WHEN SUM(da.raw_rainfall) IS NULL THEN NULL
+            WHEN SUM(da.raw_rainfall) = 0 THEN -100
             ELSE (
-                (SUM(da.actual_rainfall) - 
+                (SUM(da.raw_rainfall) - 
                  SUM(CASE WHEN nd.rainfall_value = 0 THEN 0.01 ELSE nd.rainfall_value END)) / 
                  SUM(CASE WHEN nd.rainfall_value = 0 THEN 0.01 ELSE nd.rainfall_value END)
             ) * 100
@@ -161,7 +163,10 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
     WHERE 
         nd.date BETWEEN $1 AND $2
     GROUP BY 
-        ndd.district_code;    
+        ndd.district_code
+    ORDER BY 
+        district_name;
+      
     `;
 
     console.log(query);

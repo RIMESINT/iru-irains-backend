@@ -196,3 +196,221 @@ exports.getAllBlocks = async (req, res) => {
         });
     }
 };
+
+
+
+
+exports.fetchBlockRainfallAnalysis = async (req, res) => {
+    try {
+        let { startDate, endDate } = req.body;
+
+        // Use current date if no dates are provided
+        const currentDate = moment().format("YYYY-MM-DD");
+        if (!startDate && !endDate) {
+            startDate = endDate = currentDate;
+        } else if (!startDate) {
+            startDate = endDate;
+        } else if (!endDate) {
+            endDate = startDate;
+        }
+
+        // Ensure startDate is less than or equal to endDate
+        if (moment(startDate).isAfter(endDate)) {
+            return res.status(400).json({
+                success: false,
+                message: "startDate should be less than or equal to endDate",
+            });
+        }
+
+        const specificTime = "07:50:15.744983+00";
+        const specificDateTime = `${currentDate} ${specificTime}`;
+
+        // Fetch block data
+        const blockData = await fetchBetweenDates(startDate, endDate, currentDate, specificDateTime);
+
+        // Categorize blocks based on legend criteria
+        const legendCriteria = [
+            { category: "Large Excess", min: 60, max: Infinity, color: "#0096ff" },
+            { category: "Excess", min: 20, max: 59, color: "#32c0f8" },
+            { category: "Normal", min: -19, max: 19, color: "#00cd5b" },
+            { category: "Deficient", min: -59, max: -20, color: "#ff2700" },
+            { category: "Large Deficient", min: -99, max: -60, color: "#ffff20" },
+            { category: "No Rain", min: -100, max: -100, color: "#ffffff" },
+            { category: "No Data", min: null, max: null, color: "#c0c0c0" },
+        ];
+
+        const categoryCounts = {
+            "Large Excess": 0,
+            Excess: 0,
+            Normal: 0,
+            Deficient: 0,
+            "Large Deficient": 0,
+            "No Rain": 0,
+            "No Data": 0,
+        };
+
+        blockData.forEach((block) => {
+            if (block.departure === null) {
+                categoryCounts["No Data"]++;
+            } else if (block.departure === -100) {
+                categoryCounts["No Rain"]++;
+            } else {
+                const category = legendCriteria.find(
+                    (c) =>
+                        c.min !== null &&
+                        c.max !== null &&
+                        block.departure >= c.min &&
+                        block.departure <= c.max
+                );
+                if (category) {
+                    categoryCounts[category.category]++;
+                }
+            }
+        });
+
+        // Find top and minimum actual and departure values
+        const validBlocks = blockData.filter((block) => block.actual_rainfall !== null);
+        const validDepartureBlocks = blockData.filter((block) => block.departure !== null);
+
+        const topActual = validBlocks.length
+            ? validBlocks.reduce((max, block) =>
+                  block.actual_rainfall > (max.actual_rainfall || 0) ? block : max
+              )
+            : null;
+        const minActual = validBlocks.length
+            ? validBlocks.reduce((min, block) =>
+                  block.actual_rainfall < (min.actual_rainfall || Infinity) ? block : min
+              )
+            : null;
+        const topDeparture = validDepartureBlocks.length
+            ? validDepartureBlocks.reduce((max, block) =>
+                  block.departure > (max.departure || -Infinity) ? block : max
+              )
+            : null;
+        const minDeparture = validDepartureBlocks.length
+            ? validDepartureBlocks.reduce((min, block) =>
+                  block.departure < (min.departure || Infinity) ? block : min
+              )
+            : null;
+
+        // Regional statistics
+        const regions = ["CENTRAL INDIA", "NORTH INDIA", "SOUTH INDIA", "EAST INDIA", "WEST INDIA"];
+        const regionalStats = regions.map((region) => {
+            const regionBlocks = blockData.filter((block) => block.region_name === region);
+            const totalRainfall = regionBlocks.reduce(
+                (sum, block) => sum + (block.actual_rainfall || 0),
+                0
+            );
+            const validRegionBlocks = regionBlocks.filter((block) => block.departure !== null);
+            const avgDeparture =
+                validRegionBlocks.length
+                    ? validRegionBlocks.reduce((sum, block) => sum + block.departure, 0) /
+                      validRegionBlocks.length
+                    : null;
+            return {
+                region,
+                avgRainfall: regionBlocks.length
+                    ? Number((totalRainfall / regionBlocks.length).toFixed(1))
+                    : null,
+                change: avgDeparture ? Number(avgDeparture.toFixed(1)) : null,
+            };
+        }).filter((stat) => stat.avgRainfall !== null);
+
+        // State-level statistics
+        const stateStats = [...new Set(blockData.map((block) => block.state_name))].map((state) => {
+            const stateBlocks = blockData.filter((block) => block.state_name === state);
+            const totalRainfall = stateBlocks.reduce(
+                (sum, block) => sum + (block.actual_rainfall || 0),
+                0
+            );
+            const validStateBlocks = stateBlocks.filter((block) => block.departure !== null);
+            const avgDeparture =
+                validStateBlocks.length
+                    ? validStateBlocks.reduce((sum, block) => sum + block.departure, 0) /
+                      validStateBlocks.length
+                    : null;
+            return {
+                state,
+                avgRainfall: stateBlocks.length
+                    ? Number((totalRainfall / stateBlocks.length).toFixed(1))
+                    : null,
+                change: avgDeparture ? Number(avgDeparture.toFixed(1)) : null,
+            };
+        }).filter((stat) => stat.avgRainfall !== null);
+
+        // Subdivision-level statistics
+        const subdivStats = [...new Set(blockData.map((block) => block.sub_division_code))].map(
+            (subdiv) => {
+                const subdivBlocks = blockData.filter((block) => block.sub_division_code === subdiv);
+                const totalRainfall = subdivBlocks.reduce(
+                    (sum, block) => sum + (block.actual_rainfall || 0),
+                    0
+                );
+                const validSubdivBlocks = subdivBlocks.filter((block) => block.departure !== null);
+                const avgDeparture =
+                    validSubdivBlocks.length
+                        ? validSubdivBlocks.reduce((sum, block) => sum + block.departure, 0) /
+                          validSubdivBlocks.length
+                        : null;
+                return {
+                    subdivision: subdivBlocks[0]?.subdiv_name || `Subdivision ${subdiv}`,
+                    avgRainfall: subdivBlocks.length
+                        ? Number((totalRainfall / subdivBlocks.length).toFixed(1))
+                        : null,
+                    change: avgDeparture ? Number(avgDeparture.toFixed(1)) : null,
+                };
+            }
+        ).filter((stat) => stat.avgRainfall !== null);
+
+        // Summary statistics
+        const totalRainfall = blockData.reduce((sum, block) => sum + (block.actual_rainfall || 0), 0);
+        const validBlocksForDeparture = blockData.filter((block) => block.departure !== null);
+        const avgDeparture =
+            validBlocksForDeparture.length
+                ? validBlocksForDeparture.reduce((sum, block) => sum + block.departure, 0) /
+                  validBlocksForDeparture.length
+                : null;
+        const highestRainfallRegion = regionalStats.reduce(
+            (max, stat) => (stat.avgRainfall > (max.avgRainfall || 0) ? stat : max),
+            {}
+        );
+        const lowestRainfallRegion = regionalStats.reduce(
+            (min, stat) => (stat.avgRainfall < (min.avgRainfall || Infinity) ? stat : min),
+            {}
+        );
+
+        const summaryStats = {
+            totalRainfall: Number(totalRainfall.toFixed(1)),
+            highestRainfall: highestRainfallRegion.avgRainfall
+                ? `${highestRainfallRegion.avgRainfall} mm (${highestRainfallRegion.region})`
+                : "No Data",
+            lowestRainfall: lowestRainfallRegion.avgRainfall
+                ? `${lowestRainfallRegion.avgRainfall} mm (${lowestRainfallRegion.region})`
+                : "No Data",
+            averageDeparture: avgDeparture ? Number(avgDeparture.toFixed(1)) : null,
+        };
+
+        res.status(200).json({
+            success: true,
+            message: "Rainfall analysis fetched successfully",
+            data: {
+                categoryCounts,
+                topActual: topActual || { message: "No valid actual rainfall data" },
+                minActual: minActual || { message: "No valid actual rainfall data" },
+                topDeparture: topDeparture || { message: "No valid departure data" },
+                minDeparture: minDeparture || { message: "No valid departure data" },
+                regionalStatistics: regionalStats,
+                stateStatistics: stateStats,
+                subdivisionStatistics: subdivStats,
+                summaryStatistics: summaryStats,
+            },
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch rainfall analysis",
+            error: error.message,
+        });
+    }
+};

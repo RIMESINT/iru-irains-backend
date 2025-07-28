@@ -53,37 +53,63 @@ exports.fetchStationUnifiedFileFtp = async (req, res) => {
 
 // created by balu on oct 22
 const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes) => {
+    // Validate and normalize input dates to YYYY-MM-DD
+    let startDateStr, endDateStr;
     try {
+        startDateStr = new Date(startDate).toISOString().split('T')[0]; // e.g., '2025-07-18'
+        endDateStr = new Date(endDate).toISOString().split('T')[0];     // e.g., '2025-07-19'
+        if (!startDateStr.match(/^\d{4}-\d{2}-\d{2}$/) || !endDateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            throw new Error('Invalid date format');
+        }
+    } catch (error) {
+        console.error('Invalid date input:', { startDate, endDate, error: error.message });
+        throw new Error('startDate and endDate must be valid dates in YYYY-MM-DD format');
+    }
 
+    // Ensure endDate is not before startDate
+    if (new Date(endDateStr) < new Date(startDateStr)) {
+        console.error('endDate is before startDate:', { startDateStr, endDateStr });
+        throw new Error('endDate must be on or after startDate');
+    }
 
-        // SQL Query to fetch the filtered data
+    // Log inputs for debugging
+    console.log('Raw inputs:', { startDate, endDate, districtCodes });
+    console.log('Normalized dates:', { startDate: startDateStr, endDate: endDateStr });
+
+    try {
+        // SQL Query with explicit DATE casting in UTC
         const query = `
-            SELECT *
+            SELECT *,
+                   DATE(collection_date AT TIME ZONE 'UTC') as date_only
             FROM public.station_daily_data as sddf
-			join station_details as sd on sd.station_code = sddf.station_id
+            JOIN station_details as sd ON sd.station_code = sddf.station_id
             WHERE sddf.district_code = ANY($1) 
-            AND collection_date BETWEEN $2 AND $3;
+            AND DATE(collection_date AT TIME ZONE 'UTC') >= $2 
+            AND DATE(collection_date AT TIME ZONE 'UTC') <= $3;
         `;
 
-        // Execute the query using the client
-        const result = await client.query(query, [districtCodes, startDate, endDate]);
+        // Log query and parameters
+        console.log('Executing SQL query:', query);
+        console.log('Query parameters:', { districtCodes, startDate: startDateStr, endDate: endDateStr });
 
-        // Disconnect the client after query execution
-        // await client.end();
+        // Execute the query
+        const result = await client.query(query, [districtCodes, startDateStr, endDateStr]);
 
-        // Return the fetched data
+        // Log result summary
+        console.log('Query result row count:', result.rowCount);
+        console.log('Query result rows:', result.rows.map(row => ({
+            id: row.id,
+            collection_date: row.collection_date.toISOString(),
+            date_only: row.date_only,
+            station_name: row.station_name
+        })));
+
         return result.rows;
     } catch (error) {
-        console.error('Error fetching station data:', error);
+        console.error('Error executing query:', error);
         throw error;
     }
 };
-
-
-
-
-
-
 
 
 
@@ -291,4 +317,3 @@ function processAWSStationDataAndGetBlockData(allStateData) {
 
     return allBlocks;
 }
-

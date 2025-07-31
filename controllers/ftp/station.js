@@ -52,26 +52,35 @@ exports.fetchStationUnifiedFileFtp = async (req, res) => {
 };
 
 // created by balu on oct 22
-// created by balu on oct 22
 const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes) => {
     try {
-        // Step 1: Fetch all rows matching the districtCodes (ignore date in SQL)
+
+
+        // SQL Query to fetch the filtered data
         const query = `
-            SELECT *
-            FROM public.station_daily_data AS sddf
-            JOIN station_details AS sd ON sd.station_code = sddf.station_id
-            WHERE sddf.district_code = ANY($1);
-        `;
+        SELECT 
+            TO_CHAR(sddf.collection_date, 'YYYY-MM-DD') AS collection_date,
+            sddf.data,
+            sddf.station_id,
+            sddf.district_code,
+            sd.station_name,
+            sd.latitude,
+            sd.longitude
+        FROM public.station_daily_data as sddf
+        JOIN station_details as sd ON sd.station_code = sddf.station_id
+        WHERE sddf.district_code = ANY($1) 
+        AND sddf.collection_date BETWEEN $2 AND $3;
+    `;
+    
 
-        const result = await client.query(query, [districtCodes]);
+        // Execute the query using the client
+        const result = await client.query(query, [districtCodes, startDate, endDate]);
 
-        // Step 2: Filter by date range in Node.js
-        const filteredData = result.rows.filter(row => {
-            const date = new Date(row.collection_date);
-            return date >= new Date(startDate) && date <= new Date(endDate);
-        });
+        // Disconnect the client after query execution
+        // await client.end();
 
-        return filteredData;
+        // Return the fetched data
+        return result.rows;
     } catch (error) {
         console.error('Error fetching station data:', error);
         throw error;

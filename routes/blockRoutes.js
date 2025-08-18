@@ -4,10 +4,11 @@ const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-const { fetchBlockData, getAllBlocks, fetchBlockRainfallAnalysis} = require("../controllers/block")
+const { fetchBlockData, getAllBlocks, fetchBlockRainfallAnalysis, fetchBlockDataAforAPIexport} = require("../controllers/block")
 
 // fetch Block data
 router.post("/fetchBlockData", fetchBlockData);
+router.post("/fetchBlockDataAPIexport", fetchBlockDataAforAPIexport);
 router.post("/fetchBlockRainfallAnalysis", fetchBlockRainfallAnalysis);
 
 // fetch Block data

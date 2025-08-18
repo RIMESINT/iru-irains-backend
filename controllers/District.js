@@ -327,3 +327,65 @@ from (SELECT date,
         });
     }
 };
+
+
+
+
+
+
+
+
+
+
+exports.fetchDistrictDataforAPIexport = async (req, res) => {
+    try {
+        let { user, pass, fromDate, toDate } = req.body;
+
+        // 🔐 Validate credentials
+        if (user !== "CWC_DEP" || pass !== "!Md@15O#cwc") {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized: Invalid credentials"
+            });
+        }
+
+        // ✅ Handle dates
+        const currentDate = moment().format("YYYY-MM-DD");
+        if (!fromDate && !toDate) {
+            fromDate = toDate = currentDate;
+        } else if (!fromDate) {
+            fromDate = toDate;
+        } else if (!toDate) {
+            toDate = fromDate;
+        }
+
+        // Check if start <= end
+        if (moment(fromDate).isAfter(toDate)) {
+            return res.status(400).json({
+                success: false,
+                message: "fromDate should be less than or equal to toDate"
+            });
+        }
+
+        // Specific cutoff time logic
+        const specificTime = "07:50:15.744983+00";
+        const specificDateTime = `${currentDate} ${specificTime}`;
+
+        // 📊 Fetch data (reuse your same function)
+        let data = await fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime);
+
+        return res.status(200).json({
+            success: true,
+            message: "District data fetched successfully",
+            data: data
+        });
+
+    } catch (error) {
+        console.error("Error in fetchDistrictDataAforAPIexport:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch District data",
+            error: error.message
+        });
+    }
+};

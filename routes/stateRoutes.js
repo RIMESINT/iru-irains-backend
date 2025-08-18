@@ -17,7 +17,7 @@ router.get("/nStatePrev", getnStateDataAndInsertInNormalState);
 // fetch state data
 router.post("/fetchStateData", fetchStateData);
 
-router.post("/fetchDistrictDataAPIexport", fetchStateDataAforAPIexport);
+router.post("/fetchStateDataAPIexport", fetchStateDataAforAPIexport);
 
 // fetch state list
 router.get("/getAllStates", getAllStates);

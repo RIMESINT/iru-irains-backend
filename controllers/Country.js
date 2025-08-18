@@ -509,7 +509,7 @@ FROM (
 
 exports.fetchCountryDataAforAPIexport = async (req, res) => {
     try {
-        let { user, pass, startDate, endDate } = req.body;
+        let { user, pass, fromDate, toDate } = req.body;
 
         // 🔐 Validate credentials
         if (user !== "CWC_DEP" || pass !== "!Md@15O#cwc") {
@@ -521,19 +521,19 @@ exports.fetchCountryDataAforAPIexport = async (req, res) => {
 
         // ✅ Handle dates
         const currentDate = moment().format("YYYY-MM-DD");
-        if (!startDate && !endDate) {
-            startDate = endDate = currentDate;
-        } else if (!startDate) {
-            startDate = endDate;
-        } else if (!endDate) {
-            endDate = startDate;
+        if (!fromDate && !toDate) {
+            fromDate = toDate = currentDate;
+        } else if (!fromDate) {
+            fromDate = toDate;
+        } else if (!toDate) {
+            toDate = fromDate;
         }
 
         // Ensure valid range
-        if (moment(startDate).isAfter(endDate)) {
+        if (moment(fromDate).isAfter(toDate)) {
             return res.status(400).json({
                 success: false,
-                message: "startDate should be less than or equal to endDate",
+                message: "fromDate should be less than or equal to toDate",
             });
         }
 
@@ -541,7 +541,7 @@ exports.fetchCountryDataAforAPIexport = async (req, res) => {
         const specificTime = "07:50:15.744983+00";
         const specificDateTime = `${currentDate} ${specificTime}`;
 
-        let data = await fetchBetweenDates(startDate, endDate, currentDate, specificDateTime);
+        let data = await fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime);
 
         return res.status(200).json({
             success: true,

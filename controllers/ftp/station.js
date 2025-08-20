@@ -4,15 +4,7 @@ const app = express();
 const moment = require('moment');
 const xlsx = require('xlsx');
 const client = require("../../connection"); 
-
-const ftp = require("basic-ftp");
-const path = require("path");
-const stream = require("stream");
-const csv = require("csv-parser");
-
-const fs = require("fs/promises");
-const tmp = require("tmp-promise");
-
+const axios = require('axios'); // Add axios for API calls
 
 exports.fetchStationUnifiedFileFtp = async (req, res) => {
     try {
@@ -50,7 +42,6 @@ exports.fetchStationUnifiedFileFtp = async (req, res) => {
         });
     }
 };
-
 // created by balu on oct 22
 const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes) => {
     try {
@@ -91,193 +82,159 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
 
 
 
-
-
-
-
+// Updated function to fetch AWS data from APIs
 exports.fetchLatestAwsExcelData = async (req, res) => {
-    const { date } = req.body;
-
-    if (!date) {
-        return res.status(400).json({
-            success: false,
-            message: "Date is required in format YYYY-MM-DD"
-        });
-    }
-
-    console.log("🔌 Connecting to FTP...");
-    const client = new ftp.Client();
-    client.ftp.verbose = false;
-
-    const [year, month, day] = date.split("-");
-    const formattedPath = `2025${month}${day}`;
-    const rootPath = "/data/REALTIME/FORECAST/AWS";
-
-    const result = {};
+    console.log("🔌 Fetching data from APIs...");
+    
+    const apiEndpoints = {
+        'MEGHALAYA': 'https://city.imd.gov.in/api/v1/getMeghalayaAWS',
+        'UTTAR_PRADESH': 'https://city.imd.gov.in/api/v1/getUPAWS',
+        'TAMILNADU': 'https://city.imd.gov.in/api/v1/getTamilnaduAWS'
+    };
 
     try {
-        await client.access({
-            host: "103.215.208.77",
-            user: "sasiaffg_imd_ftp",
-            password: "IMD:140520:Xchg.ftp",
-            secure: false
-        });
-        console.log("✅ Connected to FTP server");
+        const result = {};
+        
+        // Iterate over entries (state name and URL)
+        for (const [stateName, apiUrl] of Object.entries(apiEndpoints)) {
+            console.log(`📂 Fetching data for ${stateName} from ${apiUrl}`);
+            const data = await fetchAwsDataFromApi(apiUrl);
+            result[stateName] = data; // Store by state name, not URL
+        }
 
-        // 📍 TELANGANA
-        const telanganaPath = `${rootPath}/TELANGANA/${formattedPath}`;
-        console.log(`📂 Navigating to ${telanganaPath}`);
-        result.TELANGANA = await fetchLatestCsvFromPath(client, telanganaPath);
-
-        // 📍 KARNATAKA
-        const karnatakaPath = `${rootPath}/KARNATAKA/${formattedPath}/TRG`;
-        console.log(`📂 Navigating to ${karnatakaPath}`);
-        result.KARNATAKA = await fetchLatestCsvFromPath(client, karnatakaPath);
-
-        const data = processAWSStationDataAndGetBlockData(result)
-
+        const data = processAWSStationDataAndGetBlockData(result);
+        
         res.status(200).json({
             success: true,
-            message: "Latest AWS CSV data fetched",
-            data: data
+            message: "Latest AWS data fetched from APIs",
+            data: data,
+            totalBlocks: data.length
         });
-
     } catch (err) {
-        console.error("❌ FTP error:", err.message);
+        console.error("❌ API error:", err.message);
         res.status(500).json({
             success: false,
-            message: "Failed to fetch AWS CSV data",
+            message: "Failed to fetch AWS data from APIs",
             error: err.message
         });
-    } finally {
-        client.close();
-        console.log("🔌 FTP connection closed");
     }
 };
 
-// ✅ Fetch and parse latest CSV from given path
-async function fetchLatestCsvFromPath(client, path) {
+// Fetch AWS data from API endpoint
+async function fetchAwsDataFromApi(apiUrl) {
     try {
-        await client.cd(path);
-        const files = await client.list();
+        console.log(`📤 Fetching data from: ${apiUrl}`);
+        
+        const response = await axios.get(apiUrl, {
+            timeout: 30000, // 30 seconds timeout
+            headers: {
+                'User-Agent': 'AWS-Data-Fetcher/1.0',
+                'Accept': 'application/json'
+            }
+        });
 
-        const csvFiles = files
-            .filter(file => file.name.endsWith(".csv"))
-            .sort((a, b) => extractTimeFromFilename(b.name) - extractTimeFromFilename(a.name));
-
-        console.log(`🧾 CSV Files in ${path}:`, csvFiles.map(f => f.name));
-
-        if (csvFiles.length === 0) {
+        if (response.data && response.data.status && response.data.data) {
+            console.log(`✅ API Response successful. Records: ${response.data.data.length}`);
             return {
-                filename: null,
-                data: [],
-                message: `No CSV files found in ${path}`
+                success: true,
+                rowCount: response.data.data.length,
+                data: response.data.data,
+                message: response.data.message
             };
+        } else {
+            throw new Error('Invalid API response structure');
         }
-
-        const latestFile = csvFiles[0];
-        console.log(`📤 Downloading latest CSV: ${latestFile.name}`);
-
-        const tempFile = await tmp.file();
-        await client.downloadTo(tempFile.path, latestFile.name);
-        const buffer = await fs.readFile(tempFile.path);
-        await tempFile.cleanup();
-
-        const data = await parseCsvBuffer(buffer);
-        console.log(`✅ Parsed CSV: ${latestFile.name}, Rows: ${data.length}`);
-
-        return {
-            filename: latestFile.name,
-            rowCount: data.length,
-            data
-        };
     } catch (err) {
-        console.error(`❌ Error in ${path}:`, err.message);
+        console.error(`❌ Error fetching from ${apiUrl}:`, err.message);
         return {
-            filename: null,
+            success: false,
             data: [],
-            message: `Error processing path ${path}: ${err.message}`
+            message: `Error processing API ${apiUrl}: ${err.message}`
         };
     }
 }
 
-// ⏱ Extract numeric time from filename like _0645UTC.csv
-function extractTimeFromFilename(filename) {
-    const match = filename.match(/_(\d{4})UTC\.csv$/);
-    return match ? parseInt(match[1], 10) : 0;
-}
-
-// 📄 Parse CSV buffer to JSON rows
-async function parseCsvBuffer(buffer) {
-    return new Promise((resolve, reject) => {
-        const results = [];
-        const readable = new stream.Readable();
-        readable._read = () => {};
-        readable.push(buffer);
-        readable.push(null);
-
-        readable
-            .pipe(csv())
-            .on("data", row => results.push(row))
-            .on("end", () => resolve(results))
-            .on("error", err => reject(err));
-    });
-}
-
-
-
-
-
-
+// Updated function to process AWS station data from APIs
 function processAWSStationDataAndGetBlockData(allStateData) {
     const allBlocks = [];
-
+    
     for (const [stateName, stateInfo] of Object.entries(allStateData)) {
-        const csvData = stateInfo.data;
+        console.log(`🔄 Processing data for state: ${stateName}`);
+        
+        if (!stateInfo.success || !stateInfo.data) {
+            console.warn(`⚠️ Skipping ${stateName} due to API error: ${stateInfo.message}`);
+            continue;
+        }
+
+        const awsData = stateInfo.data;
         const blockMap = {};
-
-        for (const row of csvData) {
-            const blockName = row.mandal?.trim();
-            const districtName = row.district?.trim();
-            const rainStr = row.rain?.trim();
-            const rain = parseFloat(rainStr);
-
-            if (!blockName || isNaN(rain) || rainStr === "-999.9") continue;
-
+        let processedRecords = 0;
+        
+        for (const row of awsData) {
+            let blockName, districtName, rainfall;
+            
+            // Handle different API response structures
+            if (stateName.toUpperCase() === 'MEGHALAYA') {
+                blockName = row.block?.trim();
+                districtName = row.district?.trim();
+                rainfall = parseFloat(row.total_rainfall || row.average_rainfall || 0);
+            } else if (stateName.toUpperCase() === 'UTTAR_PRADESH') {
+                blockName = row.block?.trim();
+                districtName = row.district?.trim();
+                rainfall = parseFloat(row.rainfall || 0);
+            } else if (stateName.toUpperCase() === 'TAMILNADU') {
+                blockName = row.block?.trim();
+                districtName = row.district?.trim();
+                rainfall = parseFloat(row.rainfall || 0);
+            }
+            
+            // Debug logging
+            if (processedRecords < 3) {
+                console.log(`Sample record ${processedRecords + 1}: Block=${blockName}, District=${districtName}, Rainfall=${rainfall}`);
+            }
+            
+            // Skip invalid records
+            if (!blockName || !districtName || isNaN(rainfall)) {
+                continue;
+            }
+            
             const key = `${blockName}__${districtName}`;
-
+            
             if (!blockMap[key]) {
                 blockMap[key] = {
                     block_name: blockName,
-                    block_code: '',                  // Placeholder
+                    block_code: '',
                     district_name: districtName,
-                    district_code: '',               // Placeholder
+                    district_code: '',
                     state_name: stateName,
-                    state_code: '',                  // Placeholder
-                    region_name: '',                 // Placeholder
-                    region_code: '',                 // Placeholder
-                    centre_name: '',                 // Placeholder
-                    centre_type: '',                 // Placeholder
-                    sub_division_code: '',           // Placeholder
+                    state_code: '',
+                    region_name: '',
+                    region_code: '',
+                    centre_name: '',
+                    centre_type: '',
+                    sub_division_code: '',
                     normal_rainfall: null,
                     actuals: []
                 };
             }
-
-            blockMap[key].actuals.push(rain);
+            
+            blockMap[key].actuals.push(rainfall);
+            processedRecords++;
         }
-
+        
+        console.log(`📊 Processed ${processedRecords} records for ${stateName}, created ${Object.keys(blockMap).length} unique blocks`);
+        
+        // Process each block
         for (const block of Object.values(blockMap)) {
             const actualSum = block.actuals.reduce((sum, val) => sum + val, 0);
             const actualAvg = actualSum / block.actuals.length;
-
+            
             let departure = null;
-
             if (block.normal_rainfall !== null) {
                 const normalSafe = block.normal_rainfall === 0 ? 0.01 : block.normal_rainfall;
                 departure = ((actualAvg - normalSafe) / normalSafe) * 100;
             }
-
+            
             allBlocks.push({
                 block_name: block.block_name,
                 block_code: block.block_code,
@@ -296,6 +253,9 @@ function processAWSStationDataAndGetBlockData(allStateData) {
             });
         }
     }
-
+    
+    console.log(`🎯 Total blocks processed: ${allBlocks.length}`);
     return allBlocks;
 }
+
+// module.exports = router;

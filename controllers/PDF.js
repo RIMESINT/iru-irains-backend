@@ -24,8 +24,12 @@ exports.uploadPdf = async (req, res) => {
       res.status(200).json({ success: true, documentId: result });
     } catch (error) {
       console.error('Error uploading PDF:', error);
-      res.status(500).json({ success: false, error: 'Failed to upload PDF' });
+      res.status(400).json({
+        success: false,
+        error: error.message || 'Failed to upload PDF'
+      });
     }
+    
   };
   
 
@@ -290,5 +294,70 @@ exports.getPdfByDocumentName = async (req, res) => {
   } catch (error) {
     console.error('Error fetching PDF by document name:', error.message);
     res.status(500).json({ success: false, error: 'Failed to fetch PDF' });
+  }
+};
+
+
+
+
+
+// **CORRECTED: Delete PDF using your existing connection pattern**
+exports.deletePdf = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Start transaction
+    await client.query('BEGIN');
+    
+    // Find the document first
+    const findQuery = 'SELECT * FROM public.pdf_documents WHERE id = $1';
+    const findResult = await client.query(findQuery, [id]);
+    
+    if (findResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'PDF document not found'
+      });
+    }
+    
+    const pdfDocument = findResult.rows[0];
+    
+    // **Hard delete - completely remove from database**
+    const deleteQuery = 'DELETE FROM public.pdf_documents WHERE id = $1';
+    await client.query(deleteQuery, [id]);
+    
+    // **Reset sequence - your original query**
+    const resetSequenceQuery = `
+      SELECT setval('pdf_documents_id_seq', 
+      COALESCE((SELECT MAX(id) FROM public.pdf_documents), 1));
+    `;
+    await client.query(resetSequenceQuery);
+    
+    // Commit transaction
+    await client.query('COMMIT');
+    
+    console.log('PDF deleted and sequence reset successfully');
+    
+    res.status(200).json({
+      success: true,
+      message: 'PDF document permanently deleted',
+      deletedDocument: {
+        id: pdfDocument.id,
+        document_name: pdfDocument.document_name,
+        document_type: pdfDocument.document_type
+      }
+    });
+    
+  } catch (error) {
+    // Rollback transaction on error
+    await client.query('ROLLBACK');
+    console.error('Error deleting PDF:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting PDF document',
+      error: error.message
+    });
   }
 };

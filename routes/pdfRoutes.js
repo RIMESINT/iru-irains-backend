@@ -23,6 +23,8 @@ router.post('/uploadpdfNEW', upload.single('file'), pdfController.uploadPdfNew);
 router.get('/getAllPdfsByDocumentType', pdfController.getAllPdfsByDocumentType);
 router.get('/getDocumentTypesAndNames', pdfController.getDocumentTypesAndNames);
 router.post('/getPdfByDocumentName', pdfController.getPdfByDocumentName);
+router.delete('/deletePdf/:id', pdfController.deletePdf);
+
 
 
 module.exports = router;

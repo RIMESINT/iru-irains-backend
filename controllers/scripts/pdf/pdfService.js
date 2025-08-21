@@ -7,31 +7,36 @@ const client = require("../../../connection");
 
 // Service function to handle PDF upload
 exports.uploadPdf = async (userId, document_name, document_type, pdfFile) => {
-    const documentSize = pdfFile.size;
-    const documentData = pdfFile.buffer; // Buffer contains binary data
-  
-    const query = `
-      INSERT INTO public.pdf_documents (document_name, document_type, document_size, document_data, uploaded_by)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id;
-    `;
-  
-    const values = [
-      document_name,
-      document_type,
-      documentSize,
-      documentData, // Insert binary data here
-      userId
-    ];
-  
-    try {
-      const result = await client.query(query, values);
-      return result.rows[0].id; // Return the document ID
-    } catch (error) {
-      console.error('Error inserting PDF:', error);
-      throw new Error('Error uploading PDF to the database');
+  const documentSize = pdfFile.size;
+  const documentData = pdfFile.buffer; // Buffer contains binary data
+
+  const query = `
+    INSERT INTO public.pdf_documents (document_name, document_type, document_size, document_data, uploaded_by)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id;
+  `;
+
+  const values = [
+    document_name,
+    document_type,
+    documentSize,
+    documentData,
+    userId
+  ];
+
+  try {
+    const result = await client.query(query, values);
+    return result.rows[0].id;
+  } catch (error) {
+    // Duplicate key error for unique constraints in Postgres
+    if (error.code === '23505') {
+      throw new Error(`A document with the name "${document_name}" already exists.`);
     }
-  };
+    console.error('Error inserting PDF:', error);
+    throw new Error('Error uploading PDF to the database');
+  }
+};
+
   
 // // Controller Method: Fetch PDF from the database and send it as a response
 // exports.getPdf = async (req, res) => {

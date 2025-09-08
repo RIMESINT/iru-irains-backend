@@ -22,6 +22,8 @@ const emailRoutes = require("./routes/emailRoutes");
 const pdfRoutes = require("./routes/pdfRoutes");
 const resetPassRoutes = require("./routes/resetPassRoutes");
 const blockRoutes = require("./routes/blockRoutes");
+const mapImageRoutes = require('./routes/mapImageRoutes');
+const spatialDistribution = require("./routes/spatialDistributionRoutes");
 
 // Load SSL Certificate
 const options = {
@@ -85,6 +87,10 @@ app.use("/api/v1/", emailRoutes);
 app.use("/api/v1/", pdfRoutes);
 app.use("/api/v1/", resetPassRoutes);
 app.use("/api/v1/", blockRoutes);
+app.use('/api/v1/maps/', mapImageRoutes);
+app.use("/api/v1/", spatialDistribution);
+
+
 
 
 // Use HTTPS Server

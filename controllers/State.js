@@ -221,6 +221,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
 
     try {
         const result = await client.query(query, [startDate, endDate]);
+        console.log(result.rows)
         return result.rows;
     } catch (error) {
         console.error('Error executing query', error.stack);
@@ -322,3 +323,8 @@ exports.fetchStateDataAforAPIexport = async (req, res) => {
         });
     }
 };
+
+
+
+// Export the fetchBetweenDates function for use in other modules  
+module.exports.fetchBetweenDates = fetchBetweenDates;

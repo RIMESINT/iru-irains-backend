@@ -389,3 +389,7 @@ exports.fetchDistrictDataforAPIexport = async (req, res) => {
         });
     }
 };
+
+
+
+module.exports.fetchBetweenDates = fetchBetweenDates;

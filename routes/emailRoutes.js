@@ -10,6 +10,7 @@ const { sendManualMail,
         createEmailGroups,
         deleteEmailGroup,
         updateEmailGroups} = require("../controllers/Email")
+const emailController = require('../controllers/emailController');
 
 
 
@@ -25,5 +26,11 @@ router.get('/fetchEmailGroups',fetchEmailGroups)
 router.post('/createEmailGroups',createEmailGroups)
 router.post('/deleteEmailGroup',deleteEmailGroup)
 router.post('/updateEmailGroups',updateEmailGroups)
+
+
+// ********************************************************************************************************
+//                                      Email Dissemination
+// ********************************************************************************************************
+router.post('/send-bulk-reports', emailController.sendBulkReports);
 
 module.exports = router;

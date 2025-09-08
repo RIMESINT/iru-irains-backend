@@ -1,11 +1,38 @@
+// const schedule = require('node-schedule');
+// const { AddDailyStationData} = require("../controllers/StationDataUpdates")
+// const { dailyDataUpdateReminder, dailyDataVerificationReminder} = require("../controllers/Email")
+// // Schedule a job to run at 1:29 PM every day
+// const job1 = schedule.scheduleJob('29 13 * * *', AddDailyStationData);
+// //12:30
+// const job2 = schedule.scheduleJob('30 12 * * *', dailyDataUpdateReminder);
+// //1:15
+// const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder);
+// //4:29PM
+// // const job4 = schedule.scheduleJob('30 16 * * *', AddDailyStationData);
+
+
 const schedule = require('node-schedule');
 const { AddDailyStationData} = require("../controllers/StationDataUpdates")
 const { dailyDataUpdateReminder, dailyDataVerificationReminder} = require("../controllers/Email")
-// Schedule a job to run at 1:29 PM every day
-const job1 = schedule.scheduleJob('29 13 * * *', AddDailyStationData);
-//12:30
-const job2 = schedule.scheduleJob('30 12 * * *', dailyDataUpdateReminder);
-//1:15
-const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder);
-//4:29PM
-// const job4 = schedule.scheduleJob('30 16 * * *', AddDailyStationData);
+
+// Schedule jobs to run every 30 minutes from 1:29 PM to 6:00 PM
+const cronPatterns = [
+    '29 13 * * *', // 1:29 PM
+    '59 13 * * *', // 1:59 PM
+    '29 14 * * *', // 2:29 PM
+    '59 14 * * *', // 2:59 PM
+    '29 15 * * *', // 3:29 PM
+    '59 15 * * *', // 3:59 PM
+    '29 16 * * *', // 4:29 PM
+    '59 16 * * *', // 4:59 PM
+    '29 17 * * *', // 5:29 PM
+    '59 17 * * *'  // 5:59 PM
+];
+
+const jobs = cronPatterns.map((pattern, index) => 
+    schedule.scheduleJob(pattern, AddDailyStationData)
+);
+
+// Other existing jobs
+const job2 = schedule.scheduleJob('30 12 * * *', dailyDataUpdateReminder); // 12:30 PM
+const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder); // 1:15 PM

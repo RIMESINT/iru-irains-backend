@@ -421,3 +421,7 @@ exports.fetchRegionDataAforAPIexport = async (req, res) => {
         });
     }
 };
+
+
+// Export the fetchBetweenDates function for use in other modules  
+module.exports.fetchBetweenDates = fetchBetweenDates;

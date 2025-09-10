@@ -54,11 +54,14 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
             sddf.data,
             sddf.station_id,
             sddf.district_code,
+            ndd.district_name,
+            ndd.state_name,
             sd.station_name,
             sd.latitude,
             sd.longitude
         FROM public.station_daily_data as sddf
-        JOIN station_details as sd ON sd.station_code = sddf.station_id
+        JOIN station_details as sd ON sd.station_code = sddf.station_id 
+        JOIN normal_district_details ndd on ndd.district_code = sd.district_code
         WHERE sddf.district_code = ANY($1) 
         AND sddf.collection_date BETWEEN $2 AND $3;
     `;

@@ -13,7 +13,8 @@
 
 const schedule = require('node-schedule');
 const { AddDailyStationData} = require("../controllers/StationDataUpdates")
-const { dailyDataUpdateReminder, dailyDataVerificationReminder} = require("../controllers/Email")
+const { dailyDataUpdateReminder, dailyDataVerificationReminder} = require("../controllers/Email");
+const { sendBulkReports } = require('./emailController');
 
 // Schedule jobs to run every 30 minutes from 1:29 PM to 6:00 PM
 const cronPatterns = [
@@ -36,3 +37,4 @@ const jobs = cronPatterns.map((pattern, index) =>
 // Other existing jobs
 const job2 = schedule.scheduleJob('30 12 * * *', dailyDataUpdateReminder); // 12:30 PM
 const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder); // 1:15 PM
+const job4 = schedule.scheduleJob('59 14 * * *', sendBulkReports); // 14:59 ~~ 3:00PM

@@ -1,18 +1,19 @@
 const express = require("express");
 const router = express.Router();
 
-// const { fetchStateData, getAllStates} = require("../controllers/State")
 const {
   getSpatialDistributionData,
+  getSpatialDistributionDataState,
 } = require("../controllers/SpatialDistribution");
 
 // ********************************************************************************************************
 //                                      Spatial Distribution routes
 // ********************************************************************************************************
 
-// get single day data
-// router.post("/fetchStateData", fetchStateData);
-
+// Subdivision routes
 router.get("/getSpatialDistributionData", getSpatialDistributionData);
+
+// State routes
+router.get("/getSpatialDistributionDataState", getSpatialDistributionDataState);
 
 module.exports = router;

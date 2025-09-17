@@ -218,7 +218,7 @@ exports.getSpatialDistributionDataState = async (req, res) => {
   try {
     const { date, startDate, endDate, mode } = req.query;
 
-    console.log("mode (state-level)", mode);
+    // console.log("mode (state-level)", mode);
 
     const isValidDate = (d) => moment(d, "YYYY-MM-DD", true).isValid();
 

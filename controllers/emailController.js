@@ -3,6 +3,7 @@ const client = require('../connection');
 const moment = require('moment');
 const fs = require('fs-extra');
 const path = require('path');
+const XLSX = require('xlsx'); // ADD THIS LINE
 require('dotenv').config();
 
 // Import your existing PDF services
@@ -43,14 +44,14 @@ const createUltraSMTPTransporter = () => {
 const createMockTransporter = () => {
     return {
         sendMail: async (mailOptions) => {
-            console.log('📧 MOCK EMAIL (8 attachments: 4 PDFs + 4 Images):');
+            console.log('📧 MOCK EMAIL (8 attachments: 4 Excel + 4 Images):'); // CHANGED
             console.log('From:', mailOptions.from);
             console.log('To:', mailOptions.to);
             console.log('Subject:', mailOptions.subject);
             console.log('Total attachments:', mailOptions.attachments?.length || 0);
             
             if (mailOptions.attachments && mailOptions.attachments.length > 0) {
-                let pdfCount = 0;
+                let excelCount = 0; // CHANGED
                 let imageCount = 0;
                 let totalSize = 0;
                 
@@ -58,9 +59,9 @@ const createMockTransporter = () => {
                     const sizeMB = (att.content?.length / (1024 * 1024)).toFixed(2);
                     totalSize += att.content?.length || 0;
                     
-                    if (att.filename.toLowerCase().includes('.pdf')) {
-                        pdfCount++;
-                        console.log(`  📄 PDF ${pdfCount}: ${att.filename} (${sizeMB} MB)`);
+                    if (att.filename.toLowerCase().includes('.xlsx')) { // CHANGED
+                        excelCount++; // CHANGED
+                        console.log(`  📊 Excel ${excelCount}: ${att.filename} (${sizeMB} MB)`); // CHANGED
                     } else {
                         imageCount++;
                         console.log(`  🖼️  Image ${imageCount}: ${att.filename} (${sizeMB} MB)`);
@@ -68,12 +69,12 @@ const createMockTransporter = () => {
                 });
                 
                 const totalSizeMB = (totalSize / (1024 * 1024)).toFixed(2);
-                console.log(`📊 Summary: ${pdfCount} PDFs + ${imageCount} Images = ${totalSizeMB} MB total`);
+                console.log(`📊 Summary: ${excelCount} Excel + ${imageCount} Images = ${totalSizeMB} MB total`); // CHANGED
             }
             
             return {
                 messageId: `mock-${Date.now()}@rimes.int`,
-                response: 'Mock email sent successfully with 8 attachments (4 PDFs + 4 Images)'
+                response: 'Mock email sent successfully with 8 attachments (4 Excel + 4 Images)' // CHANGED
             };
         },
         verify: async () => true
@@ -88,7 +89,7 @@ try {
     smtp = createUltraSMTPTransporter();
 
     smtp.verify().then(() => {
-        console.log('✅ Ultra SMTP transporter configured for 8 attachments (4 PDFs + 4 Images)');
+        console.log('✅ Ultra SMTP transporter configured for 8 attachments (4 Excel + 4 Images)'); // CHANGED
         isUsingMockMode = false;
     }).catch((error) => {
         console.error('⚠️ SMTP verification failed:', error.message);
@@ -200,10 +201,10 @@ const getRegionData = async (startDate, endDate, currentDate, specificDateTime) 
     }
 };
 
-// **Generate individual PDF buffer for each report type (same as before)**
-const generateSinglePDFBuffer = async (reportType, startDate, endDate) => {
+// **CHANGED: Generate individual Excel buffer instead of PDF**
+const generateSingleExcelBuffer = async (reportType, startDate, endDate) => {
     try {
-        console.log(`🔄 Generating ${reportType.toUpperCase()} PDF...`);
+        console.log(`🔄 Generating ${reportType.toUpperCase()} EXCEL...`); // CHANGED
         
         const currentDate = moment().format('YYYY-MM-DD');
         const data = { startDate, endDate };
@@ -282,14 +283,65 @@ const generateSinglePDFBuffer = async (reportType, startDate, endDate) => {
                 throw new Error(`❌ Unsupported report type: ${reportType}`);
         }
 
-        const doc = await pdfService.generatePDF();
-        const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
+        // **CHANGED: Generate Excel instead of PDF**
+        // Add generateExcel method if it doesn't exist
+        if (typeof pdfService.generateExcel !== 'function') {
+            pdfService.generateExcel = () => {
+                const wb = XLSX.utils.book_new();
+                const ws_data = [];
+
+                // Header
+                const dateLabel = pdfService.data.startDate === pdfService.data.endDate
+                    ? `DAY: ${pdfService.convertToIndianDateFormat(pdfService.data.startDate)}`
+                    : `DAY: ${pdfService.convertToIndianDateFormat(pdfService.data.startDate)} to ${pdfService.convertToIndianDateFormat(pdfService.data.endDate)}`;
+                const periodLabel = `PERIOD: ${pdfService.convertToIndianDateFormat(pdfService.seasonPeriodDate.startDate)} to ${pdfService.convertToIndianDateFormat(pdfService.seasonPeriodDate.endDate)}`;
+                
+                ws_data.push(['', '', dateLabel, '', '', '', periodLabel, '', '', '']);
+                
+                const columnHeaders = reportType.toLowerCase() === 'region' 
+                    ? ['S.No', 'REGION', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.']
+                    : reportType.toLowerCase() === 'state'
+                    ? ['S.No', 'REGION/STATE', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.']
+                    : reportType.toLowerCase() === 'subdivision'
+                    ? ['S.No', 'REGION/SUBDIVISION', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.']
+                    : ['S.No', 'MET.SUBDIVISION/UT/STATE/DISTRICT', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.'];
+                
+                ws_data.push(columnHeaders);
+
+                // Load and convert rows
+                pdfService.loadTheRows();
+                for (const row of pdfService.rows) {
+                    ws_data.push(row.map(cell => typeof cell === 'object' ? cell.content : cell));
+                }
+
+                // Legend
+                ws_data.push([]);
+                ws_data.push(['', 'LEGEND', '', '', '', '', '', '', '', '']);
+                ws_data.push(['CATEGORY', '% DEPARTURES OF RAINFALL', 'COLOUR NAME', '', '', '', '', '', '', '']);
+                [
+                    ['Large Excess (LE)', '>= 60%', 'Blue'],
+                    ['Excess (E)', '>= 20% and <= 59%', 'Light Blue'],
+                    ['Normal (N)', '>= -19% and <= +19%', 'Green'],
+                    ['Deficient (D)', '>= -59% and <= -20%', 'Red'],
+                    ['Large Deficient (LD)', '>= -99% and <= -60%', 'Yellow'],
+                    ['No Rain (NR)', '= -100%', 'White'],
+                    ['Not Available', 'ND', 'Grey'],
+                ].forEach(legendRow => ws_data.push([...legendRow, '', '', '', '', '', '', '', '']));
+
+                const ws = XLSX.utils.aoa_to_sheet(ws_data);
+                XLSX.utils.book_append_sheet(wb, ws, `${reportType}Rainfall`);
+                return wb;
+            };
+        }
+
+        const wb = pdfService.generateExcel();
+        const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
         
-        console.log(`✅ ${reportType.toUpperCase()} PDF generated: ${pdfBuffer.length} bytes`);
-        return pdfBuffer;
+        console.log(`✅ ${reportType.toUpperCase()} EXCEL generated: ${excelBuffer.length} bytes`);
+        return excelBuffer;
 
     } catch (error) {
-        console.error(`❌ Error generating ${reportType.toUpperCase()} PDF:`, error);
+        console.error(`❌ Error generating ${reportType.toUpperCase()} EXCEL:`, error);
         throw error;
     }
 };
@@ -322,40 +374,40 @@ const captureMapImages = async () => {
     }
 };
 
-// **MAIN FUNCTION: Generate 4 PDFs + 4 Images as attachments (same as before)**
-const generatePDFsAndImagesAttachments = async (reportTypes, startDate, endDate) => {
+// **CHANGED: Generate 4 Excel + 4 Images as attachments**
+const generateExcelAndImagesAttachments = async (reportTypes, startDate, endDate) => {
     try {
-        console.log(`🚀 Generating 4 PDFs + 4 Images for email...`);
+        console.log(`🚀 Generating 4 Excel + 4 Images for email...`); // CHANGED
         
-        // Generate all 4 PDFs in parallel
-        console.log('📄 Generating PDFs...');
-        const pdfPromises = reportTypes.map(reportType => 
-            generateSinglePDFBuffer(reportType, startDate, endDate)
+        // Generate all 4 Excel files in parallel
+        console.log('📊 Generating Excel files...'); // CHANGED
+        const excelPromises = reportTypes.map(reportType => 
+            generateSingleExcelBuffer(reportType, startDate, endDate) // CHANGED function name
         );
         
-        const pdfBuffers = await Promise.all(pdfPromises);
+        const excelBuffers = await Promise.all(excelPromises); // CHANGED variable name
         const timestamp = moment().format('YYYYMMDD_HHmmss');
         
         // Capture 4 map images
         console.log('🖼️ Capturing map images...');
         const capturedImages = await captureMapImages();
         
-        // Create PDF attachments
-        const pdfAttachments = [];
-        for (let i = 0; i < pdfBuffers.length; i++) {
+        // Create Excel attachments
+        const excelAttachments = []; // CHANGED from pdfAttachments
+        for (let i = 0; i < excelBuffers.length; i++) { // CHANGED from pdfBuffers
             const reportType = reportTypes[i];
-            const sizeMB = (pdfBuffers[i].length / (1024 * 1024)).toFixed(2);
+            const sizeMB = (excelBuffers[i].length / (1024 * 1024)).toFixed(2); // CHANGED from pdfBuffers
             
-            pdfAttachments.push({
-                filename: `DISTRIBUTION_${reportType.toUpperCase()}_INDIA_cd_${timestamp}.pdf`,
-                content: pdfBuffers[i],
-                contentType: 'application/pdf'
+            excelAttachments.push({ // CHANGED from pdfAttachments
+                filename: `DISTRIBUTION_${reportType.toUpperCase()}_INDIA_cd_${timestamp}.xlsx`, // CHANGED extension
+                content: excelBuffers[i], // CHANGED from pdfBuffers
+                contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' // CHANGED content type
             });
             
-            console.log(`📄 PDF Attachment ${i + 1}: ${reportType.toUpperCase()} PDF (${sizeMB} MB)`);
+            console.log(`📊 Excel Attachment ${i + 1}: ${reportType.toUpperCase()} Excel (${sizeMB} MB)`); // CHANGED
         }
         
-        // Create image attachments
+        // Create image attachments (same as before)
         const imageAttachments = [];
         const imageDir = path.join(__dirname, 'scripts/scraping/../../../public/scraped-images');
         
@@ -384,17 +436,17 @@ const generatePDFsAndImagesAttachments = async (reportTypes, startDate, endDate)
         }
         
         // Combine all attachments
-        const allAttachments = [...pdfAttachments, ...imageAttachments];
+        const allAttachments = [...excelAttachments, ...imageAttachments]; // CHANGED from pdfAttachments
         
         const totalSize = allAttachments.reduce((sum, att) => sum + att.content.length, 0);
         const totalSizeMB = (totalSize / (1024 * 1024)).toFixed(2);
         
-        console.log(`📊 Total attachments: ${pdfAttachments.length} PDFs + ${imageAttachments.length} Images = ${allAttachments.length} files (${totalSizeMB} MB total)`);
+        console.log(`📊 Total attachments: ${excelAttachments.length} Excel + ${imageAttachments.length} Images = ${allAttachments.length} files (${totalSizeMB} MB total)`); // CHANGED
         
         return allAttachments;
         
     } catch (error) {
-        console.error('❌ Error generating PDFs and images attachments:', error);
+        console.error('❌ Error generating Excel and images attachments:', error); // CHANGED
         throw error;
     }
 };
@@ -406,7 +458,7 @@ const truncateForLog = (text, maxLength = 200) => {
     return cleanText.length > maxLength ? cleanText.substring(0, maxLength - 3) + '...' : cleanText;
 };
 
-// **Enhanced email sending for 8 attachments (same as before)**
+// **Enhanced email sending for 8 attachments**
 const sendEmailWithEightAttachments = async ({ to, subject, text, attachments, html }) => {
     if (!to || !subject || (!text && !html)) {
         return { success: false, message: 'To, subject, and either text or html are required fields.' };
@@ -434,14 +486,13 @@ const sendEmailWithEightAttachments = async ({ to, subject, text, attachments, h
                     const totalSize = mailOptions.attachments.reduce((sum, att) => sum + att.content.length, 0);
                     const sizeMB = (totalSize / (1024 * 1024)).toFixed(2);
                     
-                    const pdfCount = mailOptions.attachments.filter(att => att.filename.toLowerCase().includes('.pdf')).length;
-                    const imageCount = mailOptions.attachments.length - pdfCount;
+                    const excelCount = mailOptions.attachments.filter(att => att.filename.toLowerCase().includes('.xlsx')).length; // CHANGED
+                    const imageCount = mailOptions.attachments.length - excelCount; // CHANGED
                     
-                    console.log(`📤 Attempt ${attempts}/${maxAttempts} - Sending ${pdfCount} PDFs + ${imageCount} images (${sizeMB}MB total) to ${to}`);
+                    console.log(`📤 Attempt ${attempts}/${maxAttempts} - Sending ${excelCount} Excel + ${imageCount} images (${sizeMB}MB total) to ${to}`); // CHANGED
                 }
                 
                 const response = await smtp.sendMail(mailOptions);
-
                 if (!response || !response.messageId) {
                     throw new Error('Invalid SMTP response.');
                 }
@@ -485,13 +536,13 @@ const sendEmailWithEightAttachments = async ({ to, subject, text, attachments, h
                         try {
                             await client.query(
                                 'INSERT INTO email_log(email, subject, message, datetime, status) VALUES($1, $2, $3, $4, $5)', 
-                                [to, logSubject, `[MOCK-8ATT] ${logMessage}`, new Date(), true]
+                                [to, logSubject, `[MOCK-8ATT-EXCEL] ${logMessage}`, new Date(), true] // CHANGED
                             );
                         } catch (dbError) {
                             console.error('⚠️ Database logging failed:', dbError.message);
                         }
                         
-                        return { success: true, message: 'Email sent successfully (mock mode - 8 attachments)', response: mockResponse };
+                        return { success: true, message: 'Email sent successfully (mock mode - 4 Excel + 4 Images)', response: mockResponse }; // CHANGED
                     }
                 } else {
                     break;
@@ -510,7 +561,7 @@ const sendEmailWithEightAttachments = async ({ to, subject, text, attachments, h
         try {
             await client.query(
                 'INSERT INTO email_log(email, subject, message, datetime, status) VALUES($1, $2, $3, $4, $5)', 
-                [to, logSubject, `[ERROR-8ATT] ${logMessage}`, new Date(), false]
+                [to, logSubject, `[ERROR-8ATT-EXCEL] ${logMessage}`, new Date(), false] // CHANGED
             );
             return { success: false, message: 'Error sending email. Data inserted into log.', error: error.message };
         } catch (insertError) {
@@ -520,7 +571,7 @@ const sendEmailWithEightAttachments = async ({ to, subject, text, attachments, h
     }
 };
 
-// **UPDATED: Simple Email Content Generation**
+// **CHANGED: Email Content Generation for Excel**
 const generateEmailContent = ({ reportTypes, customMessage, dateRange }) => {
     let today = new Date();
     today = today.toISOString().split("T")[0];
@@ -530,11 +581,11 @@ const generateEmailContent = ({ reportTypes, customMessage, dateRange }) => {
     <div style="font-family: Arial, sans-serif;">
         <p>Greetings from the iRAINS</p>
         <p>These are the iRAINS Products of ${reportTypesText} for today-${today}.</p>
-        <p><strong>📄 PDF Reports (4 files)</strong></p>
-        <p>📄 DISTRICT Rainfall Distribution Report (PDF)<br>
-        📄 STATE Rainfall Distribution Report (PDF)<br>
-        📄 SUBDIVISION Rainfall Distribution Report (PDF)<br>
-        📄 REGION Rainfall Distribution Report (PDF)</p>
+        <p><strong>📊 Excel Reports (4 files)</strong></p>
+        <p>📊 DISTRICT Rainfall Distribution Report (Excel)<br>
+        📊 STATE Rainfall Distribution Report (Excel)<br>
+        📊 SUBDIVISION Rainfall Distribution Report (Excel)<br>
+        📊 REGION Rainfall Distribution Report (Excel)</p>
         
         <p><strong>🖼️ Map Images (4 files)</strong></p>
         <p>🗺️ District-wise Rainfall Map<br>
@@ -547,11 +598,11 @@ const generateEmailContent = ({ reportTypes, customMessage, dateRange }) => {
 
     const text = `These are the iRAINS Products of ${reportTypesText}.
 
-📄 PDF Reports (4 files)
-📄 DISTRICT Rainfall Distribution Report (PDF)
-📄 STATE Rainfall Distribution Report (PDF)
-📄 SUBDIVISION Rainfall Distribution Report (PDF)
-📄 REGION Rainfall Distribution Report (PDF)
+📊 Excel Reports (4 files)
+📊 DISTRICT Rainfall Distribution Report (Excel)
+📊 STATE Rainfall Distribution Report (Excel)
+📊 SUBDIVISION Rainfall Distribution Report (Excel)
+📊 REGION Rainfall Distribution Report (Excel)
 
 🖼️ Map Images (4 files)
 🗺️ District-wise Rainfall Map
@@ -564,13 +615,13 @@ const generateEmailContent = ({ reportTypes, customMessage, dateRange }) => {
     return { html, text };
 };
 
-// **UPDATED: Simple Subject Generation**
+// **CHANGED: Subject Generation**
 const generateSubject = (baseSubject, reportTypes, dateRange) => {
     const reportTypesText = reportTypes.map(type => type.toUpperCase()).join('+');
-    return `iRAINS - Daily Rainfall Statistics of ${reportTypesText}`;
+    return `iRAINS - Daily Rainfall Statistics of ${reportTypesText} (Excel)`; // CHANGED
 };
 
-// **Send complete package with 4 PDFs + 4 Images (same as before)**
+// **Send complete package with 4 Excel + 4 Images**
 const sendCompleteReportPackage = async ({
     recipients,
     subject = 'iRAINS - Daily Rainfall Statistics',
@@ -580,13 +631,13 @@ const sendCompleteReportPackage = async ({
 }) => {
     try {
         const recipientCount = Array.isArray(recipients) ? recipients.length : 1;
-        console.log(`🚀 Preparing iRAINS PACKAGE (4 PDFs + 4 Images) for ${recipientCount} recipients...`);
+        console.log(`🚀 Preparing iRAINS PACKAGE (4 Excel + 4 Images) for ${recipientCount} recipients...`); // CHANGED
 
         const startDate = dateRange.startDate || moment().format('YYYY-MM-DD');
         const endDate = dateRange.endDate || moment().format('YYYY-MM-DD');
         
-        // Generate all 8 attachments (4 PDFs + 4 Images)
-        const allAttachments = await generatePDFsAndImagesAttachments(reportTypes, startDate, endDate);
+        // Generate all 8 attachments (4 Excel + 4 Images)
+        const allAttachments = await generateExcelAndImagesAttachments(reportTypes, startDate, endDate); // CHANGED function name
         
         const emailContent = generateEmailContent({ reportTypes, customMessage, dateRange });
         const recipientList = Array.isArray(recipients) ? recipients.join(', ') : recipients;
@@ -603,16 +654,16 @@ const sendCompleteReportPackage = async ({
 
         if (result.success) {
             const totalSizeMB = allAttachments.reduce((sum, att) => sum + att.content.length, 0) / (1024 * 1024);
-            const pdfCount = allAttachments.filter(att => att.filename.toLowerCase().includes('.pdf')).length;
-            const imageCount = allAttachments.length - pdfCount;
+            const excelCount = allAttachments.filter(att => att.filename.toLowerCase().includes('.xlsx')).length; // CHANGED
+            const imageCount = allAttachments.length - excelCount; // CHANGED
             
-            console.log(`✅ iRAINS PACKAGE email sent: ${pdfCount} PDFs + ${imageCount} images (${totalSizeMB.toFixed(2)}MB total)! ${isUsingMockMode ? '(MOCK MODE)' : ''}`);
+            console.log(`✅ iRAINS PACKAGE email sent: ${excelCount} Excel + ${imageCount} images (${totalSizeMB.toFixed(2)}MB total)! ${isUsingMockMode ? '(MOCK MODE)' : ''}`); // CHANGED
             
             return {
                 success: true,
                 messageId: result.response.messageId,
                 attachmentCount: allAttachments.length,
-                pdfCount: pdfCount,
+                excelCount: excelCount, // CHANGED from pdfCount
                 imageCount: imageCount,
                 recipientCount: recipientCount,
                 reportTypes: reportTypes.map(type => type.toUpperCase()),
@@ -654,10 +705,11 @@ const sendBulkReports = async (req, res) => {
             ? reportConfigs 
             : [
                 {
+                    // "recipients": ["balakrishna@rimes.int"],
                     "recipients": ["rmudelhi@gmail.com","RAHULSAXENA.IMD@gmail.com", "shravankumar.imd@gmail.com","tarakesh@rimes.int","balakrishna@rimes.int","manu@rimes.int", "sivaramakrishna@rimes.int"],
                     "subject": "Complete Rainfall Analysis Package",
                     "reportTypes": ["district", "state", "subdivision", "region"],
-                    "customMessage": `This is the dissemination of the ${today} reports with 4 PDF reports + 4 map images has completed by crawling from iRAINS website.`,
+                    "customMessage": `This is the dissemination of the ${today} reports with 4 Excel reports + 4 map images has completed by crawling from iRAINS website.`, // CHANGED
                     "dateRange": {
                         "startDate": today,
                         "endDate": today
@@ -665,7 +717,7 @@ const sendBulkReports = async (req, res) => {
                 }
             ];
 
-        console.log(`🚀 Processing iRAINS PACKAGE bulk email (4 PDFs + 4 Images) for ${finalReportConfigs.length} recipients`);
+        console.log(`🚀 Processing iRAINS PACKAGE bulk email (4 Excel + 4 Images) for ${finalReportConfigs.length} recipients`); // CHANGED
 
         const results = [];
         let successCount = 0;
@@ -706,7 +758,7 @@ const sendBulkReports = async (req, res) => {
             totalSent: finalReportConfigs.length,
             successCount,
             failureCount,
-            packageContents: '4 PDFs + 4 Map Images = 8 attachments per email',
+            packageContents: '4 Excel + 4 Map Images = 8 attachments per email', // CHANGED
             mode: isUsingMockMode ? 'mock' : 'production',
             results,
             timestamp: new Date().toISOString()
@@ -750,6 +802,5 @@ const sendBulkReports = async (req, res) => {
         throw error;
     }
 };
-
 
 module.exports = { sendBulkReports };

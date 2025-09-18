@@ -343,6 +343,49 @@ class PDFDistrictService {
         return doc;
     };
 
+    generateExcel = () => {
+        const wb = XLSX.utils.book_new();
+        const ws_data = [];
+    
+        // Header rows as in the PDF
+        const seasonRange = this.adjustSeasonForRange(this.data.startDate, this.data.endDate);
+        const seasonLabel = `PERIOD: ${this.convertToIndianDateFormat(seasonRange.startDate)} to ${this.convertToIndianDateFormat(seasonRange.endDate)}`;
+        const dateLabel = this.data.startDate === this.data.endDate ?
+            `DAY: ${this.convertToIndianDateFormat(this.data.startDate)}` :
+            `DAY: ${this.convertToIndianDateFormat(this.data.startDate)} to ${this.convertToIndianDateFormat(this.data.endDate)}`;
+        ws_data.push(['', '', dateLabel, '', '', '', seasonLabel, '', '', '']);
+    
+        ws_data.push(['S.No', 'MET.SUBDIVISION/UT/STATE/DISTRICT', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.',
+                      'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.']);
+    
+        this.loadTheRows();
+    
+        // Helper: flatten row data for Excel cells (Cell content or value)
+        for (const row of this.rows) {
+            ws_data.push(row.map(cell => (typeof cell === 'object' ? cell.content : cell)));
+        }
+    
+        // Legend
+        ws_data.push([]);
+        ws_data.push(['', 'LEGEND', '', '', '', '', '', '', '', '']);
+        ws_data.push(['CATEGORY', '% DEPARTURES OF RAINFALL', 'COLOUR NAME', '', '', '', '', '', '', '']);
+        [
+            ['Large Excess (LE)', '>= 60%', 'Blue'],
+            ['Excess (E)', '>= 20% and <= 59%', 'Light Blue'],
+            ['Normal (N)', '>= -19% and <= +19%', 'Green'],
+            ['Deficient (D)', '>= -59% and <= -20%', 'Red'],
+            ['Large Deficient (LD)', '>= -99% and <= -60%', 'Yellow'],
+            ['No Rain (NR)', '= -100%', 'White'],
+            ['Not Available', 'ND', 'Grey'],
+        ].forEach(legendRow => ws_data.push([...legendRow, '', '', '', '', '', '', '', '']));
+    
+        // Sheet creation
+        const ws = XLSX.utils.aoa_to_sheet(ws_data);
+        XLSX.utils.book_append_sheet(wb, ws, 'Rainfall Report');
+        return wb;
+    }
+    
+
     async setData(districtData, stateData, subdivData, districtSeasonData, stateSeasonData, subdivSeasonData, dateRange, seasonPeriodDate) {
         this.districtdepCurrdate = districtData;
         this.statedepCurrdate = stateData;

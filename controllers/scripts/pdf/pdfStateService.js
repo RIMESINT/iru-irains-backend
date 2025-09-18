@@ -218,6 +218,44 @@ class PDFStateService {
         return doc;
     };
 
+    generateExcel = () => {
+        const wb = XLSX.utils.book_new();
+        const ws_data = [];
+    
+        // Build header rows
+        const dateLabel = this.data.startDate === this.data.endDate
+            ? `DAY: ${this.convertToIndianDateFormat(this.data.startDate)}`
+            : `DAY: ${this.convertToIndianDateFormat(this.data.startDate)} to ${this.convertToIndianDateFormat(this.data.endDate)}`;
+        const periodLabel = `PERIOD: ${this.convertToIndianDateFormat(this.seasonPeriodDate.startDate)} to ${this.convertToIndianDateFormat(this.seasonPeriodDate.endDate)}`;
+        ws_data.push(['', '', dateLabel, '', '', '', periodLabel, '', '', '']);
+        ws_data.push(['S.No', 'REGION/STATE', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.',
+                      'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.']);
+    
+        // Populate rows as in PDF
+        this.loadTheRows();
+        for (const row of this.rows) {
+            ws_data.push(row.map(cell => (typeof cell === 'object' ? cell.content : cell)));
+        }
+    
+        // Add legend rows (describe color by text, since Excel cell fills are limited with open SheetJS)
+        ws_data.push([]);
+        ws_data.push(['', 'LEGEND', '', '', '', '', '', '', '', '']);
+        ws_data.push(['CATEGORY', '% DEPARTURES OF RAINFALL', 'COLOUR NAME', '', '', '', '', '', '', '']);
+        [
+            ['Large Excess (LE)', '>= 60%', 'Blue'],
+            ['Excess (E)', '>= 20% and <= 59%', 'Light Blue'],
+            ['Normal (N)', '>= -19% and <= +19%', 'Green'],
+            ['Deficient (D)', '>= -59% and <= -20%', 'Red'],
+            ['Large Deficient (LD)', '>= -99% and <= -60%', 'Yellow'],
+            ['No Rain (NR)', '= -100%', 'White'],
+            ['Not Available', 'ND', 'Grey'],
+        ].forEach(legendRow => ws_data.push([...legendRow, '', '', '', '', '', '', '', '']));
+    
+        const ws = XLSX.utils.aoa_to_sheet(ws_data);
+        XLSX.utils.book_append_sheet(wb, ws, 'StateRainfall');
+        return wb;
+    };
+
     async setData(stateData, regionData, stateSeasonData, regionSeasonData, dateRange, seasonPeriodDate) {
         this.statedepCurrdate = stateData;
         this.regiondepCurrdate = regionData;

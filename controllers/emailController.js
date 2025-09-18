@@ -706,7 +706,7 @@ const sendBulkReports = async (req, res) => {
             : [
                 {
                     // "recipients": ["balakrishna@rimes.int"],
-                    "recipients": ["rmudelhi@gmail.com","RAHULSAXENA.IMD@gmail.com", "shravankumar.imd@gmail.com","tarakesh@rimes.int","balakrishna@rimes.int","manu@rimes.int", "sivaramakrishna@rimes.int"],
+                    "recipients": ["rmudelhi@gmail.com","RAHULSAXENA.IMD@gmail.com", "shravankumar.imd@gmail.com","tarakesh@rimes.int","balakrishna@rimes.int","manu@rimes.int"],
                     "subject": "Complete Rainfall Analysis Package",
                     "reportTypes": ["district", "state", "subdivision", "region"],
                     "customMessage": `This is the dissemination of the ${today} reports with 4 Excel reports + 4 map images has completed by crawling from iRAINS website.`, // CHANGED

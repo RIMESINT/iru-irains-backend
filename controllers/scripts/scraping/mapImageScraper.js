@@ -159,7 +159,7 @@ class MapImageScraper {
             console.log('🌐 Navigating to maps page...');
             await page.goto('https://irainshydro.imd.gov.in/all-maps', {
                 waitUntil: 'networkidle2',
-                timeout: 60000
+                timeout: 0
             });
 
             await this.delay(10000);

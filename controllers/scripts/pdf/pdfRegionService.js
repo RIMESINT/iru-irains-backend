@@ -179,24 +179,44 @@ class PDFRegionService {
     generateExcel = () => {
         const wb = XLSX.utils.book_new();
         const ws_data = [];
-    
-        // Header (multi-row like in PDF)
+
+        // Current date and time formatting
+        const currentDate = new Date();
+        const formattedDateTime = `${currentDate.getDate().toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}/${currentDate.getFullYear()}, ${currentDate.getHours().toString().padStart(2, '0')}:${currentDate.getMinutes().toString().padStart(2, '0')} ${currentDate.getHours() >= 12 ? 'pm' : 'am'}`;
+
+        // Title and header information
+        ws_data.push(['IMD Rainfall Information System - Daily Station Data']);
+        ws_data.push(['']); // Empty row
+        ws_data.push(['Statistics: Regional Rainfall Distribution']);
+        ws_data.push([`Selected: ${this.convertToIndianDateFormat(this.data.startDate)} to ${this.convertToIndianDateFormat(this.data.endDate)} and Season : ${this.convertToIndianDateFormat(this.seasonPeriodDate.startDate)} to ${this.convertToIndianDateFormat(this.seasonPeriodDate.endDate)}`]);
+        ws_data.push([`Generated on: ${formattedDateTime}`]);
+        ws_data.push(['']); // Empty row
+        ws_data.push(['IMPORTANT NOTES:']);
+        ws_data.push(['• All Actual and normal rainfall values are in millimeters (mm)']);
+        ws_data.push(['• All Departure rainfall values are in Percentage']);
+        ws_data.push(['• " "(empty) indicates no data available or not entered data']);
+        ws_data.push(['• Data source: India Meteorological Department (IMD)']);
+        ws_data.push(['']); // Empty row
+
+        // Date and season labels for the data table
         const dateLabel = this.data.startDate === this.data.endDate
             ? `DAY: ${this.convertToIndianDateFormat(this.data.startDate)}`
             : `DAY: ${this.convertToIndianDateFormat(this.data.startDate)} to ${this.convertToIndianDateFormat(this.data.endDate)}`;
         const seasonLabel = `PERIOD: ${this.convertToIndianDateFormat(this.seasonPeriodDate.startDate)} to ${this.convertToIndianDateFormat(this.seasonPeriodDate.endDate)}`;
+        
         ws_data.push(['', '', dateLabel, '', '', '', seasonLabel, '', '', '']);
-    
+
+        // Column headers
         ws_data.push(['S.No', 'REGION', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.',
                       'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.']);
-    
-        // Call loader to populate rows using internal logic
+
+        // Load and add the data rows
         this.loadTheRows();
         for (const row of this.rows) {
             ws_data.push(row.map(cell => (typeof cell === 'object' ? cell.content : cell)));
         }
-    
-        // Legend table (no coloring, just indicate category+meaning).
+
+        // Legend section
         ws_data.push([]);
         ws_data.push(['', 'LEGEND', '', '', '', '', '', '', '', '']);
         ws_data.push(['CATEGORY', '% DEPARTURES OF RAINFALL', 'COLOUR NAME', '', '', '', '', '', '', '']);
@@ -209,9 +229,28 @@ class PDFRegionService {
             ['No Rain (NR)', '= -100%', 'White'],
             ['Not Available', 'ND', 'Grey'],
         ].forEach(legendRow => ws_data.push([...legendRow, '', '', '', '', '', '', '', '']));
-    
+
+        // Create worksheet from array of arrays
         const ws = XLSX.utils.aoa_to_sheet(ws_data);
-        XLSX.utils.book_append_sheet(wb, ws, 'RegionRainfall');
+
+        // Optional: Set column widths for better readability
+        const colWidths = [
+            { wch: 6 },   // S.No
+            { wch: 25 },  // REGION
+            { wch: 12 },  // ACTUAL(mm)
+            { wch: 12 },  // NORMAL(mm)
+            { wch: 8 },   // %DEP.
+            { wch: 6 },   // CAT.
+            { wch: 12 },  // ACTUAL(mm)
+            { wch: 12 },  // NORMAL(mm)
+            { wch: 8 },   // %DEP.
+            { wch: 6 },   // CAT.
+        ];
+        ws['!cols'] = colWidths;
+
+        // Add worksheet to workbook
+        XLSX.utils.book_append_sheet(wb, ws, 'Regional Rainfall Report');
+        
         return wb;
     };
 

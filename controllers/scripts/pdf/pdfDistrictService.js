@@ -347,25 +347,46 @@ class PDFDistrictService {
         const wb = XLSX.utils.book_new();
         const ws_data = [];
     
-        // Header rows as in the PDF
+        // Current date and time formatting
+        const currentDate = new Date();
+        const formattedDateTime = `${currentDate.getDate().toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}/${currentDate.getFullYear()}, ${currentDate.getHours().toString().padStart(2, '0')}:${currentDate.getMinutes().toString().padStart(2, '0')} ${currentDate.getHours() >= 12 ? 'pm' : 'am'}`;
+    
+        // Season range calculation
         const seasonRange = this.adjustSeasonForRange(this.data.startDate, this.data.endDate);
-        const seasonLabel = `PERIOD: ${this.convertToIndianDateFormat(seasonRange.startDate)} to ${this.convertToIndianDateFormat(seasonRange.endDate)}`;
+        
+        // Title and header information
+        ws_data.push(['IMD Rainfall Information System - Daily Station Data']);
+        ws_data.push(['']); // Empty row
+        ws_data.push(['Statistics: District and Meteorological Subdivision Rainfall Distribution']);
+        ws_data.push([`Selected: ${this.convertToIndianDateFormat(this.data.startDate)} to ${this.convertToIndianDateFormat(this.data.endDate)} and Season : ${this.convertToIndianDateFormat(seasonRange.startDate)} to ${this.convertToIndianDateFormat(seasonRange.endDate)}`]);
+        ws_data.push([`Generated on: ${formattedDateTime}`]);
+        ws_data.push(['']); // Empty row
+        ws_data.push(['IMPORTANT NOTES:']);
+        ws_data.push(['• All Actual and normal rainfall values are in millimeters (mm)']);
+        ws_data.push(['• All Departure rainfall values are in Percentage']);
+        ws_data.push(['• " "(empty) indicates no data available or not entered data']);
+        ws_data.push(['• Data source: India Meteorological Department (IMD)']);
+        ws_data.push(['']); // Empty row
+    
+        // Date and season labels for the data table
         const dateLabel = this.data.startDate === this.data.endDate ?
             `DAY: ${this.convertToIndianDateFormat(this.data.startDate)}` :
             `DAY: ${this.convertToIndianDateFormat(this.data.startDate)} to ${this.convertToIndianDateFormat(this.data.endDate)}`;
+        const seasonLabel = `PERIOD: ${this.convertToIndianDateFormat(seasonRange.startDate)} to ${this.convertToIndianDateFormat(seasonRange.endDate)}`;
+        
         ws_data.push(['', '', dateLabel, '', '', '', seasonLabel, '', '', '']);
     
+        // Column headers
         ws_data.push(['S.No', 'MET.SUBDIVISION/UT/STATE/DISTRICT', 'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.',
                       'ACTUAL(mm)', 'NORMAL(mm)', '%DEP.', 'CAT.']);
     
+        // Load and add the data rows
         this.loadTheRows();
-    
-        // Helper: flatten row data for Excel cells (Cell content or value)
         for (const row of this.rows) {
             ws_data.push(row.map(cell => (typeof cell === 'object' ? cell.content : cell)));
         }
     
-        // Legend
+        // Legend section
         ws_data.push([]);
         ws_data.push(['', 'LEGEND', '', '', '', '', '', '', '', '']);
         ws_data.push(['CATEGORY', '% DEPARTURES OF RAINFALL', 'COLOUR NAME', '', '', '', '', '', '', '']);
@@ -379,11 +400,30 @@ class PDFDistrictService {
             ['Not Available', 'ND', 'Grey'],
         ].forEach(legendRow => ws_data.push([...legendRow, '', '', '', '', '', '', '', '']));
     
-        // Sheet creation
+        // Create worksheet from array of arrays
         const ws = XLSX.utils.aoa_to_sheet(ws_data);
-        XLSX.utils.book_append_sheet(wb, ws, 'Rainfall Report');
+    
+        // Optional: Set column widths for better readability
+        const colWidths = [
+            { wch: 6 },   // S.No
+            { wch: 35 },  // MET.SUBDIVISION/UT/STATE/DISTRICT
+            { wch: 12 },  // ACTUAL(mm)
+            { wch: 12 },  // NORMAL(mm)
+            { wch: 8 },   // %DEP.
+            { wch: 6 },   // CAT.
+            { wch: 12 },  // ACTUAL(mm)
+            { wch: 12 },  // NORMAL(mm)
+            { wch: 8 },   // %DEP.
+            { wch: 6 },   // CAT.
+        ];
+        ws['!cols'] = colWidths;
+    
+        // Add worksheet to workbook
+        XLSX.utils.book_append_sheet(wb, ws, 'District Rainfall Report');
+        
         return wb;
     }
+    
     
 
     async setData(districtData, stateData, subdivData, districtSeasonData, stateSeasonData, subdivSeasonData, dateRange, seasonPeriodDate) {

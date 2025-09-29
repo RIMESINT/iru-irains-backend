@@ -26,7 +26,7 @@ const { fetchStationData,
     } = require("../controllers/Station")
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 const { aggregateRainfallData } = require("../controllers/scripts/all/calculateAndIncludeAllDatesData")
-
+const { fetchTopNBlocks, fetchTopNDistricts, fetchTopNSubdivisions, fetchTopNRegions, fetchTopNCountries } = require("../controllers/scripts/all/selectTopNvalues")
 
 const { 
     fetchStationDataNew,
@@ -106,11 +106,15 @@ router.post("/fetchFilteredStationUnifiedFileFtp", fetchStationUnifiedFileFtp);
 router.post("/fetchLatestAwsExcelData", fetchLatestAwsExcelData);
 
 
-
 // ********************************************************************************************************
 //                                     ALL
 // ********************************************************************************************************
-router.post("/aggregateRainfallData", aggregateRainfallData);
+router.post("/aggregateRainfallData", aggregateRainfallData);fetchTopNDistricts
+router.post("/fetchTopNBlocks", fetchTopNBlocks);
+router.post("/fetchTopNDistricts", fetchTopNDistricts);
+router.post("/fetchTopNSubdivisions", fetchTopNSubdivisions);
+router.post("/fetchTopNRegions", fetchTopNRegions);
+router.post("/fetchTopNCountries", fetchTopNCountries);
 
 
 

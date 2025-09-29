@@ -194,27 +194,34 @@ exports.fetchStateRangeStatistics = async (req, res) => {
         const query = `
             WITH state_metadata AS (
                 SELECT
-                    state_code,
+                    new_state_code AS state_code,
                     MIN(state_name) AS state_name,
-                    MIN(new_state_code) AS new_state_code,
                     MIN(region_name) AS region_name,
                     MIN(region_code) AS region_code
                 FROM public.normal_district_details
-                GROUP BY state_code
+                GROUP BY new_state_code
+            ),
+            normal_state_data AS (
+                SELECT
+                    ns.date,
+                    ns.rainfall_value,
+                    CAST(ndd.new_state_code AS bigint) AS state_code
+                FROM public.normal_state ns
+                JOIN public.normal_district_details ndd ON CAST(ns.state_code AS bigint) = ndd.new_state_code
             )
             SELECT
                 sd.state_id,
                 sd.actual AS actual_rainfall,
                 sd.departure AS departure,
-                ns.rainfall_value AS normal_rainfall,
+                nsd.rainfall_value AS normal_rainfall,
                 TO_CHAR(sd.from_date, 'YYYY-MM-DD') AS date,
                 sm.state_name,
-                CAST(sm.state_code AS bigint) AS state_code,
+                sm.state_code,
                 sm.region_name,
                 sm.region_code
             FROM public.state_data sd
             LEFT JOIN state_metadata sm ON sd.state_id = sm.state_code
-            LEFT JOIN public.normal_state ns ON CAST(sd.state_id AS integer) = ns.state_code AND sd.from_date = ns.date
+            LEFT JOIN normal_state_data nsd ON sd.state_id = nsd.state_code AND sd.from_date = nsd.date
             WHERE sd.from_date BETWEEN $1 AND $2
                 AND sd.from_date = sd.to_date
                 AND sd.state_id IS NOT NULL
@@ -224,6 +231,12 @@ exports.fetchStateRangeStatistics = async (req, res) => {
 
         const result = await client.query(query, [startDate, endDate]);
 
+        // Debugging: Log row count and sample data
+        console.log(`Fetched ${result.rows.length} state data rows for ${startDate} to ${endDate}`);
+        if (result.rows.length > 0) {
+            console.log("Sample row:", result.rows[0]);
+        }
+
         res.status(200).json({
             success: true,
             message: `State data fetched for dates between ${startDate} and ${endDate} where from_date equals to_date and actual < 999`,
@@ -231,7 +244,7 @@ exports.fetchStateRangeStatistics = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(error);
+        console.error("Error in fetchStateRangeStatistics:", error);
         res.status(500).json({
             success: false,
             message: "Failed to fetch state data in range",
@@ -239,6 +252,7 @@ exports.fetchStateRangeStatistics = async (req, res) => {
         });
     }
 };
+
 
 exports.fetchSubdivisionRangeStatistics = async (req, res) => {
     try {
@@ -275,12 +289,20 @@ exports.fetchSubdivisionRangeStatistics = async (req, res) => {
                     MIN(region_code) AS region_code
                 FROM public.normal_district_details
                 GROUP BY subdiv_code
+            ),
+            normal_subdiv_data AS (
+                SELECT
+                    ns.date,
+                    ns.rainfall_value,
+                    ndd.subdiv_code
+                FROM public.normal_sub_division ns
+                JOIN public.normal_district_details ndd ON CAST(ns.sub_division_code AS bigint) = ndd.subdiv_code
             )
             SELECT
                 sd.subdivision_id,
                 sd.actual AS actual_rainfall,
                 sd.departure AS departure,
-                ns.rainfall_value AS normal_rainfall,
+                nsd.rainfall_value AS normal_rainfall,
                 TO_CHAR(sd.from_date, 'YYYY-MM-DD') AS date,
                 sm.subdivision_name,
                 sm.subdiv_code AS subdivision_code,
@@ -290,7 +312,7 @@ exports.fetchSubdivisionRangeStatistics = async (req, res) => {
                 sm.region_code
             FROM public.subdivision_data sd
             LEFT JOIN subdiv_metadata sm ON sd.subdivision_id = sm.subdiv_code
-            LEFT JOIN public.normal_sub_division ns ON CAST(sd.subdivision_id AS integer) = ns.sub_division_code AND sd.from_date = ns.date
+            LEFT JOIN normal_subdiv_data nsd ON sd.subdivision_id = nsd.subdiv_code AND sd.from_date = nsd.date
             WHERE sd.from_date BETWEEN $1 AND $2
                 AND sd.from_date = sd.to_date
                 AND sd.subdivision_id IS NOT NULL
@@ -315,6 +337,7 @@ exports.fetchSubdivisionRangeStatistics = async (req, res) => {
         });
     }
 };
+
 
 exports.fetchRegionRangeStatistics = async (req, res) => {
     try {

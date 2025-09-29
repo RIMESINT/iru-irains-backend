@@ -25,6 +25,8 @@ const { fetchStationData,
         fetchStationDataNWP,
     } = require("../controllers/Station")
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
+const { aggregateRainfallData } = require("../controllers/scripts/all/calculateAndIncludeAllDatesData")
+
 
 const { 
     fetchStationDataNew,
@@ -103,6 +105,12 @@ router.post("/dataActions", dataActions);
 router.post("/fetchFilteredStationUnifiedFileFtp", fetchStationUnifiedFileFtp);
 router.post("/fetchLatestAwsExcelData", fetchLatestAwsExcelData);
 
+
+
+// ********************************************************************************************************
+//                                     ALL
+// ********************************************************************************************************
+router.post("/aggregateRainfallData", aggregateRainfallData);
 
 
 

@@ -26,7 +26,7 @@ const { fetchStationData,
     } = require("../controllers/Station")
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 const { aggregateRainfallData } = require("../controllers/scripts/all/calculateAndIncludeAllDatesData")
-const { fetchTopNBlocks, fetchTopNDistricts, fetchTopNSubdivisions, fetchTopNRegions, fetchTopNCountries } = require("../controllers/scripts/all/selectTopNvalues")
+const { fetchTopNBlocks, fetchTopNDistricts, fetchTopNSubdivisions, fetchTopNStates, fetchTopNRegions, fetchTopNCountries } = require("../controllers/scripts/all/selectTopNvalues")
 const { fetchBlockRangeStatistics, fetchDistrictRangeStatistics, fetchStateRangeStatistics, fetchSubdivisionRangeStatistics, fetchRegionRangeStatistics, fetchCountryRangeStatistics } = require("../controllers/scripts/all/inRangeStatisticsData")
 
 
@@ -115,6 +115,7 @@ router.post("/aggregateRainfallData", aggregateRainfallData);
 router.post("/fetchTopNBlocks", fetchTopNBlocks);
 router.post("/fetchTopNDistricts", fetchTopNDistricts);
 router.post("/fetchTopNSubdivisions", fetchTopNSubdivisions);
+router.post("/fetchTopNStates", fetchTopNStates);
 router.post("/fetchTopNRegions", fetchTopNRegions);
 router.post("/fetchTopNCountries", fetchTopNCountries);
 router.post("/fetchBlockRangeStatistics", fetchBlockRangeStatistics);

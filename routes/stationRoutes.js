@@ -27,6 +27,8 @@ const { fetchStationData,
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 const { aggregateRainfallData } = require("../controllers/scripts/all/calculateAndIncludeAllDatesData")
 const { fetchTopNBlocks, fetchTopNDistricts, fetchTopNSubdivisions, fetchTopNRegions, fetchTopNCountries } = require("../controllers/scripts/all/selectTopNvalues")
+const { fetchBlockRangeStatistics, fetchDistrictRangeStatistics, fetchStateRangeStatistics, fetchSubdivisionRangeStatistics, fetchRegionRangeStatistics, fetchCountryRangeStatistics } = require("../controllers/scripts/all/inRangeStatisticsData")
+
 
 const { 
     fetchStationDataNew,
@@ -109,13 +111,17 @@ router.post("/fetchLatestAwsExcelData", fetchLatestAwsExcelData);
 // ********************************************************************************************************
 //                                     ALL
 // ********************************************************************************************************
-router.post("/aggregateRainfallData", aggregateRainfallData);fetchTopNDistricts
+router.post("/aggregateRainfallData", aggregateRainfallData);
 router.post("/fetchTopNBlocks", fetchTopNBlocks);
 router.post("/fetchTopNDistricts", fetchTopNDistricts);
 router.post("/fetchTopNSubdivisions", fetchTopNSubdivisions);
 router.post("/fetchTopNRegions", fetchTopNRegions);
 router.post("/fetchTopNCountries", fetchTopNCountries);
-
-
+router.post("/fetchBlockRangeStatistics", fetchBlockRangeStatistics);
+router.post("/fetchDistrictRangeStatistics", fetchDistrictRangeStatistics);
+router.post("/fetchStateRangeStatistics", fetchStateRangeStatistics);
+router.post("/fetchSubdivisionRangeStatistics", fetchSubdivisionRangeStatistics);
+router.post("/fetchRegionRangeStatistics", fetchRegionRangeStatistics);
+router.post("/fetchCountryRangeStatistics", fetchCountryRangeStatistics);
 
 module.exports = router;

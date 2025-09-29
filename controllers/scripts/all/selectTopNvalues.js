@@ -416,6 +416,145 @@ exports.fetchTopNSubdivisions = async (req, res) => {
     }
 };
 
+const getEarliestStateDataStartDate = async () => {
+    const query = `SELECT MIN(from_date) AS earliest_start_date FROM public.state_data WHERE from_date = to_date;`;
+    const result = await client.query(query);
+    if (result.rows.length > 0 && result.rows[0].earliest_start_date) {
+        return result.rows[0].earliest_start_date;
+    }
+    return null;
+};
+
+exports.fetchTopNStates = async (req, res) => {
+    try {
+        let { startDate, endDate, topN } = req.body;
+        topN = parseInt(topN) || 10;
+
+        if (!startDate) {
+            const earliestDate = await getEarliestStateDataStartDate();
+            startDate = earliestDate ? moment(earliestDate).format("YYYY-MM-DD") : moment().format("YYYY-MM-DD");
+        }
+
+        if (!endDate) {
+            endDate = moment().format("YYYY-MM-DD");
+        }
+
+        if (moment(startDate).isAfter(endDate)) {
+            return res.status(400).json({
+                success: false,
+                message: "startDate should be less than or equal to endDate",
+            });
+        }
+
+        const query = `
+            WITH state_metadata AS (
+                SELECT
+                    state_code,
+                    MIN(state_name) AS state_name,
+                    MIN(new_state_code) AS state_code,
+                    MIN(region_name) AS region_name,
+                    MIN(region_code) AS region_code
+                FROM public.normal_district_details
+                GROUP BY state_code
+            ),
+            ranked_actual AS (
+                SELECT
+                    sd.state_id,
+                    sd.actual AS actual_rainfall,
+                    sd.departure AS departure,
+                    TO_CHAR(sd.from_date, 'YYYY-MM-DD') AS date,
+                    sm.state_name,
+                    sm.state_code,
+                    sm.region_name,
+                    sm.region_code,
+                    ROW_NUMBER() OVER (PARTITION BY sd.state_id ORDER BY sd.actual DESC) AS rn
+                FROM public.state_data sd
+                LEFT JOIN state_metadata sm ON sd.state_id = sm.state_code
+                WHERE sd.from_date BETWEEN $1 AND $2
+                    AND sd.from_date = sd.to_date
+                    AND sd.state_id IS NOT NULL
+                    AND (sd.actual < 999 OR sd.actual IS NULL)
+            )
+            SELECT 
+                state_id,
+                state_name,
+                state_code,
+                region_name,
+                region_code,
+                date,
+                actual_rainfall,
+                departure
+            FROM ranked_actual
+            WHERE rn = 1
+            ORDER BY actual_rainfall DESC
+            LIMIT $3;
+
+            WITH state_metadata AS (
+                SELECT
+                    state_code,
+                    MIN(state_name) AS state_name,
+                    MIN(new_state_code) AS state_code,
+                    MIN(region_name) AS region_name,
+                    MIN(region_code) AS region_code
+                FROM public.normal_district_details
+                GROUP BY state_code
+            ),
+            ranked_departure AS (
+                SELECT
+                    sd.state_id,
+                    sd.actual AS actual_rainfall,
+                    sd.departure AS departure,
+                    TO_CHAR(sd.from_date, 'YYYY-MM-DD') AS date,
+                    sm.state_name,
+                    sm.state_code,
+                    sm.region_name,
+                    sm.region_code,
+                    ROW_NUMBER() OVER (PARTITION BY sd.state_id ORDER BY sd.departure DESC) AS rn
+                FROM public.state_data sd
+                LEFT JOIN state_metadata sm ON sd.state_id = sm.state_code
+                WHERE sd.from_date BETWEEN $1 AND $2
+                    AND sd.from_date = sd.to_date
+                    AND sd.state_id IS NOT NULL
+            )
+            SELECT 
+                state_id,
+                state_name,
+                state_code,
+                region_name,
+                region_code,
+                date,
+                actual_rainfall,
+                departure
+            FROM ranked_departure
+            WHERE rn = 1
+            ORDER BY departure DESC
+            LIMIT $3;
+        `;
+
+        const [actualResult, departureResult] = await Promise.all([
+            client.query(query.split(';')[0], [startDate, endDate, topN]),
+            client.query(query.split(';')[1], [startDate, endDate, topN])
+        ]);
+
+        res.status(200).json({
+            success: true,
+            message: `Top ${topN} states by actual rainfall (filtered for actual < 999) and departure where from_date equals to_date`,
+            data: {
+                topByActualRainfall: actualResult.rows,
+                topByDeparture: departureResult.rows
+            }
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch top N state data",
+            error: error.message,
+        });
+    }
+};
+
 const getEarliestRegionDataStartDate = async () => {
     const query = `SELECT MIN(from_date) AS earliest_start_date FROM public.region_data WHERE from_date = to_date;`;
     const result = await client.query(query);

@@ -296,7 +296,7 @@ exports.fetchSubdivisionRangeStatistics = async (req, res) => {
                     ns.rainfall_value,
                     ndd.subdiv_code
                 FROM public.normal_sub_division ns
-                JOIN public.normal_district_details ndd ON CAST(ns.sub_division_code AS bigint) = ndd.subdiv_code
+                JOIN public.normal_district_details ndd ON CAST(ns.sub_division_id AS bigint) = ndd.subdiv_code
             )
             SELECT
                 sd.subdivision_id,

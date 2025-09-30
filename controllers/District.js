@@ -169,7 +169,6 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
       
     `;
 
-    console.log(query);
 
     try {
         const result = await client.query(query, [startDate, endDate]);

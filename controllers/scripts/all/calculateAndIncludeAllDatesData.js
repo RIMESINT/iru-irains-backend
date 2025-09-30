@@ -39,7 +39,7 @@ async function insertBlockData(row, fromDate, toDate) {
       `INSERT INTO block_data (block_id, from_date, to_date, actual, departure) VALUES ($1, $2, $3, $4, $5)`,
       [blockId, fromDate, toDate, actual, departure]
     );
-    console.log("    ✔️ Inserted block_data", blockId, fromDate, toDate);
+    // console.log("    ✔️ Inserted block_data", blockId, fromDate, toDate);
   } catch (err) {
     console.error("Insert block_data error:", err, row);
   }
@@ -59,7 +59,7 @@ async function insertDistrictData(row, fromDate, toDate) {
       `INSERT INTO district_data (district_id, from_date, to_date, actual, departure) VALUES ($1, $2, $3, $4, $5)`,
       [districtId, fromDate, toDate, actual, departure]
     );
-    console.log("    ✔️ Inserted district_data", districtId, fromDate, toDate);
+    // console.log("    ✔️ Inserted district_data", districtId, fromDate, toDate);
   } catch (err) {
     console.error("Insert district_data error:", err, row);
   }
@@ -79,7 +79,7 @@ async function insertStateData(row, fromDate, toDate) {
       `INSERT INTO state_data (state_id, from_date, to_date, actual, departure) VALUES ($1, $2, $3, $4, $5)`,
       [stateId, fromDate, toDate, actual, departure]
     );
-    console.log("    ✔️ Inserted state_data", stateId, fromDate, toDate);
+    // console.log("    ✔️ Inserted state_data", stateId, fromDate, toDate);
   } catch (err) {
     console.error("Insert state_data error:", err, row);
   }
@@ -99,7 +99,7 @@ async function insertSubDivisionData(row, fromDate, toDate) {
       `INSERT INTO subdivision_data (subdivision_id, from_date, to_date, actual, departure) VALUES ($1, $2, $3, $4, $5)`,
       [subdivisionId, fromDate, toDate, actual, departure]
     );
-    console.log("    ✔️ Inserted subdivision_data", subdivisionId, fromDate, toDate);
+    // console.log("    ✔️ Inserted subdivision_data", subdivisionId, fromDate, toDate);
   } catch (err) {
     console.error("Insert subdivision_data error:", err, row);
   }
@@ -119,7 +119,7 @@ async function insertRegionData(row, fromDate, toDate) {
       `INSERT INTO region_data (region_id, from_date, to_date, actual, departure) VALUES ($1, $2, $3, $4, $5)`,
       [regionId, fromDate, toDate, actual, departure]
     );
-    console.log("    ✔️ Inserted region_data", regionId, fromDate, toDate);
+    // console.log("    ✔️ Inserted region_data", regionId, fromDate, toDate);
   } catch (err) {
     console.error("Insert region_data error:", err, row);
   }
@@ -135,7 +135,7 @@ async function insertCountryData(row, fromDate, toDate) {
       `INSERT INTO country_data (country_id, from_date, to_date, actual, departure) VALUES ($1, $2, $3, $4, $5)`,
       [countryId, fromDate, toDate, actual, departure]
     );
-    console.log("    ✔️ Inserted country_data", countryId, fromDate, toDate);
+    // console.log("    ✔️ Inserted country_data", countryId, fromDate, toDate);
   } catch (err) {
     console.error("Insert country_data error:", err, row);
   }
@@ -322,3 +322,84 @@ exports.aggregateRainfallData = async (req, res) => {
     return res.status(500).json({ error: "Internal server error during aggregation" });
   }
 };
+
+
+
+
+
+// Function to get the current season's date range
+function getCurrentSeasonRange() {
+  const today = moment();
+  const currentYear = today.year();
+  let seasonStart, seasonEnd;
+
+  for (const season of seasonsDef) {
+    const start = moment([currentYear, season.startMonth, 1]).startOf('day');
+    const end = moment([currentYear, season.endMonth, 1]).endOf('month').startOf('day');
+
+    if (today.isSameOrAfter(start) && today.isSameOrBefore(end)) {
+      seasonStart = start.format('YYYY-MM-DD');
+      seasonEnd = end.format('YYYY-MM-DD');
+      return { startDate: seasonStart, endDate: seasonEnd, seasonName: season.name };
+    }
+  }
+
+  console.warn('No matching season found for today. Using current date as fallback.');
+  return {
+    startDate: today.format('YYYY-MM-DD'),
+    endDate: today.format('YYYY-MM-DD'),
+    seasonName: 'Unknown',
+  };
+}
+
+async function deleteCurrentSeasonData(startDate, endDate) {
+  const tables = [
+    'block_data',
+    'district_data',
+    'state_data',
+    'subdivision_data',
+    'region_data',
+    'country_data',
+  ];
+
+  const rowCounts = {};
+
+  for (const table of tables) {
+    try {
+      const result = await client.query(
+        `DELETE FROM public.${table} WHERE from_date >= $1 AND from_date <= $2`,
+        [startDate, endDate]
+      );
+      rowCounts[table] = result.rowCount;
+      console.log(`Deleted ${result.rowCount} rows from ${table} for season ${startDate} to ${endDate}`);
+    } catch (err) {
+      console.error(`Error deleting data from ${table}:`, err);
+      rowCounts[table] = 0; // Set 0 for tables that fail
+    }
+  }
+
+  return rowCounts;
+}
+
+async function aggregateCurrentSeasonData() {
+  try {
+    const today = moment().format('YYYY-MM-DD');
+    console.log(`Starting aggregation for today: ${today}`);
+    const rowCounts = await deleteCurrentSeasonData(today, today);
+    console.log('Deletion summary:', rowCounts);
+    await exports.aggregateRainfallData(
+      { body: { startDate: today, endDate: today } },
+      {
+        json: (data) => console.log(data.message),
+        status: () => ({ json: (err) => console.error(err.error) }),
+      }
+    );
+    console.log(`Completed aggregation for ${today}`);
+    return { rowCounts };
+  } catch (err) {
+    console.error('Error in aggregateCurrentSeasonData:', err);
+    throw err;
+  }
+}
+
+module.exports.aggregateCurrentSeasonData = aggregateCurrentSeasonData;

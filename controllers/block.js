@@ -138,12 +138,10 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
     `;
     
 
-    console.log('Generated query:', query);
-    console.log('Query parameters:', [startDate, endDate, specificDateTime]);
+
 
     try {
         const result = await client.query(query, [startDate, endDate]);
-        console.log('Query result rows:', result.rows.length, result.rows);
         return result.rows;
     } catch (error) {
         console.error('Error executing query', error.stack);
@@ -471,3 +469,6 @@ exports.fetchBlockDataAforAPIexport = async (req, res) => {
         });
     }
 };
+
+
+module.exports.fetchBetweenDates = fetchBetweenDates;

@@ -23,7 +23,7 @@ const jobs = cronPatterns.map((pattern, index) =>
 );
 
 // Other existing jobs
-// const seasonalJobs = schedule.scheduleJob('05 18 * * *',  aggregateCurrentSeasonData)
+const seasonalJobs = schedule.scheduleJob('52 12 * * *',  aggregateCurrentSeasonData)
 const job2 = schedule.scheduleJob('30 12 * * *', dailyDataUpdateReminder); // 12:30 PM
 const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder); // 1:15 PM
 const job4 = schedule.scheduleJob('59 14 * * *', sendBulkReports); // 14:59 ~~ 3:00PM

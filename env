@@ -1,13 +1,31 @@
-#pls create .env file using this file 
+# Database Configuration
+# DB_HOST=192.168.14.95
+# DB_USER=postgres
+# DB_PORT=5432
+# DB_PASS=irains@2024
+# DB=IRAINS
 
-DB_HOST = "localhost"
-DB_USER= "user"
-DB_PORT= 5432
-PORT = 3000
-DB_PASS= "pass"
-DB= "db"
 
-EMAIL_USER="useremail"
-EMAIL_PASS="16 digit key"
-EMAIL_PORT=mail_post
-EMAIL_HOST="mail server"
+# Local Database Configuration
+DB_HOST=localhost
+DB_USER=postgres
+DB_PORT=5433
+DB_PASS=123456
+DB=IRAINS
+
+
+# Server Port
+PORT=3000
+
+# Email Configuration (RIMES)
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+# EMAIL_USER=hsrmudelhi@gmail.com
+# EMAIL_PASS=dbkbmaupcvbzzyjd
+
+EMAIL_USER=irainsteam2025@gmail.com
+EMAIL_PASS=lucdsmlwnnlwbvnq
+
+# Default recipients for automated reports
+DEFAULT_RECIPIENT_1=balakrishna@rimes.int
+DEFAULT_RECIPIENT_2=balakrishnacode123@gmail.com

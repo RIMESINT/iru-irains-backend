@@ -27,4 +27,4 @@ const seasonalJobs = schedule.scheduleJob('01 23 * * *',  aggregateCurrentSeason
 const seasonalJobs2 = schedule.scheduleJob('01 15 * * *',  aggregateCurrentSeasonData)
 const job2 = schedule.scheduleJob('30 12 * * *', dailyDataUpdateReminder); // 12:30 PM
 const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder); // 1:15 PM
-const job4 = schedule.scheduleJob('59 14 * * *', sendBulkReports); // 14:59 ~~ 3:00PM
+// const job4 = schedule.scheduleJob('59 14 * * *', sendBulkReports); // 14:59 ~~ 3:00PM

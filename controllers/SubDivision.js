@@ -241,12 +241,16 @@ const query = `
 exports.getAllSubDivisions = async (req, res) => {
     try {
         const query = `
-                        SELECT 
-                            subdiv_name, subdiv_code, region_name, region_code
-                        FROM 
-                            public.normal_district_details
-                        ORDER BY
-                            subdiv_code`;
+            SELECT DISTINCT
+                subdiv_name, 
+                subdiv_code, 
+                region_name, 
+                region_code
+            FROM 
+                public.normal_district_details
+            ORDER BY
+                subdiv_code
+        `;
         
         const result = await client.query(query);
 
@@ -263,8 +267,7 @@ exports.getAllSubDivisions = async (req, res) => {
             error: error.message,
         });
     }
-}
-
+};
 
 
 exports.fetchSubDivisionDataAforAPIexport = async (req, res) => {

@@ -249,7 +249,7 @@ exports.getAllSubDivisions = async (req, res) => {
             FROM 
                 public.normal_district_details
             ORDER BY
-                subdiv_code
+                subdiv_name
         `;
         
         const result = await client.query(query);

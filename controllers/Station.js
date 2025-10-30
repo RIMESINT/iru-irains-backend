@@ -1521,9 +1521,102 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
 
 
 
+exports.fetchCentreStationSummary = async (req, res) => {
+  try {
+      let { startDate, endDate } = req.body;
+
+      const currentDate = moment().format('YYYY-MM-DD');
+      if (!startDate && !endDate) {
+          startDate = endDate = currentDate;
+      } else if (!startDate) startDate = endDate;
+      else if (!endDate) endDate = startDate;
+
+      if (moment(startDate).isAfter(endDate)) {
+          return res.status(400).json({
+              success: false,
+              message: "startDate must be <= endDate"
+          });
+      }
+
+      const data = await fetchCentreStationSummaryData(startDate, endDate);
+
+      res.status(200).json({
+          success: true,
+          message: "Centre station summary fetched successfully",
+          data
+      });
+
+  } catch (error) {
+      console.error("Error in fetchCentreStationSummary:", error);
+      res.status(500).json({
+          success: false,
+          message: "Failed to fetch centre summary",
+          error: error.message
+      });
+  }
+};
 
 
+/**
+ * Fetch MC/RMC Station Summary for a date range (startDate to endDate)
+ * @param {string} startDate - YYYY-MM-DD
+ * @param {string} endDate   - YYYY-MM-DD
+ * @returns {Promise<Array>} - Array of summary rows
+ */
+const fetchCentreStationSummaryData = async (startDate, endDate) => {
+  const query = `
+      WITH target_dates AS (
+          SELECT generate_series($1::date, $2::date, '1 day'::interval)::date AS collection_date
+      ),
+      station_counts AS (
+          SELECT
+              centre_type || ' ' || centre_name AS centre,
+              COUNT(*) AS total_stations
+          FROM public.station_details
+          GROUP BY centre_type || ' ' || centre_name
+      ),
+      data_summary AS (
+          SELECT
+              sd.centre_type || ' ' || sd.centre_name AS centre,
+              sdd.collection_date,
+              sdd.station_id,
+              MAX(CASE WHEN sdd.data <> -999.9 THEN 1 ELSE 0 END) AS is_updated,
+              MAX(CASE WHEN sdd.data <> -999.9 
+                       AND sdd.is_verified = 1 
+                       AND sdd.verified_at IS NOT NULL THEN 1 ELSE 0 END) AS has_verified
+          FROM public.station_daily_data sdd
+          JOIN public.station_details sd 
+              ON sd.station_code = sdd.station_id
+          JOIN target_dates td 
+              ON sdd.collection_date = td.collection_date
+          GROUP BY sd.centre_type || ' ' || sd.centre_name, 
+                   sdd.collection_date, 
+                   sdd.station_id
+      )
+      SELECT
+          ROW_NUMBER() OVER (ORDER BY ds.collection_date DESC, sc.centre) AS "S.NO",
+          sc.centre AS "MC or RMC",
+          ds.collection_date::text AS "DATE",
+          sc.total_stations AS "TOTAL STATIONS",
+          COUNT(DISTINCT CASE WHEN ds.is_updated = 1 THEN ds.station_id END) AS "UPDATED STATIONS",
+          sc.total_stations - COUNT(DISTINCT CASE WHEN ds.is_updated = 1 THEN ds.station_id END) AS "NOT UPDATED STATIONS",
+          COUNT(DISTINCT CASE WHEN ds.is_updated = 1 AND ds.has_verified = 1 THEN ds.station_id END) AS "VERIFIED STATIONS",
+          COUNT(DISTINCT CASE WHEN ds.is_updated = 1 AND ds.has_verified = 0 THEN ds.station_id END) AS "NOT VERIFIED STATIONS"
+      FROM station_counts sc
+      LEFT JOIN data_summary ds 
+          ON sc.centre = ds.centre
+      GROUP BY sc.centre, sc.total_stations, ds.collection_date
+      ORDER BY ds.collection_date DESC, sc.centre;
+  `;
 
+  try {
+      const result = await client.query(query, [startDate, endDate]);
+      return result.rows;
+  } catch (error) {
+      console.error('Error in fetchCentreStationSummaryData:', error.stack);
+      throw error;
+  }
+};
 
 
 

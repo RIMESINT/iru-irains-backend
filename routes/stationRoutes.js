@@ -23,6 +23,7 @@ const { fetchStationData,
         fetchStationUnifiedFile,
         dataActions,
         fetchStationDataNWP,
+        fetchCentreStationSummary,
     } = require("../controllers/Station")
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 const { aggregateRainfallData } = require("../controllers/scripts/all/calculateAndIncludeAllDatesData")
@@ -80,6 +81,7 @@ router.post("/editStation", editStation);
 router.post("/deleteStation", deleteStation);
 router.post("/verifyStationData", verifyStationData);
 router.post("/verifyMultipleStationData", verifyMultipleStationData);
+router.post("/fetchCentreStationSummary", fetchCentreStationSummary);
 
 
 

@@ -324,6 +324,58 @@ exports.fetchSubDivisionDataAforAPIexport = async (req, res) => {
 };
 
 
+// ---------------------------------------------------------------
+// NEW FUNCTION – get all subdivision codes + centre metadata
+// ---------------------------------------------------------------
+exports.getMetWiseSubDivisions = async (req, res) => {
+    const query = `
+        SELECT 
+            nd.subdiv_code,
+            nd.subdiv_name,
+            nd.sd,
+            nd.subdiv_weight,
+            nd.state_name,
+            nd.state_code,
+            nd.region_name,
+            nd.region_code,
+            STRING_AGG(DISTINCT COALESCE(sd.centre_type,'') || ' ' || COALESCE(sd.centre_name,''), ', ') AS met_centre
+        FROM 
+            public.normal_district_details nd
+        LEFT JOIN 
+            public.station_details sd 
+            ON nd.district_code = sd.district_code
+        GROUP BY 
+            nd.subdiv_code,
+            nd.subdiv_name,
+            nd.sd,
+            nd.subdiv_weight,
+            nd.state_name,
+            nd.state_code,
+            nd.region_name,
+            nd.region_code
+        ORDER BY 
+            nd.region_name, nd.state_name, nd.subdiv_name;
+    `;
+
+    try {
+        const result = await client.query(query);   // client is the pg pool you already import
+
+        res.status(200).json({
+            success: true,
+            message: "Subdivision centre metadata fetched successfully",
+            data: result.rows
+        });
+    } catch (error) {
+        console.error("getSubDivisionCentres error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch subdivision centre data",
+            error: error.message
+        });
+    }
+};
+
+
 
 // Export the fetchBetweenDates function for use in other modules  
 module.exports.fetchBetweenDates = fetchBetweenDates;

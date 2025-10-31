@@ -325,5 +325,49 @@ exports.fetchStateDataAforAPIexport = async (req, res) => {
 
 
 
+// ---------------------------------------------------------------
+// NEW FUNCTION – Get all states (using new_state_code) + met_centre metadata
+// ---------------------------------------------------------------
+exports.getMetWiseStates = async (req, res) => {
+    const query = `
+        SELECT 
+            nd.new_state_code::bigint AS state_code,           -- Cast to bigint to match expected type
+            MIN(nd.state_name) AS state_name,
+            MIN(nd.region_name) AS region_name,
+            MIN(nd.region_code) AS region_code,
+            STRING_AGG(DISTINCT COALESCE(sd.centre_type, '') || ' ' || COALESCE(sd.centre_name, ''), ', ') AS met_centre
+        FROM 
+            public.normal_district_details nd
+        LEFT JOIN 
+            public.station_details sd 
+            ON nd.district_code = sd.district_code
+        WHERE 
+            nd.new_state_code IS NOT NULL
+        GROUP BY 
+            nd.new_state_code
+        ORDER BY 
+            MIN(nd.region_name), MIN(nd.state_name);
+    `;
+
+    try {
+        const result = await client.query(query);
+
+        res.status(200).json({
+            success: true,
+            message: "State-wise met centre metadata (using new_state_code) fetched successfully",
+            data: result.rows
+        });
+    } catch (error) {
+        console.error("getMetWiseStatesUsingNewStateCode error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch state met centre data",
+            error: error.message
+        });
+    }
+};
+
+
+
 // Export the fetchBetweenDates function for use in other modules  
 module.exports.fetchBetweenDates = fetchBetweenDates;

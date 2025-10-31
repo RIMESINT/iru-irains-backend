@@ -1,7 +1,7 @@
 const express = require("express")
 const router = express.Router()
 
-const { fetchStateData, getAllStates, fetchStateDataAforAPIexport} = require("../controllers/State")
+const { fetchStateData, getAllStates, fetchStateDataAforAPIexport, getMetWiseStates} = require("../controllers/State")
 const { fetchStateDataFtp} = require("../controllers/ftp/State")
 const { getnStateDataAndInsertInNormalState } = require("../controllers/scripts/state/normalState");
 
@@ -16,6 +16,8 @@ router.get("/nStatePrev", getnStateDataAndInsertInNormalState);
 
 // fetch state data
 router.post("/fetchStateData", fetchStateData);
+router.get("/fetchMetWiseStates", getMetWiseStates);
+
 
 router.post("/fetchStateDataAPIexport", fetchStateDataAforAPIexport);
 

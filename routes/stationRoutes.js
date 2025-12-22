@@ -2,6 +2,7 @@ const express = require("express")
 const router = express.Router()
 const { insertStationData} = require("../controllers/scripts/station/stationDailyData")
 const { createStationDetailsTable, insertLatLongInStationDetails } = require("../controllers/scripts/station/station_details")
+const { getMonsoonActivity } = require("../controllers/scripts/station/monsoon_activity.js");
 const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -126,5 +127,7 @@ router.post("/fetchStateRangeStatistics", fetchStateRangeStatistics);
 router.post("/fetchSubdivisionRangeStatistics", fetchSubdivisionRangeStatistics);
 router.post("/fetchRegionRangeStatistics", fetchRegionRangeStatistics);
 router.post("/fetchCountryRangeStatistics", fetchCountryRangeStatistics);
+
+router.post("/monsoon-activity", getMonsoonActivity);
 
 module.exports = router;

@@ -24,6 +24,7 @@ const resetPassRoutes = require("./routes/resetPassRoutes");
 const blockRoutes = require("./routes/blockRoutes");
 const mapImageRoutes = require("./routes/mapImageRoutes");
 const spatialDistribution = require("./routes/spatialDistributionRoutes");
+const awsRoutes = require("./routes/awsRoutes");
 
 // // Load SSL Certificate
 const options = {
@@ -99,14 +100,15 @@ app.use("/api/v1/", resetPassRoutes);
 app.use("/api/v1/", blockRoutes);
 app.use("/api/v1/maps/", mapImageRoutes);
 app.use("/api/v1/", spatialDistribution);
+app.use("/api/v1/up-aws/", awsRoutes);
 
 // Use HTTPS Server
 https.createServer(options, app).listen(port, () => {
   console.log(`Secure HTTPS Server started at PORT ${port}`);
 });
 
-// app.listen(3000, () => {
-//   console.log(`Server running at http://localhost:${port}`);
-// });
+app.listen(3000, () => {
+  console.log(`Server running at http://localhost:${port}`);
+});
 
 client.connect();

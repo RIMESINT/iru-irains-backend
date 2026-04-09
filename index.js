@@ -107,8 +107,8 @@ https.createServer(options, app).listen(port, () => {
   console.log(`Secure HTTPS Server started at PORT ${port}`);
 });
 
-app.listen(3000, () => {
-  console.log(`Server running at http://localhost:${port}`);
-});
+// app.listen(3000, () => {
+//   console.log(`Server running at http://localhost:${port}`);
+// });
 
 client.connect();

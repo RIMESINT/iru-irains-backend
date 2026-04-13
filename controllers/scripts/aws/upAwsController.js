@@ -1,8 +1,15 @@
 const client = require("../../../connection");
-const moment = require("moment");
+const moment = require("moment-timezone");
+
+const IST = "Asia/Kolkata";
+
+// UTC → IST conversion expressions (data stored as UTC, served as IST)
+const IST_TS   = `(dat::date + time::time + INTERVAL '5 hours 30 minutes')`;
+const IST_DATE = `${IST_TS}::date`;
+const IST_TIME = `${IST_TS}::time`;
 
 const resolveDates = (startDate, endDate) => {
-    const today = moment().format("YYYY-MM-DD");
+    const today = moment().tz(IST).format("YYYY-MM-DD");
     if (!startDate && !endDate) return { startDate: today, endDate: today };
     if (!startDate) return { startDate: endDate, endDate };
     if (!endDate)   return { startDate, endDate: startDate };
@@ -11,7 +18,7 @@ const resolveDates = (startDate, endDate) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. FULL DAY — sum all 15-min slots per station
+// 1. FULL DAY — sum all 15-min slots per station (IST date)
 //    POST /api/up-aws/daily
 //    Body: { startDate?, endDate?, district? }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,11 +27,8 @@ exports.fetchDailyData = async (req, res) => {
         let { startDate, endDate, district } = req.body;
         ({ startDate, endDate } = resolveDates(startDate, endDate));
 
-        if (moment(startDate).isAfter(endDate)) {
-            return res.status(400).json({
-                success: false,
-                message: "startDate must be <= endDate"
-            });
+        if (moment.tz(startDate, IST).isAfter(moment.tz(endDate, IST))) {
+            return res.status(400).json({ success: false, message: "startDate must be <= endDate" });
         }
 
         let params = [startDate, endDate];
@@ -35,27 +39,27 @@ exports.fetchDailyData = async (req, res) => {
         }
 
         const query = `
+            WITH ist AS (
+                SELECT *,
+                    ${IST_DATE} AS ist_dat
+                FROM up_aws_observations
+                WHERE ${IST_DATE} BETWEEN $1::date AND $2::date
+                  ${districtFilter}
+            )
             SELECT
-                dat,
-                district,
-                id,
-                station,
-                type,
-                lat,
-                lon,
-                SUM(rainfall)                           AS total_rainfall,
-                ROUND(AVG(temp)::NUMERIC, 1)            AS avg_temp,
-                MAX(temp)                               AS max_temp,
-                MIN(temp)                               AS min_temp,
-                ROUND(AVG(rh)::NUMERIC, 1)              AS avg_rh,
-                ROUND(AVG(winds)::NUMERIC, 1)           AS avg_wind_speed,
-                COUNT(*)                                AS readings_count,
-                ROUND((COUNT(*) / 96.0) * 100, 1)       AS data_completeness_pct
-            FROM up_aws_observations
-            WHERE dat BETWEEN $1 AND $2
-              ${districtFilter}
-            GROUP BY dat, district, id, station, type, lat, lon
-            ORDER BY dat, district, total_rainfall DESC
+                ist_dat                                     AS dat,
+                district, id, station, type, lat, lon,
+                SUM(rainfall)                               AS total_rainfall,
+                ROUND(AVG(temp)::NUMERIC, 1)                AS avg_temp,
+                MAX(temp)                                   AS max_temp,
+                MIN(temp)                                   AS min_temp,
+                ROUND(AVG(rh)::NUMERIC, 1)                  AS avg_rh,
+                ROUND(AVG(winds)::NUMERIC, 1)               AS avg_wind_speed,
+                COUNT(*)                                    AS readings_count,
+                ROUND((COUNT(*) / 96.0) * 100, 1)           AS data_completeness_pct
+            FROM ist
+            GROUP BY ist_dat, district, id, station, type, lat, lon
+            ORDER BY ist_dat, district, total_rainfall DESC
         `;
 
         const result = await client.query(query, params);
@@ -67,24 +71,20 @@ exports.fetchDailyData = async (req, res) => {
 
     } catch (error) {
         console.error("[UP AWS] fetchDailyData error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch daily data",
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: "Failed to fetch daily data", error: error.message });
     }
 };
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. HOURLY — sum per station per hour
+// 2. HOURLY — sum per station per IST hour
 //    POST /api/up-aws/hourly
 //    Body: { date?, hour?(0-23), district? }
 // ─────────────────────────────────────────────────────────────────────────────
 exports.fetchHourlyData = async (req, res) => {
     try {
         let { date, hour, district } = req.body;
-        date = date || moment().format("YYYY-MM-DD");
+        date = date || moment().tz(IST).format("YYYY-MM-DD");
 
         let params = [date];
         let hourFilter     = "";
@@ -92,7 +92,7 @@ exports.fetchHourlyData = async (req, res) => {
 
         if (hour !== undefined && hour !== null) {
             params.push(parseInt(hour));
-            hourFilter = `AND EXTRACT(HOUR FROM time) = $${params.length}`;
+            hourFilter = `AND EXTRACT(HOUR FROM ist_time) = $${params.length}`;
         }
         if (district) {
             params.push(district);
@@ -100,22 +100,25 @@ exports.fetchHourlyData = async (req, res) => {
         }
 
         const query = `
+            WITH ist AS (
+                SELECT *,
+                    ${IST_DATE} AS ist_dat,
+                    ${IST_TIME} AS ist_time
+                FROM up_aws_observations
+                WHERE ${IST_DATE} = $1::date
+                  ${districtFilter}
+            )
             SELECT
-                dat,
-                EXTRACT(HOUR FROM time)::INT        AS hour,
-                district,
-                id,
-                station,
-                type,
-                SUM(rainfall)                       AS total_rainfall,
-                ROUND(AVG(temp)::NUMERIC, 1)        AS avg_temp,
-                ROUND(AVG(rh)::NUMERIC, 1)          AS avg_rh,
-                COUNT(*)                            AS readings_count
-            FROM up_aws_observations
-            WHERE dat = $1
-              ${hourFilter}
-              ${districtFilter}
-            GROUP BY dat, hour, district, id, station, type
+                ist_dat                                     AS dat,
+                EXTRACT(HOUR FROM ist_time)::INT            AS hour,
+                district, id, station, type,
+                SUM(rainfall)                               AS total_rainfall,
+                ROUND(AVG(temp)::NUMERIC, 1)                AS avg_temp,
+                ROUND(AVG(rh)::NUMERIC, 1)                  AS avg_rh,
+                COUNT(*)                                    AS readings_count
+            FROM ist
+            WHERE true ${hourFilter}
+            GROUP BY ist_dat, EXTRACT(HOUR FROM ist_time)::INT, district, id, station, type
             ORDER BY hour, district, total_rainfall DESC
         `;
 
@@ -128,25 +131,21 @@ exports.fetchHourlyData = async (req, res) => {
 
     } catch (error) {
         console.error("[UP AWS] fetchHourlyData error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch hourly data",
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: "Failed to fetch hourly data", error: error.message });
     }
 };
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. SINGLE 15-MIN SLOT — exact time reading per station
+// 3. SINGLE 15-MIN SLOT — exact IST time reading per station
 //    POST /api/up-aws/slot
-//    Body: { date?, time, district? }   time: "06:45:00"
+//    Body: { date?, time?, district? }   time: "11:30:00" (IST)
 // ─────────────────────────────────────────────────────────────────────────────
 exports.fetchSlotData = async (req, res) => {
     try {
         let { date, time, district } = req.body;
-        date = date || moment().format("YYYY-MM-DD");
-        time = time || moment().startOf("hour").format("HH:mm:ss");
+        date = date || moment().tz(IST).format("YYYY-MM-DD");
+        time = time || moment().tz(IST).startOf("hour").format("HH:mm:ss");
 
         let params = [date, time];
         let districtFilter = "";
@@ -157,28 +156,23 @@ exports.fetchSlotData = async (req, res) => {
         }
 
         const query = `
+            WITH ist AS (
+                SELECT *,
+                    ${IST_DATE}                             AS ist_dat,
+                    ${IST_TIME}                             AS ist_time,
+                    (updated_at + INTERVAL '5 hours 30 minutes') AS ist_updated_at
+                FROM up_aws_observations
+                WHERE ${IST_DATE} = $1::date
+                  AND ${IST_TIME} = $2::time
+                  ${districtFilter}
+            )
             SELECT
-                dat,
-                time,
-                district,
-                id,
-                station,
-                type,
-                lat,
-                lon,
-                rainfall,
-                temp,
-                feel_like,
-                rh,
-                winds,
-                windd,
-                slp,
-                mslp,
-                updated_at
-            FROM up_aws_observations
-            WHERE dat = $1
-              AND time = $2
-              ${districtFilter}
+                ist_dat     AS dat,
+                ist_time    AS time,
+                district, id, station, type, lat, lon,
+                rainfall, temp, feel_like, rh, winds, windd, slp, mslp,
+                ist_updated_at AS updated_at
+            FROM ist
             ORDER BY district, rainfall DESC
         `;
 
@@ -191,17 +185,13 @@ exports.fetchSlotData = async (req, res) => {
 
     } catch (error) {
         console.error("[UP AWS] fetchSlotData error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch slot data",
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: "Failed to fetch slot data", error: error.message });
     }
 };
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. CUMULATIVE RUNNING TOTAL — day by day running sum per station
+// 4. CUMULATIVE RUNNING TOTAL — day-by-day running sum per station (IST dates)
 //    POST /api/up-aws/cumulative
 //    Body: { startDate?, endDate?, district? }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -210,11 +200,8 @@ exports.fetchCumulativeData = async (req, res) => {
         let { startDate, endDate, district } = req.body;
         ({ startDate, endDate } = resolveDates(startDate, endDate));
 
-        if (moment(startDate).isAfter(endDate)) {
-            return res.status(400).json({
-                success: false,
-                message: "startDate must be <= endDate"
-            });
+        if (moment.tz(startDate, IST).isAfter(moment.tz(endDate, IST))) {
+            return res.status(400).json({ success: false, message: "startDate must be <= endDate" });
         }
 
         let params = [startDate, endDate];
@@ -227,29 +214,25 @@ exports.fetchCumulativeData = async (req, res) => {
 
         const query = `
             SELECT
-                dat,
-                district,
-                id,
-                station,
+                ist_dat                             AS dat,
+                district, id, station,
                 daily_rainfall,
                 SUM(daily_rainfall) OVER (
                     PARTITION BY id
-                    ORDER BY dat
+                    ORDER BY ist_dat
                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                ) AS cumulative_rainfall
+                )                                   AS cumulative_rainfall
             FROM (
                 SELECT
-                    dat,
-                    district,
-                    id,
-                    station,
-                    SUM(rainfall) AS daily_rainfall
+                    ${IST_DATE}                     AS ist_dat,
+                    district, id, station,
+                    SUM(rainfall)                   AS daily_rainfall
                 FROM up_aws_observations
-                WHERE dat BETWEEN $1 AND $2
+                WHERE ${IST_DATE} BETWEEN $1::date AND $2::date
                   ${districtFilter}
-                GROUP BY dat, district, id, station
+                GROUP BY ist_dat, district, id, station
             ) AS daily_totals
-            ORDER BY id, dat
+            ORDER BY id, ist_dat
         `;
 
         const result = await client.query(query, params);
@@ -261,46 +244,41 @@ exports.fetchCumulativeData = async (req, res) => {
 
     } catch (error) {
         console.error("[UP AWS] fetchCumulativeData error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch cumulative data",
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: "Failed to fetch cumulative data", error: error.message });
     }
 };
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. DISTRICT SUMMARY — aggregated at district level
+// 5. DISTRICT SUMMARY — aggregated at district level (IST date)
 //    POST /api/up-aws/district-summary
 //    Body: { date? }
 // ─────────────────────────────────────────────────────────────────────────────
 exports.fetchDistrictSummary = async (req, res) => {
     try {
-        const date = req.body.date || moment().format("YYYY-MM-DD");
+        const date = req.body.date || moment().tz(IST).format("YYYY-MM-DD");
 
         const query = `
             SELECT
-                dat,
+                ist_dat                                     AS dat,
                 district,
-                COUNT(DISTINCT id)                  AS total_stations,
-                ROUND(AVG(daily_rain)::NUMERIC, 2)  AS avg_rainfall,
-                MAX(daily_rain)                     AS max_rainfall,
-                MIN(daily_rain)                     AS min_rainfall,
-                SUM(daily_rain)                     AS sum_rainfall,
-                ROUND(AVG(avg_temp)::NUMERIC, 1)    AS avg_temp
+                COUNT(DISTINCT id)                          AS total_stations,
+                ROUND(AVG(daily_rain)::NUMERIC, 2)          AS avg_rainfall,
+                MAX(daily_rain)                             AS max_rainfall,
+                MIN(daily_rain)                             AS min_rainfall,
+                SUM(daily_rain)                             AS sum_rainfall,
+                ROUND(AVG(avg_temp)::NUMERIC, 1)            AS avg_temp
             FROM (
                 SELECT
-                    dat,
-                    district,
-                    id,
-                    SUM(rainfall)   AS daily_rain,
-                    AVG(temp)       AS avg_temp
+                    ${IST_DATE}                             AS ist_dat,
+                    district, id,
+                    SUM(rainfall)                           AS daily_rain,
+                    AVG(temp)                               AS avg_temp
                 FROM up_aws_observations
-                WHERE dat = $1
-                GROUP BY dat, district, id
+                WHERE ${IST_DATE} = $1::date
+                GROUP BY ist_dat, district, id
             ) AS station_daily
-            GROUP BY dat, district
+            GROUP BY ist_dat, district
             ORDER BY avg_rainfall DESC
         `;
 
@@ -313,10 +291,6 @@ exports.fetchDistrictSummary = async (req, res) => {
 
     } catch (error) {
         console.error("[UP AWS] fetchDistrictSummary error:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch district summary",
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: "Failed to fetch district summary", error: error.message });
     }
 };

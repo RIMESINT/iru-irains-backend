@@ -27,11 +27,11 @@ const spatialDistribution = require("./routes/spatialDistributionRoutes");
 const awsRoutes = require("./routes/awsRoutes");
 
 // // Load SSL Certificate
-const options = {
-    key: fs.readFileSync("/etc/apache2/private.key"),
-    cert: fs.readFileSync("/etc/apache2/*.imd.gov.in.crt"),
-    ca: fs.readFileSync("/etc/apache2/emSign-SSL-CA-G1.crt"),
-};
+// const options = {
+//     key: fs.readFileSync("/etc/apache2/private.key"),
+//     cert: fs.readFileSync("/etc/apache2/*.imd.gov.in.crt"),
+//     ca: fs.readFileSync("/etc/apache2/emSign-SSL-CA-G1.crt"),
+// };
 
 app.use(cors());
 app.use(bodyParser.json({ limit: "10mb" }));
@@ -103,12 +103,12 @@ app.use("/api/v1/", spatialDistribution);
 app.use("/api/v1/up-aws/", awsRoutes);
 
 // Use HTTPS Server
-https.createServer(options, app).listen(port, () => {
-  console.log(`Secure HTTPS Server started at PORT ${port}`);
-});
-
-// app.listen(3000, () => {
-//   console.log(`Server running at http://localhost:${port}`);
+// https.createServer(options, app).listen(port, () => {
+//   console.log(`Secure HTTPS Server started at PORT ${port}`);
 // });
+
+app.listen(3000, () => {
+  console.log(`Server running at http://localhost:${port}`);
+});
 
 client.connect();

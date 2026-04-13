@@ -100,7 +100,7 @@ app.use("/api/v1/", resetPassRoutes);
 app.use("/api/v1/", blockRoutes);
 app.use("/api/v1/maps/", mapImageRoutes);
 app.use("/api/v1/", spatialDistribution);
-app.use("/api/v1/up-aws/", awsRoutes);
+app.use("/api/v1/", awsRoutes);
 
 // Use HTTPS Server
 https.createServer(options, app).listen(port, () => {

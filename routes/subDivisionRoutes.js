@@ -1,7 +1,7 @@
 const express = require("express")
 const router = express.Router()
 
-const { fetchSubDivisionData, getAllSubDivisions, fetchSubDivisionDataAforAPIexport, getMetWiseSubDivisions} = require("../controllers/SubDivision")
+const { fetchSubDivisionData, getAllSubDivisions, fetchSubDivisionDataAforAPIexport, getMetWiseSubDivisions, getSubdivisionAreaPercentages} = require("../controllers/SubDivision")
 const { fetchSubDivisionDataFtp, fetchSubDivisionDataInBunchOfDatesFtp} = require("../controllers/ftp/SubDivision")
 const { getnSubDivisionDataAndInsertInNormalSubDivision } = require("../controllers/scripts/subDivision/normalSubDivision");
 
@@ -19,7 +19,8 @@ router.post("/fetchSubDivisionDataAPIexport", fetchSubDivisionDataAforAPIexport)
 router.post("/fetchSubDivisionData", fetchSubDivisionData);
 // fetch sub division list
 router.get("/getAllSubDivisions", getAllSubDivisions);
-router.get("/metWiseSubDivisions", getMetWiseSubDivisions);
+router.get("/metWiseSubDivisions", getMetWiseSubDivisions)
+router.get("/getSubdivisionAreaPercentages", getSubdivisionAreaPercentages);
 
 router.post('/fetchSubDivisionOfBunchDate', fetchSubDivisionDataInBunchOfDatesFtp)
 

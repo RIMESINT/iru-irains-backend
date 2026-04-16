@@ -423,5 +423,28 @@ exports.fetchRegionDataAforAPIexport = async (req, res) => {
 };
 
 
-// Export the fetchBetweenDates function for use in other modules  
+const getRegionAreaPercentages = async (_req, res) => {
+    const query = `
+        SELECT
+            region_code,
+            region_name,
+            ROUND(
+                SUM(district_area) / (SELECT SUM(district_area) FROM normal_district_details) * 100,
+                2
+            ) AS area_percentage
+        FROM normal_district_details
+        GROUP BY region_code, region_name
+        ORDER BY region_code;
+    `;
+    try {
+        const result = await client.query(query);
+        res.status(200).json({ data: result.rows });
+    } catch (error) {
+        console.error("getRegionAreaPercentages error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch region area percentages", error: error.message });
+    }
+};
+
+// Export the fetchBetweenDates function for use in other modules
 module.exports.fetchBetweenDates = fetchBetweenDates;
+module.exports.getRegionAreaPercentages = getRegionAreaPercentages;

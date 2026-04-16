@@ -377,5 +377,28 @@ exports.getMetWiseSubDivisions = async (req, res) => {
 
 
 
-// Export the fetchBetweenDates function for use in other modules  
+const getSubdivisionAreaPercentages = async (_req, res) => {
+    const query = `
+        SELECT
+            subdiv_code,
+            subdiv_name,
+            ROUND(
+                SUM(district_area) / (SELECT SUM(district_area) FROM normal_district_details) * 100,
+                2
+            ) AS area_percentage
+        FROM normal_district_details
+        GROUP BY subdiv_code, subdiv_name
+        ORDER BY subdiv_code;
+    `;
+    try {
+        const result = await client.query(query);
+        res.status(200).json({ data: result.rows });
+    } catch (error) {
+        console.error("getSubdivisionAreaPercentages error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch subdivision area percentages", error: error.message });
+    }
+};
+
+// Export the fetchBetweenDates function for use in other modules
 module.exports.fetchBetweenDates = fetchBetweenDates;
+module.exports.getSubdivisionAreaPercentages = getSubdivisionAreaPercentages;

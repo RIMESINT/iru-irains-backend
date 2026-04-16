@@ -391,4 +391,26 @@ exports.fetchDistrictDataforAPIexport = async (req, res) => {
 
 
 
+const getDistrictAreaPercentages = async (_req, res) => {
+    const query = `
+        SELECT
+            district_code,
+            district_name,
+            ROUND(
+                district_area / (SELECT SUM(district_area) FROM normal_district_details) * 100,
+                4
+            ) AS area_percentage
+        FROM normal_district_details
+        ORDER BY district_code;
+    `;
+    try {
+        const result = await client.query(query);
+        res.status(200).json({ data: result.rows });
+    } catch (error) {
+        console.error("getDistrictAreaPercentages error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch district area percentages", error: error.message });
+    }
+};
+
 module.exports.fetchBetweenDates = fetchBetweenDates;
+module.exports.getDistrictAreaPercentages = getDistrictAreaPercentages;

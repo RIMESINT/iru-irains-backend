@@ -375,7 +375,7 @@ const getStateAreaPercentages = async (_req, res) => {
             state_code,
             state_name,
             ROUND(
-                SUM(district_area) / (SELECT SUM(district_area) FROM normal_district_details) * 100,
+                (SUM(district_area) / (SELECT SUM(district_area) FROM normal_district_details) * 100)::numeric,
                 2
             ) AS area_percentage
         FROM normal_district_details

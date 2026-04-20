@@ -372,15 +372,16 @@ exports.getMetWiseStates = async (req, res) => {
 const getStateAreaPercentages = async (_req, res) => {
     const query = `
         SELECT
-            state_code,
-            state_name,
+            new_state_code AS state_code,
+            MIN(state_name) AS state_name,
             ROUND(
                 (SUM(district_area) / (SELECT SUM(district_area) FROM normal_district_details) * 100)::numeric,
                 2
             ) AS area_percentage
         FROM normal_district_details
-        GROUP BY state_code, state_name
-        ORDER BY state_code;
+        WHERE new_state_code IS NOT NULL
+        GROUP BY new_state_code
+        ORDER BY new_state_code;
     `;
     try {
         const result = await client.query(query);

@@ -51,116 +51,264 @@ exports.fetchRegionData = async (req, res) => {
     }
 }
 
+// const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
+//     let additionalCondition = '';
+//     if (endDate === currentDate) {
+//         additionalCondition = ` AND updated_at < '${specificDateTime}'`;
+//     }
+//     const query = `
+//                  SELECT *,
+//     ((actual_rainfall - 
+//         (CASE 
+//             WHEN rainfall_normal_value = 0 THEN 0.01 
+//             ELSE rainfall_normal_value 
+//         END)) / 
+//         (CASE 
+//             WHEN rainfall_normal_value = 0 THEN 0.01 
+//             ELSE rainfall_normal_value 
+//         END)) * 100 AS departure
+// FROM (
+//     SELECT  
+//         MIN(name) AS name,
+//         MIN(r_code) AS r_code,
+//         (SUM(CASE 
+//                 WHEN actual_reg_num IS NOT NULL THEN actual_reg_num 
+//                 ELSE 0 
+//             END) / 
+//         NULLIF(SUM(CASE 
+//                     WHEN actual_reg_num IS NOT NULL THEN s_w 
+//                     ELSE 0 
+//                 END), 0)) AS actual_rainfall,
+//         MIN(rainfall_normal_value) AS rainfall_normal_value
+//     FROM (
+//         SELECT 
+//             name,
+//             r_code,
+//             s_w,
+//             rainfall_normal_value,
+//             actual_subdiv_rainfall * s_w AS actual_reg_num
+//         FROM (
+//             SELECT 
+//                 MIN(name) AS name,
+//                 s_code,
+//                 MIN(s_w) AS s_w,
+//                 MIN(r_code) AS r_code,
+//                 MIN(rainfall_value) AS rainfall_normal_value,
+//                 (SUM(CASE 
+//                         WHEN subdiv_actual_numerator IS NOT NULL THEN subdiv_actual_numerator 
+//                         ELSE 0 
+//                     END) / 
+//                 NULLIF(SUM(CASE 
+//                             WHEN subdiv_actual_numerator IS NOT NULL THEN district_area 
+//                             ELSE 0 
+//                         END), 0)) AS actual_subdiv_rainfall
+//             FROM (
+//                 SELECT 	
+//                     MIN(name) AS name, 
+//                     MIN(s_code) AS s_code,  
+//                     MIN(r_code) AS r_code,  
+//                     d_code AS district_code, 
+//                     SUM(normal_rainfall) AS rainfall_value,
+//                     SUM(actual_rainfall) AS actual_rainfall_district,
+//                     d_area AS district_area,
+//                     MIN(s_w) AS s_w,
+//                     (d_area * SUM(actual_rainfall)) AS subdiv_actual_numerator
+//                 FROM (
+//                     SELECT 
+//                         ns.date, 
+//                         MIN(ndd.region_name) AS name, 
+//                         MIN(subdiv_code) AS s_code, 
+//                         MIN(region_code) AS r_code, 
+//                         ndd.district_code AS d_code,
+//                         MIN(subdiv_weight) AS s_w,
+//                         CASE 
+//                             WHEN ndd.district_code IN (30506001, 30506002) THEN 0 
+//                             ELSE MIN(district_area) 
+//                         END AS d_area,
+//                         MIN(ns.rainfall_value) AS normal_rainfall,
+//                         AVG(
+//                             CASE 
+//                                 WHEN sdd.data = '-999.9' THEN NULL 
+//                                 ELSE sdd.data 
+//                             END
+//                         ) AS actual_rainfall
+//                     FROM 
+//                         station_daily_data AS sdd 
+//                     JOIN
+//                         normal_district_details AS ndd
+//                     ON 
+//                         sdd.district_code = ndd.district_code
+//                     JOIN
+//                         normal_region AS ns
+//                     ON 
+//                         ndd.region_code = ns.region_id
+//                     AND 
+//                         ns.date = sdd.collection_date
+//                     WHERE  
+//                         ns.date BETWEEN $1 AND $2 
+//                     GROUP BY
+//                         ndd.district_code,
+//                         ns.date
+//                 ) AS sub_query2
+//                 GROUP BY
+//                     d_code,
+//                     d_area
+//             ) AS sub2
+//             GROUP BY
+//                 s_code
+//         ) AS result
+//     ) AS subquery
+//     GROUP BY 
+//         r_code
+// ) AS final_subquery;`;
+
+//     try {
+//         const result = await client.query(query, [startDate, endDate]);
+//         return result.rows;
+//     } catch (error) {
+//         console.error('Error executing query', error.stack);
+//         throw error;
+//     }
+// }
+
+
+
 const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
     let additionalCondition = '';
     if (endDate === currentDate) {
         additionalCondition = ` AND updated_at < '${specificDateTime}'`;
     }
+
     const query = `
-                 SELECT *,
-    ((actual_rainfall - 
-        (CASE 
-            WHEN rainfall_normal_value = 0 THEN 0.01 
-            ELSE rainfall_normal_value 
-        END)) / 
-        (CASE 
-            WHEN rainfall_normal_value = 0 THEN 0.01 
-            ELSE rainfall_normal_value 
-        END)) * 100 AS departure
-FROM (
-    SELECT  
-        MIN(name) AS name,
-        MIN(r_code) AS r_code,
-        (SUM(CASE 
-                WHEN actual_reg_num IS NOT NULL THEN actual_reg_num 
-                ELSE 0 
-            END) / 
-        NULLIF(SUM(CASE 
-                    WHEN actual_reg_num IS NOT NULL THEN s_w 
-                    ELSE 0 
-                END), 0)) AS actual_rainfall,
-        MIN(rainfall_normal_value) AS rainfall_normal_value
-    FROM (
-        SELECT 
-            name,
-            r_code,
-            s_w,
-            rainfall_normal_value,
-            actual_subdiv_rainfall * s_w AS actual_reg_num
+        SELECT *,
+        ((actual_rainfall - 
+            (CASE 
+                WHEN rainfall_normal_value = 0 THEN 0.01 
+                ELSE rainfall_normal_value 
+            END)) / 
+            (CASE 
+                WHEN rainfall_normal_value = 0 THEN 0.01 
+                ELSE rainfall_normal_value 
+            END)) * 100 AS departure
         FROM (
-            SELECT 
+            SELECT  
                 MIN(name) AS name,
-                s_code,
-                MIN(s_w) AS s_w,
                 MIN(r_code) AS r_code,
-                MIN(rainfall_value) AS rainfall_normal_value,
-                (SUM(CASE 
-                        WHEN subdiv_actual_numerator IS NOT NULL THEN subdiv_actual_numerator 
-                        ELSE 0 
-                    END) / 
-                NULLIF(SUM(CASE 
-                            WHEN subdiv_actual_numerator IS NOT NULL THEN district_area 
-                            ELSE 0 
-                        END), 0)) AS actual_subdiv_rainfall
+                (SUM(CASE WHEN actual_reg_num IS NOT NULL THEN actual_reg_num ELSE 0 END) / 
+                NULLIF(SUM(CASE WHEN actual_reg_num IS NOT NULL THEN s_w ELSE 0 END), 0)) AS actual_rainfall,
+                MIN(rainfall_normal_value) AS rainfall_normal_value
             FROM (
-                SELECT 	
-                    MIN(name) AS name, 
-                    MIN(s_code) AS s_code,  
-                    MIN(r_code) AS r_code,  
-                    d_code AS district_code, 
-                    SUM(normal_rainfall) AS rainfall_value,
-                    SUM(actual_rainfall) AS actual_rainfall_district,
-                    d_area AS district_area,
-                    MIN(s_w) AS s_w,
-                    (d_area * SUM(actual_rainfall)) AS subdiv_actual_numerator
+                SELECT 
+                    name, r_code, s_w, rainfall_normal_value,
+                    actual_subdiv_rainfall * s_w AS actual_reg_num
                 FROM (
                     SELECT 
-                        ns.date, 
-                        MIN(ndd.region_name) AS name, 
-                        MIN(subdiv_code) AS s_code, 
-                        MIN(region_code) AS r_code, 
-                        ndd.district_code AS d_code,
-                        MIN(subdiv_weight) AS s_w,
-                        CASE 
-                            WHEN ndd.district_code IN (30506001, 30506002) THEN 0 
-                            ELSE MIN(district_area) 
-                        END AS d_area,
-                        MIN(ns.rainfall_value) AS normal_rainfall,
-                        AVG(
-                            CASE 
-                                WHEN sdd.data = '-999.9' THEN NULL 
-                                ELSE sdd.data 
-                            END
-                        ) AS actual_rainfall
-                    FROM 
-                        station_daily_data AS sdd 
-                    JOIN
-                        normal_district_details AS ndd
-                    ON 
-                        sdd.district_code = ndd.district_code
-                    JOIN
-                        normal_region AS ns
-                    ON 
-                        ndd.region_code = ns.region_id
-                    AND 
-                        ns.date = sdd.collection_date
-                    WHERE  
-                        ns.date BETWEEN $1 AND $2 
-                    GROUP BY
-                        ndd.district_code,
-                        ns.date
-                ) AS sub_query2
-                GROUP BY
-                    d_code,
-                    d_area
-            ) AS sub2
-            GROUP BY
-                s_code
-        ) AS result
-    ) AS subquery
-    GROUP BY 
-        r_code
-) AS final_subquery;`;
+                        MIN(name) AS name,
+                        s_code,
+                        MIN(s_w) AS s_w,
+                        MIN(r_code) AS r_code,
+                        MIN(rainfall_value) AS rainfall_normal_value,
+                        (SUM(CASE WHEN subdiv_actual_numerator IS NOT NULL THEN subdiv_actual_numerator ELSE 0 END) / 
+                        NULLIF(SUM(CASE WHEN subdiv_actual_numerator IS NOT NULL THEN district_area ELSE 0 END), 0)) AS actual_subdiv_rainfall
+                    FROM (
+                        SELECT  
+                            MIN(name) AS name, 
+                            MIN(s_code) AS s_code,  
+                            MIN(r_code) AS r_code,  
+                            d_code AS district_code, 
+                            SUM(normal_rainfall) AS rainfall_value,
+                            SUM(actual_rainfall) AS actual_rainfall_district,
+                            d_area AS district_area,
+                            MIN(s_w) AS s_w,
+                            (d_area * SUM(actual_rainfall)) AS subdiv_actual_numerator
+                        FROM (
+                            SELECT 
+                                ns.date, 
+                                MIN(ndd.region_name) AS name, 
+                                MIN(subdiv_code) AS s_code, 
+                                MIN(region_code) AS r_code, 
+                                ndd.district_code AS d_code,
+                                MIN(subdiv_weight) AS s_w,
+                                CASE 
+                                    WHEN ndd.district_code IN (30506001, 30506002) THEN 0 
+                                    ELSE MIN(district_area) 
+                                END AS d_area,
+                                MIN(ns.rainfall_value) AS normal_rainfall,
+                                AVG(
+                                    CASE 
+                                        WHEN sdd.data = '-999.9' THEN NULL 
+                                        ELSE sdd.data 
+                                    END
+                                ) AS actual_rainfall
+                            FROM 
+                                station_daily_data AS sdd 
+                            JOIN
+                                normal_district_details AS ndd
+                                ON sdd.district_code = ndd.district_code
+                            JOIN
+                                normal_region AS ns
+                                ON ndd.region_code = ns.region_id
+                                AND ns.date = sdd.collection_date
+                            WHERE  
+                                ns.date BETWEEN $1 AND $2
+
+                                -- ✅ Exclude specific stations
+                                AND sdd.station_id NOT IN (
+                                    SELECT entity_code FROM public.calculation_exclusions
+                                    WHERE entity_type = 'station'
+                                    AND from_date <= $1 AND to_date >= $2
+                                )
+
+                                -- ✅ Exclude stations belonging to excluded blocks
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM public.station_details sd2
+                                    JOIN public.calculation_exclusions ce
+                                        ON sd2.block_code = ce.entity_code
+                                        AND ce.entity_type = 'block'
+                                        AND ce.from_date <= $1 AND ce.to_date >= $2
+                                    WHERE sd2.station_code = sdd.station_id
+                                )
+
+                                -- ✅ Exclude specific districts
+                                AND ndd.district_code NOT IN (
+                                    SELECT entity_code FROM public.calculation_exclusions
+                                    WHERE entity_type = 'district'
+                                    AND from_date <= $1 AND to_date >= $2
+                                )
+
+                                -- ✅ Exclude specific states
+                                AND ndd.new_state_code NOT IN (
+                                    SELECT entity_code FROM public.calculation_exclusions
+                                    WHERE entity_type = 'state'
+                                    AND from_date <= $1 AND to_date >= $2
+                                )
+
+                                -- ✅ Exclude specific subdivisions
+                                AND ndd.subdiv_code NOT IN (
+                                    SELECT entity_code FROM public.calculation_exclusions
+                                    WHERE entity_type = 'subdivision'
+                                    AND from_date <= $1 AND to_date >= $2
+                                )
+
+                                -- ✅ Exclude specific regions
+                                AND ndd.region_code NOT IN (
+                                    SELECT entity_code FROM public.calculation_exclusions
+                                    WHERE entity_type = 'region'
+                                    AND from_date <= $1 AND to_date >= $2
+                                )
+
+                            GROUP BY
+                                ndd.district_code,
+                                ns.date
+                        ) AS sub_query2
+                        GROUP BY d_code, d_area
+                    ) AS sub2
+                    GROUP BY s_code
+                ) AS result
+            ) AS subquery
+            GROUP BY r_code
+        ) AS final_subquery;
+    `;
 
     try {
         const result = await client.query(query, [startDate, endDate]);
@@ -170,6 +318,8 @@ FROM (
         throw error;
     }
 }
+
+
 
 exports.getAllRegions = async (req, res) => {
     try {

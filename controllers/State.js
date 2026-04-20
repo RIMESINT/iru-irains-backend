@@ -141,11 +141,105 @@ exports.fetchStateData = async (req, res) => {
 
 
 
+// const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
+//     let additionalCondition = '';
+//     if (endDate === currentDate) {
+//         additionalCondition = ` AND updated_at < '${specificDateTime}'`;
+//     }
+//     const query = `
+//     WITH daily_district_actuals AS (
+//         SELECT
+//             ndd.new_state_code AS state_code,
+//             MIN(ndd.state_name) AS state_name,
+//             MIN(ndd.region_code) AS r_code,
+//             ndd.district_code,
+//             MIN(ndd.district_area) AS district_area,
+//             sdd.collection_date,
+//             AVG(CASE 
+//                 WHEN sdd.data::numeric = -999.9 THEN NULL
+//                 WHEN sdd.data::numeric < 0 THEN NULL  -- ✅ Skip negative values
+//                 ELSE sdd.data::numeric
+//             END) AS daily_avg_rainfall
+//         FROM station_daily_data sdd
+//         JOIN normal_district_details ndd 
+//             ON sdd.district_code = ndd.district_code
+//         WHERE 
+//             sdd.collection_date BETWEEN $1 AND $2
+//         GROUP BY 
+//             sdd.collection_date, ndd.district_code, ndd.new_state_code
+//     ),
+    
+//     district_totals AS (
+//         SELECT
+//             state_code,
+//             state_name,
+//             r_code,
+//             district_code,
+//             district_area,
+//             SUM(daily_avg_rainfall) AS total_actual_rainfall
+//         FROM daily_district_actuals
+//         GROUP BY state_code, state_name, r_code, district_code, district_area
+//     ),
+    
+//     state_actuals AS (
+//         SELECT
+//             state_code,
+//             state_name,
+//             r_code,
+//             SUM(total_actual_rainfall * district_area) / NULLIF(SUM(district_area), 0) AS actual_state_rainfall
+//         FROM district_totals
+//         GROUP BY state_code, state_name, r_code
+//     ),
+    
+//     state_normals AS (
+//         SELECT 
+//             state_code,
+//             SUM(rainfall_value) AS rainfall_normal_value
+//         FROM normal_state
+//         WHERE date BETWEEN $1 AND $2
+//         GROUP BY state_code
+//     )
+    
+//     SELECT 
+//         sa.state_name,
+//         sa.state_code,
+//         sa.r_code AS region_code,
+//         sn.rainfall_normal_value,
+//         sa.actual_state_rainfall,
+//         CASE
+//             WHEN sa.actual_state_rainfall IS NULL THEN NULL
+//             WHEN sa.actual_state_rainfall = 0 THEN -100
+//             ELSE (
+//                 (sa.actual_state_rainfall - 
+//                  CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END) /
+//                  CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END
+//             ) * 100
+//         END AS departure
+//     FROM state_actuals sa
+//     LEFT JOIN state_normals sn ON sa.state_code = sn.state_code;    
+//     `;
+
+//     try {
+//         const result = await client.query(query, [startDate, endDate]);
+//         return result.rows;
+//     } catch (error) {
+//         console.error('Error executing query', error.stack);
+//         throw error;
+//     }
+// }
+
+
+
+// ---------------------------------------------------------------
+
+
+
 const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
     let additionalCondition = '';
     if (endDate === currentDate) {
         additionalCondition = ` AND updated_at < '${specificDateTime}'`;
     }
+
     const query = `
     WITH daily_district_actuals AS (
         SELECT
@@ -157,7 +251,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             sdd.collection_date,
             AVG(CASE 
                 WHEN sdd.data::numeric = -999.9 THEN NULL
-                WHEN sdd.data::numeric < 0 THEN NULL  -- ✅ Skip negative values
+                WHEN sdd.data::numeric < 0 THEN NULL
                 ELSE sdd.data::numeric
             END) AS daily_avg_rainfall
         FROM station_daily_data sdd
@@ -165,10 +259,56 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             ON sdd.district_code = ndd.district_code
         WHERE 
             sdd.collection_date BETWEEN $1 AND $2
+
+            -- ✅ Exclude specific stations
+            AND sdd.station_id NOT IN (
+                SELECT entity_code FROM public.calculation_exclusions
+                WHERE entity_type = 'station'
+                AND from_date <= $1 AND to_date >= $2
+            )
+
+            -- ✅ Exclude stations belonging to excluded blocks
+            AND NOT EXISTS (
+                SELECT 1 FROM public.station_details sd2
+                JOIN public.calculation_exclusions ce
+                    ON sd2.block_code = ce.entity_code
+                    AND ce.entity_type = 'block'
+                    AND ce.from_date <= $1 AND ce.to_date >= $2
+                WHERE sd2.station_code = sdd.station_id
+            )
+
+            -- ✅ Exclude specific districts
+            AND ndd.district_code NOT IN (
+                SELECT entity_code FROM public.calculation_exclusions
+                WHERE entity_type = 'district'
+                AND from_date <= $1 AND to_date >= $2
+            )
+
+            -- ✅ Exclude specific states
+            AND ndd.new_state_code NOT IN (
+                SELECT entity_code FROM public.calculation_exclusions
+                WHERE entity_type = 'state'
+                AND from_date <= $1 AND to_date >= $2
+            )
+
+            -- ✅ Exclude specific subdivisions
+            AND ndd.subdiv_code NOT IN (
+                SELECT entity_code FROM public.calculation_exclusions
+                WHERE entity_type = 'subdivision'
+                AND from_date <= $1 AND to_date >= $2
+            )
+
+            -- ✅ Exclude specific regions
+            AND ndd.region_code NOT IN (
+                SELECT entity_code FROM public.calculation_exclusions
+                WHERE entity_type = 'region'
+                AND from_date <= $1 AND to_date >= $2
+            )
+
         GROUP BY 
             sdd.collection_date, ndd.district_code, ndd.new_state_code
     ),
-    
+
     district_totals AS (
         SELECT
             state_code,
@@ -180,7 +320,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         FROM daily_district_actuals
         GROUP BY state_code, state_name, r_code, district_code, district_area
     ),
-    
+
     state_actuals AS (
         SELECT
             state_code,
@@ -190,7 +330,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         FROM district_totals
         GROUP BY state_code, state_name, r_code
     ),
-    
+
     state_normals AS (
         SELECT 
             state_code,
@@ -199,7 +339,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         WHERE date BETWEEN $1 AND $2
         GROUP BY state_code
     )
-    
+
     SELECT 
         sa.state_name,
         sa.state_code,
@@ -216,7 +356,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             ) * 100
         END AS departure
     FROM state_actuals sa
-    LEFT JOIN state_normals sn ON sa.state_code = sn.state_code;    
+    LEFT JOIN state_normals sn ON sa.state_code = sn.state_code;
     `;
 
     try {
@@ -227,7 +367,6 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         throw error;
     }
 }
-
 
 
 exports.getAllStates = async (req, res) => {
@@ -372,16 +511,15 @@ exports.getMetWiseStates = async (req, res) => {
 const getStateAreaPercentages = async (_req, res) => {
     const query = `
         SELECT
-            new_state_code AS state_code,
-            MIN(state_name) AS state_name,
+            state_code,
+            state_name,
             ROUND(
                 (SUM(district_area) / (SELECT SUM(district_area) FROM normal_district_details) * 100)::numeric,
                 2
             ) AS area_percentage
         FROM normal_district_details
-        WHERE new_state_code IS NOT NULL
-        GROUP BY new_state_code
-        ORDER BY new_state_code;
+        GROUP BY state_code, state_name
+        ORDER BY state_code;
     `;
     try {
         const result = await client.query(query);

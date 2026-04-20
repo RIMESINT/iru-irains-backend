@@ -116,6 +116,74 @@ exports.fetchDistrictData = async (req, res) => {
 
 
 
+// const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
+//     let additionalCondition = '';
+//     if (endDate === currentDate) {
+//         additionalCondition = ` AND updated_at < '${specificDateTime}'`;
+//     }
+
+//     const query = `
+//     WITH daily_actuals AS (
+//         SELECT 
+//             sdd.collection_date AS date,
+//             sdd.district_code,
+//             AVG(NULLIF(sdd.data::numeric, -999.9)) AS raw_rainfall
+//         FROM station_daily_data sdd
+//         WHERE 
+//             sdd.collection_date BETWEEN $1 AND $2
+//             AND sdd.data::numeric >= 0  -- ✅ Exclude negative values
+//         GROUP BY sdd.collection_date, sdd.district_code
+//     )
+    
+//     SELECT 
+//         MIN(ndd.district_name) AS district_name,
+//         MIN(ndd.new_state_code) AS state_code,
+//         MIN(ndd.region_code) AS region_code,
+//         MIN(ndd.subdiv_code) AS sub_division_code,
+//         ndd.district_code,
+//         SUM(nd.rainfall_value) AS normal_rainfall,
+//         SUM(da.raw_rainfall) AS actual_rainfall,
+//         CASE
+//             WHEN SUM(da.raw_rainfall) IS NULL THEN NULL
+//             WHEN SUM(da.raw_rainfall) = 0 THEN -100
+//             ELSE (
+//                 (SUM(da.raw_rainfall) - 
+//                  SUM(CASE WHEN nd.rainfall_value = 0 THEN 0.01 ELSE nd.rainfall_value END)) / 
+//                  SUM(CASE WHEN nd.rainfall_value = 0 THEN 0.01 ELSE nd.rainfall_value END)
+//             ) * 100
+//         END AS departure
+//     FROM 
+//         normal_district nd
+//     JOIN 
+//         normal_district_details ndd
+//         ON nd.normal_district_details_id = ndd.id
+//     LEFT JOIN 
+//         daily_actuals da
+//         ON da.date = nd.date AND da.district_code = ndd.district_code
+//     WHERE 
+//         nd.date BETWEEN $1 AND $2
+//     GROUP BY 
+//         ndd.district_code
+//     ORDER BY 
+//         district_name;
+      
+//     `;
+
+
+//     try {
+//         const result = await client.query(query, [startDate, endDate]);
+//         return result.rows;
+//     } catch (error) {
+//         console.error('Error executing query', error.stack);
+//         throw error;
+//     }
+// }
+
+
+// -------------------------------------------------------------------------------------------
+
+
+
 const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
     let additionalCondition = '';
     if (endDate === currentDate) {
@@ -131,7 +199,20 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         FROM station_daily_data sdd
         WHERE 
             sdd.collection_date BETWEEN $1 AND $2
-            AND sdd.data::numeric >= 0  -- ✅ Exclude negative values
+            AND sdd.data::numeric >= 0
+            AND sdd.station_code NOT IN (
+                SELECT entity_code FROM public.calculation_exclusions
+                WHERE entity_type = 'station'
+                AND from_date <= $1 AND to_date >= $2
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM public.station_details sd2
+                JOIN public.calculation_exclusions ce
+                    ON sd2.block_code = ce.entity_code
+                    AND ce.entity_type = 'block'
+                    AND ce.from_date <= $1 AND ce.to_date >= $2
+                WHERE sd2.station_code = sdd.station_code
+            )
         GROUP BY sdd.collection_date, sdd.district_code
     )
     
@@ -162,13 +243,31 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         ON da.date = nd.date AND da.district_code = ndd.district_code
     WHERE 
         nd.date BETWEEN $1 AND $2
+        AND ndd.district_code NOT IN (
+            SELECT entity_code FROM public.calculation_exclusions
+            WHERE entity_type = 'district'
+            AND from_date <= $1 AND to_date >= $2
+        )
+        AND ndd.new_state_code NOT IN (
+            SELECT entity_code FROM public.calculation_exclusions
+            WHERE entity_type = 'state'
+            AND from_date <= $1 AND to_date >= $2
+        )
+        AND ndd.subdiv_code NOT IN (
+            SELECT entity_code FROM public.calculation_exclusions
+            WHERE entity_type = 'subdivision'
+            AND from_date <= $1 AND to_date >= $2
+        )
+        AND ndd.region_code NOT IN (
+            SELECT entity_code FROM public.calculation_exclusions
+            WHERE entity_type = 'region'
+            AND from_date <= $1 AND to_date >= $2
+        )
     GROUP BY 
         ndd.district_code
     ORDER BY 
         district_name;
-      
     `;
-
 
     try {
         const result = await client.query(query, [startDate, endDate]);

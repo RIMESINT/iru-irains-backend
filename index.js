@@ -25,6 +25,7 @@ const blockRoutes = require("./routes/blockRoutes");
 const mapImageRoutes = require("./routes/mapImageRoutes");
 const spatialDistribution = require("./routes/spatialDistributionRoutes");
 const awsRoutes = require("./routes/awsRoutes");
+const adminRoutes = require("./routes/adminpanelRoutes");
 
 // // Load SSL Certificate
 const options = {
@@ -101,6 +102,7 @@ app.use("/api/v1/", blockRoutes);
 app.use("/api/v1/maps/", mapImageRoutes);
 app.use("/api/v1/", spatialDistribution);
 app.use("/api/v1/", awsRoutes);
+app.use("/api/v1/", adminRoutes);
 
 // Use HTTPS Server
 https.createServer(options, app).listen(port, () => {

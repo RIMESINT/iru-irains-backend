@@ -4,7 +4,18 @@ const { dailyDataUpdateReminder, dailyDataVerificationReminder } = require("../c
 const { sendBulkReports } = require('./emailController');
 const { aggregateCurrentSeasonData } = require('./scripts/all/calculateAndIncludeAllDatesData');
 // const { uploadMonthlyDRMSAndMetadata } = require('../controllers/ftp/shared.js');
-const { fetchAndStoreUP, fetchAndStoreNHP } = require("../controllers/scripts/aws/awsFetcher"); // ✅
+const {
+    fetchAndStoreUP,
+    fetchAndStoreNHP,
+    fetchAndStoreZomato,
+    fetchAndStoreMeghalaya,
+    fetchAndStoreMizoram,
+    fetchAndStoreTamilnadu,
+    fetchAndStoreUttarakhand,
+    fetchAndStoreTelangana,
+    fetchAndStoreKarnataka,
+    fetchAndStoreIITMMumbai
+} = require("../controllers/scripts/aws/awsFetcher");
 
 
 // ─── Existing — every 30 min 1:29PM to 5:59PM ────────────────────────────────
@@ -33,6 +44,7 @@ const job2 = schedule.scheduleJob('30 12 * * *', dailyDataUpdateReminder);  // 1
 const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder); // 1:15 PM
 // const job4 = schedule.scheduleJob('59 14 * * *', sendBulkReports);
 
+
 // const job5 = schedule.scheduleJob('15 15 7 * *', async () => {
 //     console.log(`\n[MONTHLY CRON] Starting DRMS & Metadata generation - ${new Date().toLocaleString()}`);
 //     try {
@@ -48,8 +60,16 @@ const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder);
 const awsJobs = ['0 * * * *', '15 * * * *', '30 * * * *', '45 * * * *'].map((pattern) =>
     schedule.scheduleJob(pattern, async () => {
         console.log(`[AWS CRON] Running at ${new Date().toLocaleString()}`);
-        try { await fetchAndStoreUP();  } catch (e) { console.error("[UP AWS] Failed:",  e.message); }
-        try { await fetchAndStoreNHP(); } catch (e) { console.error("[NHP AWS] Failed:", e.message); }
+        try { await fetchAndStoreUP();          } catch (e) { console.error("[UP AWS] Failed:",          e.message); }
+        try { await fetchAndStoreNHP();         } catch (e) { console.error("[NHP AWS] Failed:",         e.message); }
+        try { await fetchAndStoreZomato();      } catch (e) { console.error("[ZOMATO AWS] Failed:",      e.message); }
+        try { await fetchAndStoreMeghalaya();   } catch (e) { console.error("[MEG AWS] Failed:",         e.message); }
+        try { await fetchAndStoreMizoram();     } catch (e) { console.error("[MIZ AWS] Failed:",         e.message); }
+        try { await fetchAndStoreTamilnadu();   } catch (e) { console.error("[TN AWS] Failed:",          e.message); }
+        try { await fetchAndStoreUttarakhand(); } catch (e) { console.error("[UK AWS] Failed:",          e.message); }
+        try { await fetchAndStoreTelangana();   } catch (e) { console.error("[TG AWS] Failed:",          e.message); }
+        try { await fetchAndStoreKarnataka();   } catch (e) { console.error("[KA AWS] Failed:",          e.message); }
+        try { await fetchAndStoreIITMMumbai();  } catch (e) { console.error("[IITM MUM] Failed:",        e.message); }
     })
 );
 
@@ -57,6 +77,14 @@ const awsJobs = ['0 * * * *', '15 * * * *', '30 * * * *', '45 * * * *'].map((pat
 // ─── Run once immediately on server start ────────────────────────────────────
 (async () => {
     console.log("[AWS] Initial fetch on server start...");
-    try { await fetchAndStoreUP();  } catch (e) { console.error("[UP AWS] Init failed:",  e.message); }
-    try { await fetchAndStoreNHP(); } catch (e) { console.error("[NHP AWS] Init failed:", e.message); }
+    try { await fetchAndStoreUP();          } catch (e) { console.error("[UP AWS] Init failed:",          e.message); }
+    try { await fetchAndStoreNHP();         } catch (e) { console.error("[NHP AWS] Init failed:",         e.message); }
+    try { await fetchAndStoreZomato();      } catch (e) { console.error("[ZOMATO AWS] Init failed:",      e.message); }
+    try { await fetchAndStoreMeghalaya();   } catch (e) { console.error("[MEG AWS] Init failed:",         e.message); }
+    try { await fetchAndStoreMizoram();     } catch (e) { console.error("[MIZ AWS] Init failed:",         e.message); }
+    try { await fetchAndStoreTamilnadu();   } catch (e) { console.error("[TN AWS] Init failed:",          e.message); }
+    try { await fetchAndStoreUttarakhand(); } catch (e) { console.error("[UK AWS] Init failed:",          e.message); }
+    try { await fetchAndStoreTelangana();   } catch (e) { console.error("[TG AWS] Init failed:",          e.message); }
+    try { await fetchAndStoreKarnataka();   } catch (e) { console.error("[KA AWS] Init failed:",          e.message); }
+    try { await fetchAndStoreIITMMumbai();  } catch (e) { console.error("[IITM MUM] Init failed:",        e.message); }
 })();

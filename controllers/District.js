@@ -127,31 +127,11 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         SELECT 
             sdd.collection_date AS date,
             sdd.district_code,
-            AVG(
-                CASE
-                    WHEN sdd.data ~ '^-?[0-9]+(\\.[0-9]+)?$'
-                         AND sdd.data::numeric != -999.9
-                         AND sdd.data::numeric >= 0
-                    THEN sdd.data::numeric
-                    ELSE NULL
-                END
-            ) AS raw_rainfall
+            AVG(NULLIF(sdd.data::numeric, -999.9)) AS raw_rainfall
         FROM station_daily_data sdd
         WHERE 
             sdd.collection_date BETWEEN $1 AND $2
-            AND sdd.station_code NOT IN (
-                SELECT entity_code FROM public.calculation_exclusions
-                WHERE entity_type = 'station'
-                AND from_date <= $1 AND to_date >= $2
-            )
-            AND NOT EXISTS (
-                SELECT 1 FROM public.station_details sd2
-                JOIN public.calculation_exclusions ce
-                    ON sd2.block_code = ce.entity_code
-                    AND ce.entity_type = 'block'
-                    AND ce.from_date <= $1 AND ce.to_date >= $2
-                WHERE sd2.station_code = sdd.station_code
-            )
+            AND sdd.data::numeric >= 0  -- ✅ Exclude negative values
         GROUP BY sdd.collection_date, sdd.district_code
     )
     
@@ -177,26 +157,6 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
     JOIN 
         normal_district_details ndd
         ON nd.normal_district_details_id = ndd.id
-        AND ndd.district_code NOT IN (
-            SELECT entity_code FROM public.calculation_exclusions
-            WHERE entity_type = 'district'
-            AND from_date <= $1 AND to_date >= $2
-        )
-        AND ndd.new_state_code NOT IN (
-            SELECT entity_code FROM public.calculation_exclusions
-            WHERE entity_type = 'state'
-            AND from_date <= $1 AND to_date >= $2
-        )
-        AND ndd.subdiv_code NOT IN (
-            SELECT entity_code FROM public.calculation_exclusions
-            WHERE entity_type = 'subdivision'
-            AND from_date <= $1 AND to_date >= $2
-        )
-        AND ndd.region_code NOT IN (
-            SELECT entity_code FROM public.calculation_exclusions
-            WHERE entity_type = 'region'
-            AND from_date <= $1 AND to_date >= $2
-        )
     LEFT JOIN 
         daily_actuals da
         ON da.date = nd.date AND da.district_code = ndd.district_code
@@ -206,7 +166,9 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         ndd.district_code
     ORDER BY 
         district_name;
+      
     `;
+
 
     try {
         const result = await client.query(query, [startDate, endDate]);
@@ -216,7 +178,6 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         throw error;
     }
 }
-
 
 exports.getAllDistrict = async (req, res) => {
     try {

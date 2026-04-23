@@ -498,24 +498,25 @@ exports.verifyMultipleStationData = async (req, res) => {
 
 exports.AddDailyStationData = async (req, res) => {
     try {
-
         await removePrevData();
         await copyDataFromUpdatesToStationDailyData();
-        console.log("Cron : Data is migrated")
-      // res.status(200).json({
-      //   success: true,
-      //   message: "Data verified successfully",
-      //   // data: updatedRows
-      // });
-  
+        console.log("Cron : Data is migrated");
+
+        res.status(200).json({
+            success: true,
+            message: "Map data refreshed successfully",
+        });
+
     } catch (error) {
-      console.error(error);
-      // res.status(500).json({
-      //   success: false,
-      //   error: error.message
-      // });
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to refresh map data",
+            error: error.message,
+        });
     }
 }
+
 
 
 const removePrevData = async () => {

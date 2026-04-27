@@ -2,11 +2,19 @@ const express = require("express")
 const router = express.Router()
 const { insertStationData} = require("../controllers/scripts/station/stationDailyData")
 const { createStationDetailsTable, insertLatLongInStationDetails } = require("../controllers/scripts/station/station_details")
-const { getMonsoonActivity } = require("../controllers/scripts/station/monsoon_activity.js");
+const { 
+    getMonsoonActivity,
+    getMonsoonActivityDistrict,
+    getMonsoonActivitySubdivLast7,
+    getMonsoonActivitySubdivLast30,
+    getMonsoonActivityDistrictLast7,
+    getMonsoonActivityDistrictLast30,
+} = require("../controllers/scripts/station/monsoon_activity.js");
 const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 const { fetchStationData,
+
 
         // updateStationData, 
         addNewStation, 
@@ -32,6 +40,7 @@ const { fetchTopNBlocks, fetchTopNDistricts, fetchTopNSubdivisions, fetchTopNSta
 const { fetchBlockRangeStatistics, fetchDistrictRangeStatistics, fetchStateRangeStatistics, fetchSubdivisionRangeStatistics, fetchRegionRangeStatistics, fetchCountryRangeStatistics } = require("../controllers/scripts/all/inRangeStatisticsData")
 
 
+
 const { 
     fetchStationDataNew,
     updateStationData, 
@@ -49,7 +58,9 @@ const {
     fetchStationDataIncludingVerification,
     
 
+
 } = require("../controllers/StationDataUpdates")
+
 
 
 
@@ -57,6 +68,7 @@ const {
     fetchStationUnifiedFileFtp,
     fetchLatestAwsExcelData,
 } = require("../controllers/ftp/station")
+
 
 // ********************************************************************************************************
 //                                      Station routes
@@ -66,6 +78,7 @@ router.post("/insertMultipleStations", upload.single('file'), insertMultipleStat
 router.post("/insertRainfallFile", upload.single('file'), insertRainfallFile);
 router.get("/insertLatLongInStationDetails", upload.single('file'), insertLatLongInStationDetails);
 router.post("/EditMultipleStations", upload.single('file'), EditMultipleStations);
+
 
 
 
@@ -86,8 +99,10 @@ router.post("/fetchCentreStationSummary", fetchCentreStationSummary);
 
 
 
+
 router.get("/fetchStationLogs", fetchStationLogs);
 router.post("/fetchAllDatesAndDataOfStation", fetchAllDatesAndDataOfStation);
+
 
 
 
@@ -104,11 +119,13 @@ router.post("/dataActions", dataActions);
 
 
 
+
 // ********************************************************************************************************
 //                                     FTP Station routes
 // ********************************************************************************************************
 router.post("/fetchFilteredStationUnifiedFileFtp", fetchStationUnifiedFileFtp);
 router.post("/fetchLatestAwsExcelData", fetchLatestAwsExcelData);
+
 
 
 // ********************************************************************************************************
@@ -128,6 +145,16 @@ router.post("/fetchSubdivisionRangeStatistics", fetchSubdivisionRangeStatistics)
 router.post("/fetchRegionRangeStatistics", fetchRegionRangeStatistics);
 router.post("/fetchCountryRangeStatistics", fetchCountryRangeStatistics);
 
-router.post("/monsoon-activity", getMonsoonActivity);
+
+// ********************************************************************************************************
+//                                     Monsoon Activity routes
+// ********************************************************************************************************
+router.post("/monsoon-activity",                getMonsoonActivity);
+router.post("/monsoon-activity-district",       getMonsoonActivityDistrict);
+router.post("/monsoon-activity-subdiv-last7",   getMonsoonActivitySubdivLast7);
+router.post("/monsoon-activity-subdiv-last30",  getMonsoonActivitySubdivLast30);
+router.post("/monsoon-activity-district-last7", getMonsoonActivityDistrictLast7);
+router.post("/monsoon-activity-district-last30",getMonsoonActivityDistrictLast30);
+
 
 module.exports = router;

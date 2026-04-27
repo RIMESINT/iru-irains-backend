@@ -179,32 +179,34 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
     }
 }
 
+
 exports.getAllDistrict = async (req, res) => {
     try {
         const query = `
-            SELECT 
-                ndd.district_name, 
-                ndd.district_code, 
-                MIN(ndd.subdiv_name)    AS subdiv_name, 
-                MIN(ndd.subdiv_code)    AS subdiv_code, 
-                MIN(ndd.region_name)    AS region_name, 
-                MIN(ndd.region_code)    AS region_code, 
-                MIN(ndd.state_name)     AS state_name,
-                MIN(ndd.new_state_code) AS state_code,
-                MIN(sd.centre_type)     AS centre_type, 
-                MIN(sd.centre_name)     AS centre_name
-            FROM 
-                public.station_details AS sd
-            JOIN 
-                normal_district_details AS ndd 
-            ON 
-                ndd.district_code = sd.district_code
-            GROUP BY
-                ndd.district_code, 
-                ndd.district_name
-            ORDER BY
-                ndd.district_code;
-        `;
+                        SELECT 
+                            ndd.district_name, 
+                            ndd.district_code, 
+                            MIN(subdiv_name), 
+                            MIN(subdiv_code), 
+                            MIN(region_name) as region_name, 
+                            MIN(region_code) as region_code, 
+                            MIN(state_name), 
+                            MIN(new_state_code) AS state_code,
+                            MIN(sd.centre_type) AS centre_type, 
+                            MIN(sd.centre_name) AS centre_name
+                        FROM 
+                            public.station_details AS sd
+                        JOIN 
+                            normal_district_details AS ndd 
+                        ON 
+                            ndd.district_code = sd.district_code
+                        GROUP BY
+                            ndd.district_code, 
+                            ndd.district_name
+                        ORDER BY
+                            district_code;
+
+                        `;
         
         const result = await client.query(query);
 
@@ -222,7 +224,6 @@ exports.getAllDistrict = async (req, res) => {
         });
     }
 }
-
 
 
 

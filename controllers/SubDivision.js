@@ -143,112 +143,12 @@ exports.fetchSubDivisionData = async (req, res) => {
 // ------------------------------------------------------------------------------------------
 
 
-// const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
-//     let additionalCondition = '';
-//     if (endDate === currentDate) {
-//         additionalCondition = ` AND updated_at < '${specificDateTime}'`;
-//     }
-// const query = `
-//         WITH daily_subdiv_actuals AS (
-//             SELECT 
-//                 ndd.subdiv_code AS s_code,
-//                 MIN(ndd.subdiv_name) AS subdiv_name,
-//                 MIN(ndd.region_code) AS r_code,
-//                 ndd.district_code AS d_code,
-//                 CASE 
-//                     WHEN ndd.district_code IN (30506001, 30506002) THEN 0
-//                     ELSE MIN(ndd.district_area)
-//                 END AS district_area,
-//                 sdd.collection_date,
-//                 AVG(
-//                     CASE 
-//                         WHEN sdd.data::numeric = -999.9 THEN NULL 
-//                         WHEN sdd.data::numeric < 0 THEN NULL  -- ✅ filter out negative rainfall
-//                         ELSE sdd.data::numeric
-//                     END
-//                 ) AS daily_avg_rainfall
-//             FROM station_daily_data sdd
-//             JOIN normal_district_details ndd 
-//                 ON sdd.district_code = ndd.district_code
-//             WHERE 
-//                 sdd.collection_date BETWEEN $1 AND $2
-//             GROUP BY 
-//                 sdd.collection_date, ndd.district_code, ndd.subdiv_code
-//         ),
-
-//         subdiv_district_totals AS (
-//             SELECT
-//                 s_code,
-//                 subdiv_name,
-//                 r_code,
-//                 d_code,
-//                 district_area,
-//                 SUM(daily_avg_rainfall) AS total_actual_rainfall
-//             FROM daily_subdiv_actuals
-//             GROUP BY s_code, subdiv_name, r_code, d_code, district_area
-//         ),
-
-//         subdiv_actuals AS (
-//             SELECT
-//                 s_code,
-//                 subdiv_name,
-//                 r_code,
-//                 SUM(total_actual_rainfall * district_area) / NULLIF(SUM(district_area), 0) AS actual_subdiv_rainfall
-//             FROM subdiv_district_totals
-//             GROUP BY s_code, subdiv_name, r_code
-//         ),
-
-//         subdiv_normals AS (
-//             SELECT 
-//                 sub_division_id AS s_code,
-//                 SUM(rainfall_value) AS rainfall_normal_value
-//             FROM normal_sub_division
-//             WHERE date BETWEEN $1 AND $2
-//             GROUP BY sub_division_id
-//         )
-
-//         SELECT 
-//             sa.subdiv_name,
-//             sa.s_code,
-//             sa.r_code AS region_code,
-//             sn.rainfall_normal_value,
-//             sa.actual_subdiv_rainfall,
-//             CASE
-//                 WHEN sa.actual_subdiv_rainfall IS NULL THEN NULL
-//                 WHEN sa.actual_subdiv_rainfall = 0 THEN -100
-//                 ELSE (
-//                     (sa.actual_subdiv_rainfall - 
-//                     CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END) /
-//                     CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END
-//                 ) * 100
-//             END AS departure
-//         FROM subdiv_actuals sa
-//         LEFT JOIN subdiv_normals sn ON sa.s_code = sn.s_code;
-
-//         `;
-//                         // exception : we have to use 0 area for this two district 30506001, 30506002 for subdiv calculation 
-
-//     try {
-//         const result = await client.query(query, [startDate, endDate]);
-//         return result.rows;
-//     } catch (error) {
-//         console.error('Error executing query', error.stack);
-//         throw error;
-//     }
-// }
-
-
-// ---------------------------------------------------------------
-
-
-
 const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
     let additionalCondition = '';
     if (endDate === currentDate) {
         additionalCondition = ` AND updated_at < '${specificDateTime}'`;
     }
-
-    const query = `
+const query = `
         WITH daily_subdiv_actuals AS (
             SELECT 
                 ndd.subdiv_code AS s_code,
@@ -263,7 +163,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                 AVG(
                     CASE 
                         WHEN sdd.data::numeric = -999.9 THEN NULL 
-                        WHEN sdd.data::numeric < 0 THEN NULL
+                        WHEN sdd.data::numeric < 0 THEN NULL  -- ✅ filter out negative rainfall
                         ELSE sdd.data::numeric
                     END
                 ) AS daily_avg_rainfall
@@ -272,52 +172,6 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                 ON sdd.district_code = ndd.district_code
             WHERE 
                 sdd.collection_date BETWEEN $1 AND $2
-
-                -- ✅ Exclude specific stations
-                AND sdd.station_id NOT IN (
-                    SELECT entity_code FROM public.calculation_exclusions
-                    WHERE entity_type = 'station'
-                    AND from_date <= $1 AND to_date >= $2
-                )
-
-                -- ✅ Exclude stations belonging to excluded blocks
-                AND NOT EXISTS (
-                    SELECT 1 FROM public.station_details sd2
-                    JOIN public.calculation_exclusions ce
-                        ON sd2.block_code = ce.entity_code
-                        AND ce.entity_type = 'block'
-                        AND ce.from_date <= $1 AND ce.to_date >= $2
-                    WHERE sd2.station_code = sdd.station_id
-                )
-
-                -- ✅ Exclude specific districts
-                AND ndd.district_code NOT IN (
-                    SELECT entity_code FROM public.calculation_exclusions
-                    WHERE entity_type = 'district'
-                    AND from_date <= $1 AND to_date >= $2
-                )
-
-                -- ✅ Exclude specific states
-                AND ndd.new_state_code NOT IN (
-                    SELECT entity_code FROM public.calculation_exclusions
-                    WHERE entity_type = 'state'
-                    AND from_date <= $1 AND to_date >= $2
-                )
-
-                -- ✅ Exclude specific subdivisions
-                AND ndd.subdiv_code NOT IN (
-                    SELECT entity_code FROM public.calculation_exclusions
-                    WHERE entity_type = 'subdivision'
-                    AND from_date <= $1 AND to_date >= $2
-                )
-
-                -- ✅ Exclude specific regions
-                AND ndd.region_code NOT IN (
-                    SELECT entity_code FROM public.calculation_exclusions
-                    WHERE entity_type = 'region'
-                    AND from_date <= $1 AND to_date >= $2
-                )
-
             GROUP BY 
                 sdd.collection_date, ndd.district_code, ndd.subdiv_code
         ),
@@ -370,8 +224,9 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             END AS departure
         FROM subdiv_actuals sa
         LEFT JOIN subdiv_normals sn ON sa.s_code = sn.s_code;
-    `;
-    // exception: use 0 area for districts 30506001, 30506002 for subdiv calculation
+
+        `;
+                        // exception : we have to use 0 area for this two district 30506001, 30506002 for subdiv calculation 
 
     try {
         const result = await client.query(query, [startDate, endDate]);
@@ -381,6 +236,7 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         throw error;
     }
 }
+
 
 exports.getAllSubDivisions = async (req, res) => {
     try {

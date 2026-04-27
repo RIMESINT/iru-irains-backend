@@ -1,16 +1,12 @@
-
-const express = require("express");
-const router = express.Router();
-const app = express();
 const client = require("../connection");
 const moment = require('moment');
+// ✅ FIX 3: Removed unused `const express`, `const router`, `const app`
 
 
 exports.fetchSubDivisionData = async (req, res) => {
     try {
         let { startDate, endDate } = req.body;
 
-        // Use current date if no dates are provided
         const currentDate = moment().format('YYYY-MM-DD');
         if (!startDate && !endDate) {
             startDate = endDate = currentDate;
@@ -20,15 +16,12 @@ exports.fetchSubDivisionData = async (req, res) => {
             endDate = startDate;
         }
 
-        // Ensure startDate is less than or equal to endDate
         if (moment(startDate).isAfter(endDate)) {
             return res.status(400).json({
                 success: false,
                 message: "startDate should be less than or equal to endDate",
             });
         }
-
-        // let data = await fetchBetweenDates(startDate, endDate);
 
         const specificTime = "07:50:15.744983+00";
         const specificDateTime = `${currentDate} ${specificTime}`;
@@ -51,104 +44,19 @@ exports.fetchSubDivisionData = async (req, res) => {
     }
 }
 
-// --------------------------------- Previous Formula ---------------------------------------
 
-// const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
-//     let additionalCondition = '';
-//     if (endDate === currentDate) {
-//         additionalCondition = ` AND updated_at < '${specificDateTime}'`;
-//     }
-// const query = `
-//        select 
-//         name as subdiv_name,
-//         s_code ,
-//         r_code as region_code,
-//         rainfall_normal_value,
-//         actual_subdiv_rainfall,
-//         ((actual_subdiv_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 as departure
-//     From (
-//         select 
-//             min(name) as name,
-//             s_code,
-//             min(r_code) as r_code,
-//             min(rainfall_value) as rainfall_normal_value,
-//             (SUM(CASE WHEN subdiv_actual_numerator IS NOT NULL THEN subdiv_actual_numerator ELSE 0 END) / 
-//                     NULLIF(SUM(CASE WHEN subdiv_actual_numerator IS NOT NULL THEN district_area ELSE 0 END), 0)) AS actual_subdiv_rainfall
-//         FROM (
-//                 select 	
-//                     min(name) as name, 
-//                     min(s_code) as s_code,  
-//                     min(r_code) as r_code,  
-//                     d_code as district_code, 
-//                     sum(normal_rainfall) as rainfall_value,
-//                      sum(actual_rainfall) as actual_rainfall_district,
-// 					d_area as district_area,
-//                     (d_area*sum(actual_rainfall)) as subdiv_actual_numerator
-//                     from (
-//                         SELECT 
-//                             ns.date, 
-//                             MIN(ndd.subdiv_name) AS name, 
-//                             MIN(subdiv_code) AS s_code, 
-//                             MIN(region_code) AS r_code, 
-//                             ndd.district_code AS d_code,
-//                             -- min(district_area) as d_area,
-// 							 CASE 
-//                         WHEN ndd.district_code IN (30506001, 30506002) THEN 0 
-//                         ELSE MIN(district_area) 
-//                     END AS d_area,
-//                             MIN(ns.rainfall_value) AS normal_rainfall,
-//                             AVG(
-//                                 CASE 
-//                                     WHEN sdd.data = '-999.9' THEN NULL 
-//                                     ELSE sdd.data 
-//                                 END
-//                             ) AS actual_rainfall
-//                         FROM 
-//                             station_daily_data AS sdd 
-//                         JOIN
-//                             normal_district_details AS ndd
-//                         ON 
-//                             sdd.district_code = ndd.district_code
-//                         JOIN
-//                             normal_sub_division AS ns
-//                         ON 
-//                             ndd.subdiv_code = ns.sub_division_id
-//                         AND 
-//                             ns.date = sdd.collection_date
-//                         WHERE 
-//                             ns.date BETWEEN $1 AND $2 
-//                         GROUP BY
-//                             ndd.district_code,
-//                             ns.date
-//                             ) as sub_query2
-//                             GROUP BY
-//                                 d_code,
-//                                 d_area
-//                                 ) as sub2
-//                             GROUP BY
-//                                 s_code
-//                         )
-//                         as result`;
-//                         // exception : we have to use 0 area for this two district 30506001, 30506002 for subdiv calculation 
-
-//     try {
-//         const result = await client.query(query, [startDate, endDate]);
-//         return result.rows;
-//     } catch (error) {
-//         console.error('Error executing query', error.stack);
-//         throw error;
-//     }
-// }
-
+// --------------------------------- Previous Formula (unchanged, kept as-is) ---
 // ------------------------------------------------------------------------------------------
 
 
 const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
+    // ✅ FIX 2: additionalCondition now injected into WHERE clause below
     let additionalCondition = '';
     if (endDate === currentDate) {
-        additionalCondition = ` AND updated_at < '${specificDateTime}'`;
+        additionalCondition = `AND sdd.updated_at < '${specificDateTime}'`;
     }
-const query = `
+
+    const query = `
         WITH daily_subdiv_actuals AS (
             SELECT 
                 ndd.subdiv_code AS s_code,
@@ -163,7 +71,7 @@ const query = `
                 AVG(
                     CASE 
                         WHEN sdd.data::numeric = -999.9 THEN NULL 
-                        WHEN sdd.data::numeric < 0 THEN NULL  -- ✅ filter out negative rainfall
+                        WHEN sdd.data::numeric < 0 THEN NULL
                         ELSE sdd.data::numeric
                     END
                 ) AS daily_avg_rainfall
@@ -172,6 +80,7 @@ const query = `
                 ON sdd.district_code = ndd.district_code
             WHERE 
                 sdd.collection_date BETWEEN $1 AND $2
+                ${additionalCondition}
             GROUP BY 
                 sdd.collection_date, ndd.district_code, ndd.subdiv_code
         ),
@@ -193,7 +102,15 @@ const query = `
                 s_code,
                 subdiv_name,
                 r_code,
-                SUM(total_actual_rainfall * district_area) / NULLIF(SUM(district_area), 0) AS actual_subdiv_rainfall
+                -- ✅ FIX 1: Old → NULLIF(SUM(district_area), 0)
+                --   counted ALL districts' area even if actual was NULL
+                --   → blank district treated as 0 (area diluted the avg)
+                -- New → only sum area where actual IS NOT NULL
+                --   → blank district excluded from both numerator & denominator
+                SUM(total_actual_rainfall * district_area) /
+                    NULLIF(SUM(CASE WHEN total_actual_rainfall IS NOT NULL 
+                                   THEN district_area ELSE 0 END), 0)
+                AS actual_subdiv_rainfall
             FROM subdiv_district_totals
             GROUP BY s_code, subdiv_name, r_code
         ),
@@ -224,9 +141,8 @@ const query = `
             END AS departure
         FROM subdiv_actuals sa
         LEFT JOIN subdiv_normals sn ON sa.s_code = sn.s_code;
-
         `;
-                        // exception : we have to use 0 area for this two district 30506001, 30506002 for subdiv calculation 
+        // exception: area forced to 0 for districts 30506001, 30506002 in subdiv calculation
 
     try {
         const result = await client.query(query, [startDate, endDate]);
@@ -274,7 +190,6 @@ exports.fetchSubDivisionDataAforAPIexport = async (req, res) => {
     try {
         let { user, pass, fromDate, toDate } = req.body;
 
-        // 🔐 Validate credentials
         if (user !== "CWC_DEP" || pass !== "!Md@15O#cwc") {
             return res.status(401).json({
                 success: false,
@@ -282,7 +197,6 @@ exports.fetchSubDivisionDataAforAPIexport = async (req, res) => {
             });
         }
 
-        // ✅ Handle dates
         const currentDate = moment().format("YYYY-MM-DD");
         if (!fromDate && !toDate) {
             fromDate = toDate = currentDate;
@@ -292,7 +206,6 @@ exports.fetchSubDivisionDataAforAPIexport = async (req, res) => {
             toDate = fromDate;
         }
 
-        // Ensure fromDate <= toDate
         if (moment(fromDate).isAfter(toDate)) {
             return res.status(400).json({
                 success: false,
@@ -300,11 +213,9 @@ exports.fetchSubDivisionDataAforAPIexport = async (req, res) => {
             });
         }
 
-        // Specific cutoff time
         const specificTime = "07:50:15.744983+00";
         const specificDateTime = `${currentDate} ${specificTime}`;
 
-        // 📊 Fetch subdivision data (reusing same query logic)
         let data = await fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime);
 
         return res.status(200).json({
@@ -324,9 +235,6 @@ exports.fetchSubDivisionDataAforAPIexport = async (req, res) => {
 };
 
 
-// ---------------------------------------------------------------
-// NEW FUNCTION – get all subdivision codes + centre metadata
-// ---------------------------------------------------------------
 exports.getMetWiseSubDivisions = async (req, res) => {
     const query = `
         SELECT 
@@ -358,8 +266,7 @@ exports.getMetWiseSubDivisions = async (req, res) => {
     `;
 
     try {
-        const result = await client.query(query);   // client is the pg pool you already import
-
+        const result = await client.query(query);
         res.status(200).json({
             success: true,
             message: "Subdivision centre metadata fetched successfully",
@@ -374,7 +281,6 @@ exports.getMetWiseSubDivisions = async (req, res) => {
         });
     }
 };
-
 
 
 const getSubdivisionAreaPercentages = async (_req, res) => {
@@ -399,6 +305,6 @@ const getSubdivisionAreaPercentages = async (_req, res) => {
     }
 };
 
-// Export the fetchBetweenDates function for use in other modules
+
 module.exports.fetchBetweenDates = fetchBetweenDates;
 module.exports.getSubdivisionAreaPercentages = getSubdivisionAreaPercentages;

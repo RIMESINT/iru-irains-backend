@@ -51,92 +51,85 @@ exports.fetchStateData = async (req, res) => {
 
 
 const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTime) => {
-    // ✅ FIX 2: additionalCondition is now actually injected into the WHERE clause below
     let additionalCondition = '';
     if (endDate === currentDate) {
         additionalCondition = `AND sdd.updated_at < '${specificDateTime}'`;
     }
 
     const query = `
-    WITH daily_district_actuals AS (
-        SELECT
-            ndd.new_state_code AS state_code,
-            MIN(ndd.state_name) AS state_name,
-            MIN(ndd.region_code) AS r_code,
-            ndd.district_code,
-            MIN(ndd.district_area) AS district_area,
-            sdd.collection_date,
-            AVG(CASE 
-                WHEN sdd.data::numeric = -999.9 THEN NULL
-                WHEN sdd.data::numeric < 0 THEN NULL
-                ELSE sdd.data::numeric
-            END) AS daily_avg_rainfall
-        FROM station_daily_data sdd
-        JOIN normal_district_details ndd 
-            ON sdd.district_code = ndd.district_code
-        WHERE 
-            sdd.collection_date BETWEEN $1 AND $2
-            ${additionalCondition}
-        GROUP BY 
-            sdd.collection_date, ndd.district_code, ndd.new_state_code
-    ),
-
-    district_totals AS (
-        SELECT
-            state_code,
-            state_name,
-            r_code,
-            district_code,
-            district_area,
-            SUM(daily_avg_rainfall) AS total_actual_rainfall
-        FROM daily_district_actuals
-        GROUP BY state_code, state_name, r_code, district_code, district_area
-    ),
-
-    state_actuals AS (
-        SELECT
-            state_code,
-            state_name,
-            r_code,
-            -- ✅ FIX 1: Old denominator → NULLIF(SUM(district_area), 0)
-            --   counted ALL districts' area even when actual was NULL
-            --   → blank district treated as 0 (area diluted the average)
-            -- New denominator → only sum area where actual IS NOT NULL
-            --   → blank district fully excluded from both numerator & denominator
-            SUM(total_actual_rainfall * district_area) /
-                NULLIF(SUM(CASE WHEN total_actual_rainfall IS NOT NULL 
-                               THEN district_area ELSE 0 END), 0)
-            AS actual_state_rainfall
-        FROM district_totals
-        GROUP BY state_code, state_name, r_code
-    ),
-
-    state_normals AS (
         SELECT 
+            state_name,
             state_code,
-            SUM(rainfall_value) AS rainfall_normal_value
-        FROM normal_state
-        WHERE date BETWEEN $1 AND $2
-        GROUP BY state_code
-    )
-
-    SELECT 
-        sa.state_name,
-        sa.state_code,
-        sa.r_code AS region_code,
-        sn.rainfall_normal_value,
-        sa.actual_state_rainfall,
-        CASE
-            WHEN sa.actual_state_rainfall IS NULL THEN NULL
-            WHEN sa.actual_state_rainfall = 0 THEN -100
-            ELSE (
-                (sa.actual_state_rainfall - 
-                 CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END) /
-                 CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END
-            ) * 100
-        END AS departure
-    FROM state_actuals sa
-    LEFT JOIN state_normals sn ON sa.state_code = sn.state_code;    
+            r_code AS region_code,
+            rainfall_normal_value,
+            actual_state_rainfall,
+            CASE
+                WHEN actual_state_rainfall IS NULL THEN NULL
+                WHEN actual_state_rainfall = 0 THEN -100
+                ELSE (
+                    (actual_state_rainfall - CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END) /
+                    CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END
+                ) * 100
+            END AS departure
+        FROM (
+            SELECT 
+                MIN(state_name) AS state_name,
+                state_code,
+                MIN(r_code) AS r_code,
+                MIN(rainfall_value) AS rainfall_normal_value,
+                (SUM(CASE WHEN state_actual_numerator IS NOT NULL THEN state_actual_numerator ELSE 0 END) /
+                    NULLIF(SUM(CASE WHEN state_actual_numerator IS NOT NULL THEN district_area ELSE 0 END), 0)) AS actual_state_rainfall
+            FROM (
+                SELECT     
+                    MIN(name) AS state_name, 
+                    MIN(s_code) AS state_code,  
+                    MIN(r_code) AS r_code,  
+                    MIN(sd_code) AS sd_code,  
+                    d_code AS district_code, 
+                    d_area AS district_area,
+                    SUM(normal_rainfall) AS rainfall_value,
+                    SUM(actual_rainfall) AS actual_rainfall_district,
+                    (d_area * SUM(actual_rainfall)) AS state_actual_numerator
+                FROM (
+                    SELECT 
+                        sdd.collection_date,
+                        MIN(ndd.state_name) AS name, 
+                        MIN(ndd.new_state_code) AS s_code, 
+                        MIN(ndd.region_code) AS r_code, 
+                        MIN(ndd.subdiv_code) AS sd_code, 
+                        ndd.district_code AS d_code,     
+                        MIN(ndd.district_area) AS d_area,
+                        MIN(ns.rainfall_value) AS normal_rainfall,
+                        AVG(
+                            CASE 
+                                WHEN sdd.data::numeric = -999.9 THEN NULL
+                                WHEN sdd.data::numeric < 0 THEN NULL
+                                ELSE sdd.data::numeric
+                            END
+                        ) AS actual_rainfall
+                    FROM 
+                        station_daily_data AS sdd
+                    JOIN
+                        normal_district_details AS ndd
+                        ON sdd.district_code = ndd.district_code
+                    LEFT JOIN                                    
+                        normal_state AS ns
+                        ON ndd.new_state_code = ns.state_code 
+                        AND ns.date = sdd.collection_date
+                    WHERE 
+                        sdd.collection_date BETWEEN $1 AND $2
+                        ${additionalCondition}
+                    GROUP BY
+                        ndd.district_code,
+                        sdd.collection_date 
+                ) AS sub_query
+                GROUP BY
+                    d_code,
+                    d_area
+            ) AS sub2
+            GROUP BY
+                state_code
+        ) AS result
     `;
 
     try {
@@ -147,7 +140,6 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
         throw error;
     }
 }
-
 
 exports.getAllStates = async (req, res) => {
     try {

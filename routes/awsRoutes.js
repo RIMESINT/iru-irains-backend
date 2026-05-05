@@ -95,4 +95,57 @@ router.post("/iitm-mumbai/cumulative",       iitmMumbaiCtrl.fetchCumulativeData)
 router.post("/iitm-mumbai/district-summary", iitmMumbaiCtrl.fetchDistrictSummary);
 
 
+// ── DEPARTURE APIS (all 10 states × 3 endpoints each) ────────────────────────
+
+// UP
+router.post("/up-aws/actual-departure",   upCtrl.fetchActualDeparture);
+router.post("/up-aws/departure-analysis", upCtrl.fetchDepartureAnalysis);
+router.post("/up-aws/departure-export",   upCtrl.fetchDepartureForAPIexport);
+
+// NHP
+router.post("/nhp-aws/actual-departure",   nhpCtrl.fetchActualDeparture);
+router.post("/nhp-aws/departure-analysis", nhpCtrl.fetchDepartureAnalysis);
+router.post("/nhp-aws/departure-export",   nhpCtrl.fetchDepartureForAPIexport);
+
+// ZOMATO
+router.post("/zomato-aws/actual-departure",   zomatoCtrl.fetchActualDeparture);
+router.post("/zomato-aws/departure-analysis", zomatoCtrl.fetchDepartureAnalysis);
+router.post("/zomato-aws/departure-export",   zomatoCtrl.fetchDepartureForAPIexport);
+
+// MEGHALAYA
+router.post("/meghalaya-aws/actual-departure",   meghalayaCtrl.fetchActualDeparture);
+router.post("/meghalaya-aws/departure-analysis", meghalayaCtrl.fetchDepartureAnalysis);
+router.post("/meghalaya-aws/departure-export",   meghalayaCtrl.fetchDepartureForAPIexport);
+
+// MIZORAM
+router.post("/mizoram-aws/actual-departure",   mizoramCtrl.fetchActualDeparture);
+router.post("/mizoram-aws/departure-analysis", mizoramCtrl.fetchDepartureAnalysis);
+router.post("/mizoram-aws/departure-export",   mizoramCtrl.fetchDepartureForAPIexport);
+
+// TAMILNADU
+router.post("/tamilnadu-aws/actual-departure",   tamilnaduCtrl.fetchActualDeparture);
+router.post("/tamilnadu-aws/departure-analysis", tamilnaduCtrl.fetchDepartureAnalysis);
+router.post("/tamilnadu-aws/departure-export",   tamilnaduCtrl.fetchDepartureForAPIexport);
+
+// UTTARAKHAND
+router.post("/uttarakhand-aws/actual-departure",   uttarakhandCtrl.fetchActualDeparture);
+router.post("/uttarakhand-aws/departure-analysis", uttarakhandCtrl.fetchDepartureAnalysis);
+router.post("/uttarakhand-aws/departure-export",   uttarakhandCtrl.fetchDepartureForAPIexport);
+
+// TELANGANA
+router.post("/telangana-aws/actual-departure",   telanganaCtrl.fetchActualDeparture);
+router.post("/telangana-aws/departure-analysis", telanganaCtrl.fetchDepartureAnalysis);
+router.post("/telangana-aws/departure-export",   telanganaCtrl.fetchDepartureForAPIexport);
+
+// KARNATAKA
+router.post("/karnataka-aws/actual-departure",   karnatakaCtrl.fetchActualDeparture);
+router.post("/karnataka-aws/departure-analysis", karnatakaCtrl.fetchDepartureAnalysis);
+router.post("/karnataka-aws/departure-export",   karnatakaCtrl.fetchDepartureForAPIexport);
+
+// IITM MUMBAI
+router.post("/iitm-mumbai/actual-departure",   iitmMumbaiCtrl.fetchActualDeparture);
+router.post("/iitm-mumbai/departure-analysis", iitmMumbaiCtrl.fetchDepartureAnalysis);
+router.post("/iitm-mumbai/departure-export",   iitmMumbaiCtrl.fetchDepartureForAPIexport);
+
+
 module.exports = router;

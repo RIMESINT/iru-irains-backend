@@ -4,7 +4,7 @@ const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-const { fetchDistrictData, getAllDistrict, getLatestFiveYearDataOfDistrict, fetchDistrictDataforAPIexport, getDistrictAreaPercentages} = require("../controllers/District")
+const { fetchDistrictData, getAllDistrict, getLatestFiveYearDataOfDistrict, fetchDistrictDataforAPIexport, getDistrictAreaPercentages, fetchDistrictStationCount} = require("../controllers/District")
 const { fetchDistrictDataFtp, fetchDistrictDataInBunchOfDatesFtp,getLatestFiveYearDataOfDistrictFtp} = require("../controllers/ftp/District")
 const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/scripts/district/normalDistrict");
 const { addNewDistrictDetails } = require("../controllers/scripts/district/addNormalDistrict");
@@ -29,6 +29,7 @@ router.post("/fetchDistrictDataAPIexport", fetchDistrictDataforAPIexport);
 router.get("/getAllDistrict", getAllDistrict)
 router.get("/getDistrictAreaPercentages", getDistrictAreaPercentages);
 router.post("/getLatestFiveYearDataOfDistrict", getLatestFiveYearDataOfDistrict);
+router.post("/fetchDistrictStationCount", fetchDistrictStationCount);
 
 
 

@@ -1,8 +1,10 @@
 const client = require("../../../connection");
-const moment = require("moment");
+const moment = require("moment-timezone");
+
+const IST = "Asia/Kolkata";
 
 const resolveDates = (startDate, endDate) => {
-    const today = moment().format("YYYY-MM-DD");
+    const today = moment().tz(IST).format("YYYY-MM-DD");
     if (!startDate && !endDate) return { startDate: today, endDate: today };
     if (!startDate) return { startDate: endDate, endDate };
     if (!endDate)   return { startDate, endDate: startDate };
@@ -22,7 +24,6 @@ exports.fetchDailyData = async (req, res) => {
         const result = await client.query(`
             SELECT
                 dat, district, block, id, station, station_type,
-                MIN(lat) AS lat, MIN(lon) AS lon,
                 SUM(rainfall)                       AS total_rainfall,
                 ROUND(AVG(temp)::NUMERIC, 1)        AS avg_temp,
                 MAX(temp)                           AS max_temp,
@@ -92,7 +93,7 @@ exports.fetchSlotData = async (req, res) => {
         const result = await client.query(`
             SELECT
                 dat, time, district, block, id, station,
-                facility, station_type, lat, lon, alt,
+                facility, station_type, alt,
                 rainfall, temp, rh, winds, windd, slp,
                 soil_temp, irradiance, water_content,
                 conductivity, updated_at

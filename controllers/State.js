@@ -110,11 +110,27 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                         ndd.new_state_code = ns.state_code 
                     AND 
                         ns.date = sdd.collection_date
-                    WHERE 
-                        date BETWEEN $1 AND $2 
+                    WHERE
+                        date BETWEEN $1 AND $2
+                        AND sdd.station_id NOT IN (
+                            SELECT sd.station_code
+                            FROM public.station_details sd
+                            JOIN public.normal_district_details ndd2
+                                ON ndd2.district_code = sd.district_code
+                            WHERE
+                                sd.station_code IN (
+                                    SELECT entity_code FROM public.calculation_exclusions
+                                    WHERE entity_type = 'station')
+                                OR sd.block_code IN (
+                                    SELECT entity_code FROM public.calculation_exclusions
+                                    WHERE entity_type = 'block')
+                                OR ndd2.district_code IN (
+                                    SELECT entity_code FROM public.calculation_exclusions
+                                    WHERE entity_type = 'district')
+                        )
                     GROUP BY
                         ndd.district_code,
-                        ns.date 
+                        ns.date
                 ) AS sub_query
                 GROUP BY
                     d_code,
@@ -282,6 +298,106 @@ const getStateAreaPercentages = async (_req, res) => {
     }
 };
 
+
+exports.fetchStateDistrictCount = async (req, res) => {
+    try {
+        let { startDate, endDate } = req.body;
+
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!startDate && !endDate) {
+            startDate = endDate = currentDate;
+        } else if (!startDate) {
+            startDate = endDate;
+        } else if (!endDate) {
+            endDate = startDate;
+        }
+
+        if (moment(startDate).isAfter(endDate)) {
+            return res.status(400).json({
+                success: false,
+                message: "startDate should be less than or equal to endDate",
+            });
+        }
+
+        const query = `
+            SELECT
+                ndd.new_state_code AS state_code,
+                MIN(ndd.state_name) AS state_name,
+                MIN(ndd.region_name) AS region_name,
+                MIN(ndd.region_code) AS region_code,
+                COUNT(DISTINCT ndd.district_code) AS district_count
+            FROM
+                public.normal_district_details ndd
+            JOIN
+                public.station_daily_data sdd ON ndd.district_code = sdd.district_code
+                AND sdd.collection_date BETWEEN $1 AND $2
+                AND sdd.data != '-999.9'
+                AND sdd.data::numeric >= 0
+            WHERE
+                ndd.new_state_code IS NOT NULL
+            GROUP BY
+                ndd.new_state_code
+            ORDER BY
+                ndd.new_state_code;
+        `;
+
+        const result = await client.query(query, [startDate, endDate]);
+
+        res.status(200).json({
+            success: true,
+            message: "State district count fetched successfully",
+            data: result.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch state district count",
+            error: error.message,
+        });
+    }
+};
+
+exports.getStateDisplayOrder = async (_req, res) => {
+    try {
+        const result = await client.query(
+            `SELECT display_order, region_code, state_code, state_name
+             FROM state_display_order
+             ORDER BY display_order ASC`
+        );
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error("getStateDisplayOrder error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch state display order", error: error.message });
+    }
+};
+
+exports.updateStateDisplayOrder = async (req, res) => {
+    const { state_code, display_order } = req.body;
+
+    if (!state_code || display_order == null) {
+        return res.status(400).json({ success: false, message: "state_code and display_order are required" });
+    }
+
+    try {
+        const result = await client.query(
+            `UPDATE state_display_order
+             SET display_order = $1
+             WHERE state_code = $2
+             RETURNING *`,
+            [display_order, state_code]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: "state_code not found" });
+        }
+
+        res.status(200).json({ success: true, message: "Display order updated", data: result.rows[0] });
+    } catch (error) {
+        console.error("updateStateDisplayOrder error:", error);
+        res.status(500).json({ success: false, message: "Failed to update state display order", error: error.message });
+    }
+};
 
 module.exports.fetchBetweenDates = fetchBetweenDates;
 module.exports.getStateAreaPercentages = getStateAreaPercentages;

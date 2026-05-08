@@ -117,10 +117,26 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             ON sd.block_code = nb.block_id 
             AND nb.date = sdd.collection_date
     
-        WHERE 
+        WHERE
             sd.block_code IS NOT NULL
-    
-        GROUP BY 
+            AND sd.station_code NOT IN (
+                SELECT sd2.station_code
+                FROM public.station_details sd2
+                JOIN public.normal_district_details ndd2
+                    ON ndd2.district_code = sd2.district_code
+                WHERE
+                    sd2.station_code IN (
+                        SELECT entity_code FROM public.calculation_exclusions
+                        WHERE entity_type = 'station')
+                    OR sd2.block_code IN (
+                        SELECT entity_code FROM public.calculation_exclusions
+                        WHERE entity_type = 'block')
+                    OR ndd2.district_code IN (
+                        SELECT entity_code FROM public.calculation_exclusions
+                        WHERE entity_type = 'district')
+            )
+
+        GROUP BY
             sd.block_code,
             sd.block_name,
             ndd.district_name,
@@ -470,5 +486,70 @@ exports.fetchBlockDataAforAPIexport = async (req, res) => {
     }
 };
 
+
+exports.fetchBlockStationCount = async (req, res) => {
+    try {
+        let { startDate, endDate } = req.body;
+
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!startDate && !endDate) {
+            startDate = endDate = currentDate;
+        } else if (!startDate) {
+            startDate = endDate;
+        } else if (!endDate) {
+            endDate = startDate;
+        }
+
+        if (moment(startDate).isAfter(endDate)) {
+            return res.status(400).json({
+                success: false,
+                message: "startDate should be less than or equal to endDate",
+            });
+        }
+
+        const query = `
+            SELECT
+                sd.block_code,
+                MIN(sd.block_name) AS block_name,
+                MIN(ndd.district_name) AS district_name,
+                MIN(ndd.district_code) AS district_code,
+                MIN(ndd.state_name) AS state_name,
+                MIN(ndd.new_state_code) AS state_code,
+                MIN(ndd.region_name) AS region_name,
+                MIN(ndd.region_code) AS region_code,
+                COUNT(DISTINCT sdd.station_id) AS station_count
+            FROM
+                public.station_details sd
+            JOIN
+                public.normal_district_details ndd ON sd.district_code = ndd.district_code
+            JOIN
+                public.station_daily_data sdd ON sd.station_code = sdd.station_id
+                AND sdd.collection_date BETWEEN $1 AND $2
+                AND sdd.data != '-999.9'
+                AND sdd.data::numeric >= 0
+            WHERE
+                sd.block_code IS NOT NULL
+            GROUP BY
+                sd.block_code
+            ORDER BY
+                sd.block_code;
+        `;
+
+        const result = await client.query(query, [startDate, endDate]);
+
+        res.status(200).json({
+            success: true,
+            message: "Block station count fetched successfully",
+            data: result.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch block station count",
+            error: error.message,
+        });
+    }
+};
 
 module.exports.fetchBetweenDates = fetchBetweenDates;

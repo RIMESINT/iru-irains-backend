@@ -33,7 +33,6 @@ exports.fetchDailyData = async (req, res) => {
         const query = `
             SELECT
                 dat, district, id, station, station_type,
-                MIN(lat) AS lat, MIN(lon) AS lon,
                 SUM(rainfall)                               AS total_rainfall,
                 ROUND(AVG(temp)::NUMERIC, 1)                AS avg_temp,
                 MAX(temp)                                   AS max_temp,
@@ -123,7 +122,6 @@ exports.fetchSlotData = async (req, res) => {
         const query = `
             SELECT
                 dat, time, district, id, station, station_type,
-                lat, lon,
                 rainfall, rainfall_hourly, temp, rh, slp,
                 winds, windd, soil_moisture, soil_temp,
                 solar_radiation, updated_at

@@ -111,8 +111,24 @@ const query = `
                             ndd.subdiv_code = ns.sub_division_id
                         AND 
                             ns.date = sdd.collection_date
-                        WHERE 
-                            ns.date BETWEEN $1 AND $2 
+                        WHERE
+                            ns.date BETWEEN $1 AND $2
+                            AND sdd.station_id NOT IN (
+                                SELECT sd.station_code
+                                FROM public.station_details sd
+                                JOIN public.normal_district_details ndd2
+                                    ON ndd2.district_code = sd.district_code
+                                WHERE
+                                    sd.station_code IN (
+                                        SELECT entity_code FROM public.calculation_exclusions
+                                        WHERE entity_type = 'station')
+                                    OR sd.block_code IN (
+                                        SELECT entity_code FROM public.calculation_exclusions
+                                        WHERE entity_type = 'block')
+                                    OR ndd2.district_code IN (
+                                        SELECT entity_code FROM public.calculation_exclusions
+                                        WHERE entity_type = 'district')
+                            )
                         GROUP BY
                             ndd.district_code,
                             ns.date
@@ -286,6 +302,106 @@ const getSubdivisionAreaPercentages = async (_req, res) => {
     }
 };
 
+
+exports.fetchSubDivisionDistrictCount = async (req, res) => {
+    try {
+        let { startDate, endDate } = req.body;
+
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!startDate && !endDate) {
+            startDate = endDate = currentDate;
+        } else if (!startDate) {
+            startDate = endDate;
+        } else if (!endDate) {
+            endDate = startDate;
+        }
+
+        if (moment(startDate).isAfter(endDate)) {
+            return res.status(400).json({
+                success: false,
+                message: "startDate should be less than or equal to endDate",
+            });
+        }
+
+        const query = `
+            SELECT
+                ndd.subdiv_code,
+                MIN(ndd.subdiv_name) AS subdiv_name,
+                MIN(ndd.region_name) AS region_name,
+                MIN(ndd.region_code) AS region_code,
+                COUNT(DISTINCT ndd.district_code) AS district_count
+            FROM
+                public.normal_district_details ndd
+            JOIN
+                public.station_daily_data sdd ON ndd.district_code = sdd.district_code
+                AND sdd.collection_date BETWEEN $1 AND $2
+                AND sdd.data != '-999.9'
+                AND sdd.data::numeric >= 0
+            WHERE
+                ndd.subdiv_code IS NOT NULL
+            GROUP BY
+                ndd.subdiv_code
+            ORDER BY
+                ndd.subdiv_code;
+        `;
+
+        const result = await client.query(query, [startDate, endDate]);
+
+        res.status(200).json({
+            success: true,
+            message: "Subdivision district count fetched successfully",
+            data: result.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch subdivision district count",
+            error: error.message,
+        });
+    }
+};
+
+exports.getSubdivisionDisplayOrder = async (_req, res) => {
+    try {
+        const result = await client.query(
+            `SELECT display_order, region_code, region_name, subdiv_code, subdivision_name
+             FROM subdivision_display_order
+             ORDER BY display_order ASC`
+        );
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error("getSubdivisionDisplayOrder error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch subdivision display order", error: error.message });
+    }
+};
+
+exports.updateSubdivisionDisplayOrder = async (req, res) => {
+    const { subdiv_code, display_order } = req.body;
+
+    if (!subdiv_code || display_order == null) {
+        return res.status(400).json({ success: false, message: "subdiv_code and display_order are required" });
+    }
+
+    try {
+        const result = await client.query(
+            `UPDATE subdivision_display_order
+             SET display_order = $1
+             WHERE subdiv_code = $2
+             RETURNING *`,
+            [display_order, subdiv_code]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: "subdiv_code not found" });
+        }
+
+        res.status(200).json({ success: true, message: "Display order updated", data: result.rows[0] });
+    } catch (error) {
+        console.error("updateSubdivisionDisplayOrder error:", error);
+        res.status(500).json({ success: false, message: "Failed to update subdivision display order", error: error.message });
+    }
+};
 
 module.exports.fetchBetweenDates = fetchBetweenDates;
 module.exports.getSubdivisionAreaPercentages = getSubdivisionAreaPercentages;

@@ -130,24 +130,23 @@ const fetchAndStoreMeghalaya = async () => {
         await client.query(`
             INSERT INTO observations_aws_meghalaya (
                 id, station, facility, station_type,
-                state, district, block, lat, lon, alt,
+                state, district, block, alt,
                 dat, time, updated_at,
                 rainfall, rainfall_avg, temp, rh, slp,
                 winds, windd,
                 soil_temp, irradiance, water_content, conductivity,
                 battery, panel_temp
             ) VALUES (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-                $11,$12,$13,
-                $14,$15,$16,$17,$18,
-                $19,$20,
-                $21,$22,$23,$24,
-                $25,$26
+                $1,$2,$3,$4,$5,$6,$7,$8,
+                $9,$10,$11,
+                $12,$13,$14,$15,$16,
+                $17,$18,
+                $19,$20,$21,$22,
+                $23,$24
             ) ON CONFLICT (id, dat, time) DO NOTHING
         `, [
             s.id, s.station_name, s.facility, s.station_type,
-            s.state, s.district, s.block,
-            parseVal(s.latitude), parseVal(s.longitude), parseVal(s.altitude),
+            s.state, s.district, s.block, parseVal(s.altitude),
             s.dat, s.time, s.updated_at,
             parseVal(s.total_rainfall), parseVal(s.average_rainfall),
             parseVal(s.average_air_temperature), parseVal(s.relative_humidity),
@@ -178,7 +177,6 @@ const fetchAndStoreMizoram = async () => {
         await client.query(`
             INSERT INTO observations_aws_mizoram (
                 id, station, station_type, state, district,
-                lat, lon,
                 dat, time, updated_at,
                 rainfall, rainfall_hourly,
                 temp, rh, slp,
@@ -186,16 +184,14 @@ const fetchAndStoreMizoram = async () => {
                 soil_moisture, soil_temp, solar_radiation
             ) VALUES (
                 $1,$2,$3,$4,$5,
-                $6,$7,
-                $8,$9,$10,
-                $11,$12,
-                $13,$14,$15,
-                $16,$17,
-                $18,$19,$20
+                $6,$7,$8,
+                $9,$10,
+                $11,$12,$13,
+                $14,$15,
+                $16,$17,$18
             ) ON CONFLICT (id, dat, time) DO NOTHING
         `, [
             s.id, s.station_name, s.station_type, s.state, s.district,
-            parseVal(s.latitude), parseVal(s.longitude),
             s.dat, s.time, s.updated_at,
             parseVal(s.raindaily), parseVal(s.rainhourly),
             parseVal(s.temp), parseVal(s.relativehumidity),

@@ -288,8 +288,24 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                                 JOIN
                                     normal_country AS ns
                                     ON ns.date = sdd.collection_date
-                                WHERE  
+                                WHERE
                                     ns.date BETWEEN $1 AND $2
+                                    AND sdd.station_id NOT IN (
+                                        SELECT sd.station_code
+                                        FROM public.station_details sd
+                                        JOIN public.normal_district_details ndd2
+                                            ON ndd2.district_code = sd.district_code
+                                        WHERE
+                                            sd.station_code IN (
+                                                SELECT entity_code FROM public.calculation_exclusions
+                                                WHERE entity_type = 'station')
+                                            OR sd.block_code IN (
+                                                SELECT entity_code FROM public.calculation_exclusions
+                                                WHERE entity_type = 'block')
+                                            OR ndd2.district_code IN (
+                                                SELECT entity_code FROM public.calculation_exclusions
+                                                WHERE entity_type = 'district')
+                                    )
                                 GROUP BY
                                     ndd.district_code,
                                     ns.date
@@ -560,5 +576,58 @@ exports.fetchCountryDataAforAPIexport = async (req, res) => {
 };
 
 
-// Export the fetchBetweenDates function for use in other modules  
+exports.fetchCountryCoverageCount = async (req, res) => {
+    try {
+        let { startDate, endDate } = req.body;
+
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!startDate && !endDate) {
+            startDate = endDate = currentDate;
+        } else if (!startDate) {
+            startDate = endDate;
+        } else if (!endDate) {
+            endDate = startDate;
+        }
+
+        if (moment(startDate).isAfter(endDate)) {
+            return res.status(400).json({
+                success: false,
+                message: "startDate should be less than or equal to endDate",
+            });
+        }
+
+        const query = `
+            SELECT
+                COUNT(DISTINCT ndd.district_code) AS district_count,
+                COUNT(DISTINCT ndd.new_state_code) AS state_count,
+                COUNT(DISTINCT ndd.subdiv_code) AS subdivision_count,
+                COUNT(DISTINCT ndd.region_code) AS region_count,
+                COUNT(DISTINCT sdd.station_id) AS station_count
+            FROM
+                public.normal_district_details ndd
+            JOIN
+                public.station_daily_data sdd ON ndd.district_code = sdd.district_code
+                AND sdd.collection_date BETWEEN $1 AND $2
+                AND sdd.data != '-999.9'
+                AND sdd.data::numeric >= 0;
+        `;
+
+        const result = await client.query(query, [startDate, endDate]);
+
+        res.status(200).json({
+            success: true,
+            message: "Country coverage count fetched successfully",
+            data: result.rows[0],
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch country coverage count",
+            error: error.message,
+        });
+    }
+};
+
+// Export the fetchBetweenDates function for use in other modules
 module.exports.fetchBetweenDates = fetchBetweenDates;

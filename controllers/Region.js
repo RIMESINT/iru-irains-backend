@@ -249,52 +249,23 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                                 normal_region AS ns
                                 ON ndd.region_code = ns.region_id
                                 AND ns.date = sdd.collection_date
-                            WHERE  
+                            WHERE
                                 ns.date BETWEEN $1 AND $2
-
-                                -- ✅ Exclude specific stations
                                 AND sdd.station_id NOT IN (
-                                    SELECT entity_code FROM public.calculation_exclusions
-                                    WHERE entity_type = 'station'
-                                    AND from_date <= $1 AND to_date >= $2
-                                )
-
-                                -- ✅ Exclude stations belonging to excluded blocks
-                                AND NOT EXISTS (
-                                    SELECT 1 FROM public.station_details sd2
-                                    JOIN public.calculation_exclusions ce
-                                        ON sd2.block_code = ce.entity_code
-                                        AND ce.entity_type = 'block'
-                                        AND ce.from_date <= $1 AND ce.to_date >= $2
-                                    WHERE sd2.station_code = sdd.station_id
-                                )
-
-                                -- ✅ Exclude specific districts
-                                AND ndd.district_code NOT IN (
-                                    SELECT entity_code FROM public.calculation_exclusions
-                                    WHERE entity_type = 'district'
-                                    AND from_date <= $1 AND to_date >= $2
-                                )
-
-                                -- ✅ Exclude specific states
-                                AND ndd.new_state_code NOT IN (
-                                    SELECT entity_code FROM public.calculation_exclusions
-                                    WHERE entity_type = 'state'
-                                    AND from_date <= $1 AND to_date >= $2
-                                )
-
-                                -- ✅ Exclude specific subdivisions
-                                AND ndd.subdiv_code NOT IN (
-                                    SELECT entity_code FROM public.calculation_exclusions
-                                    WHERE entity_type = 'subdivision'
-                                    AND from_date <= $1 AND to_date >= $2
-                                )
-
-                                -- ✅ Exclude specific regions
-                                AND ndd.region_code NOT IN (
-                                    SELECT entity_code FROM public.calculation_exclusions
-                                    WHERE entity_type = 'region'
-                                    AND from_date <= $1 AND to_date >= $2
+                                    SELECT sd.station_code
+                                    FROM public.station_details sd
+                                    JOIN public.normal_district_details ndd2
+                                        ON ndd2.district_code = sd.district_code
+                                    WHERE
+                                        sd.station_code IN (
+                                            SELECT entity_code FROM public.calculation_exclusions
+                                            WHERE entity_type = 'station')
+                                        OR sd.block_code IN (
+                                            SELECT entity_code FROM public.calculation_exclusions
+                                            WHERE entity_type = 'block')
+                                        OR ndd2.district_code IN (
+                                            SELECT entity_code FROM public.calculation_exclusions
+                                            WHERE entity_type = 'district')
                                 )
 
                             GROUP BY
@@ -592,6 +563,65 @@ const getRegionAreaPercentages = async (_req, res) => {
     } catch (error) {
         console.error("getRegionAreaPercentages error:", error);
         res.status(500).json({ success: false, message: "Failed to fetch region area percentages", error: error.message });
+    }
+};
+
+exports.fetchRegionCoverageCount = async (req, res) => {
+    try {
+        let { startDate, endDate } = req.body;
+
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!startDate && !endDate) {
+            startDate = endDate = currentDate;
+        } else if (!startDate) {
+            startDate = endDate;
+        } else if (!endDate) {
+            endDate = startDate;
+        }
+
+        if (moment(startDate).isAfter(endDate)) {
+            return res.status(400).json({
+                success: false,
+                message: "startDate should be less than or equal to endDate",
+            });
+        }
+
+        const query = `
+            SELECT
+                ndd.region_code,
+                MIN(ndd.region_name) AS region_name,
+                COUNT(DISTINCT ndd.district_code) AS district_count,
+                COUNT(DISTINCT ndd.new_state_code) AS state_count,
+                COUNT(DISTINCT ndd.subdiv_code) AS subdivision_count
+            FROM
+                public.normal_district_details ndd
+            JOIN
+                public.station_daily_data sdd ON ndd.district_code = sdd.district_code
+                AND sdd.collection_date BETWEEN $1 AND $2
+                AND sdd.data != '-999.9'
+                AND sdd.data::numeric >= 0
+            WHERE
+                ndd.region_code IS NOT NULL
+            GROUP BY
+                ndd.region_code
+            ORDER BY
+                ndd.region_code;
+        `;
+
+        const result = await client.query(query, [startDate, endDate]);
+
+        res.status(200).json({
+            success: true,
+            message: "Region coverage count fetched successfully",
+            data: result.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch region coverage count",
+            error: error.message,
+        });
     }
 };
 

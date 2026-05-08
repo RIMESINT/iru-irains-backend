@@ -129,9 +129,25 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
             sdd.district_code,
             AVG(NULLIF(sdd.data::numeric, -999.9)) AS raw_rainfall
         FROM station_daily_data sdd
-        WHERE 
+        WHERE
             sdd.collection_date BETWEEN $1 AND $2
             AND sdd.data::numeric >= 0  -- ✅ Exclude negative values
+            AND sdd.station_id NOT IN (
+                SELECT sd.station_code
+                FROM public.station_details sd
+                JOIN public.normal_district_details ndd2
+                    ON ndd2.district_code = sd.district_code
+                WHERE
+                    sd.station_code IN (
+                        SELECT entity_code FROM public.calculation_exclusions
+                        WHERE entity_type = 'station')
+                    OR sd.block_code IN (
+                        SELECT entity_code FROM public.calculation_exclusions
+                        WHERE entity_type = 'block')
+                    OR ndd2.district_code IN (
+                        SELECT entity_code FROM public.calculation_exclusions
+                        WHERE entity_type = 'district')
+            )
         GROUP BY sdd.collection_date, sdd.district_code
     )
     
@@ -409,6 +425,67 @@ const getDistrictAreaPercentages = async (_req, res) => {
     } catch (error) {
         console.error("getDistrictAreaPercentages error:", error);
         res.status(500).json({ success: false, message: "Failed to fetch district area percentages", error: error.message });
+    }
+};
+
+exports.fetchDistrictStationCount = async (req, res) => {
+    try {
+        let { startDate, endDate } = req.body;
+
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!startDate && !endDate) {
+            startDate = endDate = currentDate;
+        } else if (!startDate) {
+            startDate = endDate;
+        } else if (!endDate) {
+            endDate = startDate;
+        }
+
+        if (moment(startDate).isAfter(endDate)) {
+            return res.status(400).json({
+                success: false,
+                message: "startDate should be less than or equal to endDate",
+            });
+        }
+
+        const query = `
+            SELECT
+                ndd.district_code,
+                MIN(ndd.district_name) AS district_name,
+                MIN(ndd.state_name) AS state_name,
+                MIN(ndd.new_state_code) AS state_code,
+                MIN(ndd.region_name) AS region_name,
+                MIN(ndd.region_code) AS region_code,
+                MIN(ndd.subdiv_name) AS subdiv_name,
+                MIN(ndd.subdiv_code) AS subdiv_code,
+                COUNT(DISTINCT sdd.station_id) AS station_count
+            FROM
+                public.normal_district_details ndd
+            JOIN
+                public.station_daily_data sdd ON ndd.district_code = sdd.district_code
+                AND sdd.collection_date BETWEEN $1 AND $2
+                AND sdd.data != '-999.9'
+                AND sdd.data::numeric >= 0
+            GROUP BY
+                ndd.district_code
+            ORDER BY
+                ndd.district_code;
+        `;
+
+        const result = await client.query(query, [startDate, endDate]);
+
+        res.status(200).json({
+            success: true,
+            message: "District station count fetched successfully",
+            data: result.rows,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch district station count",
+            error: error.message,
+        });
     }
 };
 

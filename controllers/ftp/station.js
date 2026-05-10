@@ -49,7 +49,7 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
 
         // SQL Query to fetch the filtered data
         const query = `
-        SELECT 
+        SELECT
             TO_CHAR(sddf.collection_date, 'YYYY-MM-DD') AS collection_date,
             sddf.data,
             sddf.station_id,
@@ -58,11 +58,13 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
             ndd.state_name,
             sd.station_name,
             sd.latitude,
-            sd.longitude
+            sd.longitude,
+            sd.block_name,
+            sd.block_code
         FROM public.station_daily_data as sddf
-        JOIN station_details as sd ON sd.station_code = sddf.station_id 
+        JOIN station_details as sd ON sd.station_code = sddf.station_id
         JOIN normal_district_details ndd on ndd.district_code = sd.district_code
-        WHERE sddf.district_code = ANY($1) 
+        WHERE sddf.district_code = ANY($1)
         AND sddf.collection_date BETWEEN $2 AND $3;
     `;
     

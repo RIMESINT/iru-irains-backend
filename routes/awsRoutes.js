@@ -12,6 +12,7 @@ const uttarakhandCtrl = require("../controllers/scripts/aws/uttarakhandAwsContro
 const telanganaCtrl   = require("../controllers/scripts/aws/telanganaAwsController");
 const karnatakaCtrl   = require("../controllers/scripts/aws/karnatakaAwsController");
 const iitmMumbaiCtrl  = require("../controllers/scripts/aws/iitmMumbaiController");
+const stateAwsCtrl    = require("../controllers/scripts/aws/stateAwsUnifiedController");
 
 
 // ── UP AWS ────────────────────────────────────────────────────────────────────
@@ -85,6 +86,10 @@ router.post("/karnataka-aws/hourly",           karnatakaCtrl.fetchHourlyData);
 router.post("/karnataka-aws/slot",             karnatakaCtrl.fetchSlotData);
 router.post("/karnataka-aws/cumulative",       karnatakaCtrl.fetchCumulativeData);
 router.post("/karnataka-aws/district-summary", karnatakaCtrl.fetchDistrictSummary);
+
+
+// ── STATE AWS UNIFIED ─────────────────────────────────────────────────────────
+router.post("/state-aws/fetchFilteredStationUnifiedFile", stateAwsCtrl.fetchFilteredStationUnifiedFile);
 
 
 // ── IITM MUMBAI ARG ───────────────────────────────────────────────────────────

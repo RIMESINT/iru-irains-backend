@@ -143,8 +143,8 @@ exports.includeEntity = async (req, res) => {
             `DELETE FROM calculation_exclusions
              WHERE entity_type = $1
                AND entity_code = $2
-               AND from_date   = $3
-               AND to_date     = $4
+               AND from_date  >= $3
+               AND to_date    <= $4
              RETURNING *`,
             [entity_type, entity_code, from_date, to_date]
         );
@@ -343,8 +343,8 @@ exports.bulkToggle = async (req, res) => {
                 `DELETE FROM calculation_exclusions
                  WHERE entity_type = $1
                    AND entity_code = ANY($2::bigint[])
-                   AND from_date   = $3
-                   AND to_date     = $4`,
+                   AND from_date  >= $3
+                   AND to_date    <= $4`,
                 [type, codes, from_date, to_date]
             );
             affected = result.rowCount;

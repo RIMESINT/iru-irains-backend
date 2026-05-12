@@ -361,7 +361,7 @@ exports.fetchStateDistrictCount = async (req, res) => {
 exports.getStateDisplayOrder = async (_req, res) => {
     try {
         const result = await client.query(
-            `SELECT display_order, region_code, state_code, state_name
+            `SELECT display_order, region_code, region_name, state_code, state_name
              FROM state_display_order
              ORDER BY display_order ASC`
         );

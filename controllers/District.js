@@ -503,5 +503,92 @@ exports.getDistrictDisplayOrder = async (_req, res) => {
     }
 };
 
+exports.getNormalDistrictDetails = async (_req, res) => {
+    try {
+        const result = await client.query(
+            `SELECT id, region_name, region_code, subdiv_name, subdiv_code, sd, state_name, state_code, rst, district_name, district_code, ddd
+             FROM normal_district_details
+             ORDER BY region_code, sd, rst, ddd`
+        );
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error("getNormalDistrictDetails error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch normal district details", error: error.message });
+    }
+};
+
+exports.updateDistrictDisplayOrders = async (req, res) => {
+    const { orders } = req.body;
+    if (!Array.isArray(orders) || orders.length === 0) {
+        return res.status(400).json({ success: false, message: "orders array is required" });
+    }
+    try {
+        await client.query("BEGIN");
+        // Shift to high temp values to avoid unique conflicts during reordering
+        for (const { old_display_order } of orders) {
+            await client.query(
+                `UPDATE district_display_order SET display_order = display_order + 1000000 WHERE display_order = $1`,
+                [old_display_order]
+            );
+        }
+        for (const { old_display_order, new_display_order } of orders) {
+            await client.query(
+                `UPDATE district_display_order SET display_order = $1 WHERE display_order = $2`,
+                [new_display_order, old_display_order + 1000000]
+            );
+        }
+        await client.query("COMMIT");
+        res.status(200).json({ success: true });
+    } catch (error) {
+        await client.query("ROLLBACK");
+        console.error("updateDistrictDisplayOrders error:", error);
+        res.status(500).json({ success: false, message: "Failed to update display orders", error: error.message });
+    }
+};
+
+exports.addDistrictDisplayOrderEntry = async (req, res) => {
+    const { parent_group_order, parent_group_name, subdiv_code, subdiv_name, state_code, state_name, district_code, district_name, is_common, insert_after } = req.body;
+    if (insert_after == null) {
+        return res.status(400).json({ success: false, message: "insert_after is required" });
+    }
+    const new_display_order = insert_after + 1;
+    try {
+        await client.query("BEGIN");
+        await client.query(
+            `UPDATE district_display_order SET display_order = display_order + 1 WHERE display_order > $1`,
+            [insert_after]
+        );
+        await client.query(
+            `INSERT INTO district_display_order (display_order, parent_group_order, parent_group_name, subdiv_code, subdiv_name, state_code, state_name, district_code, district_name, is_common)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [new_display_order, parent_group_order, parent_group_name, subdiv_code, subdiv_name, state_code, state_name, district_code, district_name, is_common ?? false]
+        );
+        await client.query("COMMIT");
+        res.status(200).json({ success: true, display_order: new_display_order });
+    } catch (error) {
+        await client.query("ROLLBACK");
+        console.error("addDistrictDisplayOrderEntry error:", error);
+        res.status(500).json({ success: false, message: "Failed to add district display order entry", error: error.message });
+    }
+};
+
+exports.deleteDistrictDisplayOrderEntry = async (req, res) => {
+    const display_order = parseInt(req.params.display_order, 10);
+    if (isNaN(display_order)) {
+        return res.status(400).json({ success: false, message: "Invalid display_order" });
+    }
+    try {
+        await client.query(
+            `DELETE FROM district_display_order WHERE display_order = $1`,
+            [display_order]
+        );
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error("deleteDistrictDisplayOrderEntry error:", error);
+        res.status(500).json({ success: false, message: "Failed to delete district display order entry", error: error.message });
+    }
+};
+
+
 module.exports.fetchBetweenDates = fetchBetweenDates;
 module.exports.getDistrictAreaPercentages = getDistrictAreaPercentages;

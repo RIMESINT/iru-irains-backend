@@ -1,7 +1,7 @@
 const express = require("express")
 const router = express.Router()
 
-const { fetchStateData, getAllStates, fetchStateDataAforAPIexport, getMetWiseStates, getStateAreaPercentages, fetchStateDistrictCount, getStateDisplayOrder, updateStateDisplayOrder } = require("../controllers/State")
+const { fetchStateData, getAllStates, fetchStateDataAforAPIexport, getMetWiseStates, getStateAreaPercentages, fetchStateDistrictCount, getStateDisplayOrder, updateStateDisplayOrder, updateStateDisplayOrders, addStateDisplayOrderEntry, deleteStateDisplayOrderEntry } = require("../controllers/State")
 const { fetchStateDataFtp} = require("../controllers/ftp/State")
 const { getnStateDataAndInsertInNormalState } = require("../controllers/scripts/state/normalState");
 
@@ -29,6 +29,9 @@ router.get("/getAllStates", getAllStates);
 // state display order
 router.get("/getStateDisplayOrder", getStateDisplayOrder);
 router.put("/updateStateDisplayOrder", updateStateDisplayOrder);
+router.put("/updateStateDisplayOrders", updateStateDisplayOrders);
+router.post("/addStateDisplayOrderEntry", addStateDisplayOrderEntry);
+router.delete("/deleteStateDisplayOrderEntry/:display_order", deleteStateDisplayOrderEntry);
 
 
 // ********************************************************************************************************

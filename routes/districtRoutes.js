@@ -4,7 +4,7 @@ const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-const { fetchDistrictData, getAllDistrict, getLatestFiveYearDataOfDistrict, fetchDistrictDataforAPIexport, getDistrictAreaPercentages, fetchDistrictStationCount, getDistrictDisplayOrder} = require("../controllers/District")
+const { fetchDistrictData, getAllDistrict, getLatestFiveYearDataOfDistrict, fetchDistrictDataforAPIexport, getDistrictAreaPercentages, fetchDistrictStationCount, getDistrictDisplayOrder, getNormalDistrictDetails, updateDistrictDisplayOrders, addDistrictDisplayOrderEntry, deleteDistrictDisplayOrderEntry } = require("../controllers/District")
 const { fetchDistrictDataFtp, fetchDistrictDataInBunchOfDatesFtp,getLatestFiveYearDataOfDistrictFtp} = require("../controllers/ftp/District")
 const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/scripts/district/normalDistrict");
 const { addNewDistrictDetails } = require("../controllers/scripts/district/addNormalDistrict");
@@ -31,6 +31,10 @@ router.get("/getDistrictAreaPercentages", getDistrictAreaPercentages);
 router.post("/getLatestFiveYearDataOfDistrict", getLatestFiveYearDataOfDistrict);
 router.post("/fetchDistrictStationCount", fetchDistrictStationCount);
 router.get("/getDistrictDisplayOrder", getDistrictDisplayOrder);
+router.get("/getNormalDistrictDetails", getNormalDistrictDetails);
+router.put("/updateDistrictDisplayOrders", updateDistrictDisplayOrders);
+router.post("/addDistrictDisplayOrderEntry", addDistrictDisplayOrderEntry);
+router.delete("/deleteDistrictDisplayOrderEntry/:display_order", deleteDistrictDisplayOrderEntry);
 
 
 

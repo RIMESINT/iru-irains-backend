@@ -403,5 +403,76 @@ exports.updateSubdivisionDisplayOrder = async (req, res) => {
     }
 };
 
+exports.addSubdivisionDisplayOrderEntry = async (req, res) => {
+    const { region_code, region_name, subdiv_code, subdivision_name, insert_after } = req.body;
+    if (insert_after == null) {
+        return res.status(400).json({ success: false, message: "insert_after is required" });
+    }
+    const new_display_order = insert_after + 1;
+    try {
+        await client.query("BEGIN");
+        await client.query(
+            `UPDATE subdivision_display_order SET display_order = display_order + 1 WHERE display_order > $1`,
+            [insert_after]
+        );
+        await client.query(
+            `INSERT INTO subdivision_display_order (display_order, region_code, region_name, subdiv_code, subdivision_name)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [new_display_order, region_code, region_name, subdiv_code, subdivision_name]
+        );
+        await client.query("COMMIT");
+        res.status(200).json({ success: true });
+    } catch (error) {
+        await client.query("ROLLBACK");
+        console.error("addSubdivisionDisplayOrderEntry error:", error);
+        res.status(500).json({ success: false, message: "Failed to add subdivision display order entry", error: error.message });
+    }
+};
+
+exports.deleteSubdivisionDisplayOrderEntry = async (req, res) => {
+    const display_order = parseInt(req.params.display_order, 10);
+    if (isNaN(display_order)) {
+        return res.status(400).json({ success: false, message: "Invalid display_order" });
+    }
+    try {
+        await client.query(
+            `DELETE FROM subdivision_display_order WHERE display_order = $1`,
+            [display_order]
+        );
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error("deleteSubdivisionDisplayOrderEntry error:", error);
+        res.status(500).json({ success: false, message: "Failed to delete subdivision display order entry", error: error.message });
+    }
+};
+
+exports.updateSubdivisionDisplayOrders = async (req, res) => {
+    const { orders } = req.body;
+    if (!Array.isArray(orders) || orders.length === 0) {
+        return res.status(400).json({ success: false, message: "orders array is required" });
+    }
+    try {
+        await client.query("BEGIN");
+        for (const { old_display_order } of orders) {
+            await client.query(
+                `UPDATE subdivision_display_order SET display_order = display_order + 1000000 WHERE display_order = $1`,
+                [old_display_order]
+            );
+        }
+        for (const { old_display_order, new_display_order } of orders) {
+            await client.query(
+                `UPDATE subdivision_display_order SET display_order = $1 WHERE display_order = $2`,
+                [new_display_order, old_display_order + 1000000]
+            );
+        }
+        await client.query("COMMIT");
+        res.status(200).json({ success: true });
+    } catch (error) {
+        await client.query("ROLLBACK");
+        console.error("updateSubdivisionDisplayOrders error:", error);
+        res.status(500).json({ success: false, message: "Failed to update subdivision display orders", error: error.message });
+    }
+};
+
 module.exports.fetchBetweenDates = fetchBetweenDates;
 module.exports.getSubdivisionAreaPercentages = getSubdivisionAreaPercentages;

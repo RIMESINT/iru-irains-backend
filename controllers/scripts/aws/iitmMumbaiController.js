@@ -2,9 +2,11 @@ const client = require("../../../connection");
 const moment = require("moment-timezone");
 const IST = "Asia/Kolkata";
 
+const AWS_DAY = `(dat::date + time::time - INTERVAL '14 hours')::date`;
+
 const resolveDates = (startDate, endDate) => {
-    const today = moment().tz(IST).format("YYYY-MM-DD");
-    if (!startDate && !endDate) return { startDate: today, endDate: today };
+    const awsToday = moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+    if (!startDate && !endDate) return { startDate: awsToday, endDate: awsToday };
     if (!startDate) return { startDate: endDate, endDate };
     if (!endDate)   return { startDate, endDate: startDate };
     return { startDate, endDate };
@@ -30,15 +32,21 @@ exports.fetchDailyData = async (req, res) => {
         if (district) { params.push(district); filters += ` AND district = $${params.length}`; }
 
         const query = `
+            WITH aws AS (
+                SELECT *, ${AWS_DAY} AS aws_day
+                FROM observations_iitm_mumbai
+                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day') ${filters}
+            )
             SELECT
-                dat, district, id, station, lat, lon,
+                aws_day AS dat,
+                district, id, station, lat, lon,
                 SUM(rainfall)                               AS total_rainfall,
                 COUNT(*)                                    AS readings_count,
                 ROUND((COUNT(*) / 96.0) * 100, 1)           AS data_completeness_pct
-            FROM observations_iitm_mumbai
-            WHERE dat BETWEEN $1 AND $2 ${filters}
-            GROUP BY dat, district, id, station, lat, lon
-            ORDER BY dat, district, total_rainfall DESC
+            FROM aws
+            WHERE aws_day BETWEEN $1::date AND $2::date
+            GROUP BY aws_day, district, id, station, lat, lon
+            ORDER BY aws_day, district, total_rainfall DESC
         `;
 
         const result = await client.query(query, params);
@@ -59,7 +67,7 @@ exports.fetchDailyData = async (req, res) => {
 exports.fetchHourlyData = async (req, res) => {
     try {
         let { date, hour, district } = req.body;
-        date = date || moment().tz(IST).format("YYYY-MM-DD");
+        date = date || moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
 
         let params = [date];
         let hourFilter = "", filters = "";
@@ -71,15 +79,20 @@ exports.fetchHourlyData = async (req, res) => {
         if (district) { params.push(district); filters += ` AND district = $${params.length}`; }
 
         const query = `
+            WITH aws AS (
+                SELECT *, ${AWS_DAY} AS aws_day
+                FROM observations_iitm_mumbai
+                WHERE dat BETWEEN $1::date AND ($1::date + INTERVAL '1 day') ${filters}
+            )
             SELECT
-                dat,
+                aws_day AS dat,
                 EXTRACT(HOUR FROM time)::INT    AS hour,
                 district, id, station,
                 SUM(rainfall)                   AS total_rainfall,
                 COUNT(*)                        AS readings_count
-            FROM observations_iitm_mumbai
-            WHERE dat = $1 ${hourFilter} ${filters}
-            GROUP BY dat, EXTRACT(HOUR FROM time)::INT, district, id, station
+            FROM aws
+            WHERE aws_day = $1::date ${hourFilter}
+            GROUP BY aws_day, EXTRACT(HOUR FROM time)::INT, district, id, station
             ORDER BY hour, district, total_rainfall DESC
         `;
 
@@ -101,7 +114,7 @@ exports.fetchHourlyData = async (req, res) => {
 exports.fetchSlotData = async (req, res) => {
     try {
         let { date, time, district } = req.body;
-        date = date || moment().tz(IST).format("YYYY-MM-DD");
+        date = date || moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
         time = time || moment().tz(IST).startOf("hour").format("HH:mm:ss");
 
         let params = [date, time];
@@ -148,21 +161,22 @@ exports.fetchCumulativeData = async (req, res) => {
 
         const query = `
             SELECT
-                dat, district, id, station,
+                aws_day AS dat, district, id, station,
                 daily_rainfall,
                 SUM(daily_rainfall) OVER (
                     PARTITION BY id
-                    ORDER BY dat
+                    ORDER BY aws_day
                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
                 ) AS cumulative_rainfall
             FROM (
-                SELECT dat, district, id, station,
+                SELECT ${AWS_DAY} AS aws_day, district, id, station,
                     SUM(rainfall) AS daily_rainfall
                 FROM observations_iitm_mumbai
-                WHERE dat BETWEEN $1 AND $2 ${filters}
-                GROUP BY dat, district, id, station
+                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day') ${filters}
+                  AND ${AWS_DAY} BETWEEN $1::date AND $2::date
+                GROUP BY ${AWS_DAY}, district, id, station
             ) AS daily_totals
-            ORDER BY id, dat
+            ORDER BY id, aws_day
         `;
 
         const result = await client.query(query, params);
@@ -182,24 +196,25 @@ exports.fetchCumulativeData = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.fetchDistrictSummary = async (req, res) => {
     try {
-        const date = req.body.date || moment().tz(IST).format("YYYY-MM-DD");
+        const date = req.body.date || moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
 
         const query = `
             SELECT
-                dat, district,
+                aws_day AS dat, district,
                 COUNT(DISTINCT id)                  AS total_stations,
                 ROUND(AVG(daily_rain)::NUMERIC, 2)  AS avg_rainfall,
                 MAX(daily_rain)                     AS max_rainfall,
                 MIN(daily_rain)                     AS min_rainfall,
                 SUM(daily_rain)                     AS sum_rainfall
             FROM (
-                SELECT dat, district, id,
+                SELECT ${AWS_DAY} AS aws_day, district, id,
                     SUM(rainfall) AS daily_rain
                 FROM observations_iitm_mumbai
-                WHERE dat = $1
-                GROUP BY dat, district, id
+                WHERE dat BETWEEN $1::date AND ($1::date + INTERVAL '1 day')
+                  AND ${AWS_DAY} = $1::date
+                GROUP BY ${AWS_DAY}, district, id
             ) AS station_daily
-            GROUP BY dat, district
+            GROUP BY aws_day, district
             ORDER BY avg_rainfall DESC
         `;
 
@@ -248,10 +263,11 @@ const fetchBetweenDates = async (startDate, endDate) => {
                 AVG(nb_dist.normal_rainfall) AS normal_rainfall,
                 AVG(aws.station_rf)          AS actual_rainfall
             FROM (
-                SELECT district, state, id, dat, SUM(rainfall) AS station_rf
+                SELECT district, state, id, ${AWS_DAY} AS dat, SUM(rainfall) AS station_rf
                 FROM observations_iitm_mumbai
-                WHERE dat BETWEEN $1 AND $2
-                GROUP BY district, state, id, dat
+                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
+                  AND ${AWS_DAY} BETWEEN $1::date AND $2::date
+                GROUP BY district, state, id, ${AWS_DAY}
             ) AS aws
             LEFT JOIN normal_district_details ndd
                 ON LOWER(TRIM(ndd.district_name)) = LOWER(TRIM(aws.district))
@@ -379,8 +395,8 @@ exports.fetchDepartureForAPIexport = async (req, res) => {
         if (user !== "CWC_DEP" || pass !== "!Md@15O#cwc") {
             return res.status(401).json({ success: false, message: "Unauthorized: Invalid credentials" });
         }
-        const today = moment().tz(IST).format("YYYY-MM-DD");
-        if (!fromDate && !toDate) { fromDate = toDate = today; }
+        const awsToday = moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        if (!fromDate && !toDate) { fromDate = toDate = awsToday; }
         else if (!fromDate) { fromDate = toDate; }
         else if (!toDate)   { toDate = fromDate; }
         if (moment.tz(fromDate, IST).isAfter(moment.tz(toDate, IST))) {

@@ -13,6 +13,7 @@ const telanganaCtrl   = require("../controllers/scripts/aws/telanganaAwsControll
 const karnatakaCtrl   = require("../controllers/scripts/aws/karnatakaAwsController");
 const iitmMumbaiCtrl  = require("../controllers/scripts/aws/iitmMumbaiController");
 const stateAwsCtrl    = require("../controllers/scripts/aws/stateAwsUnifiedController");
+const awsStationCtrl  = require("../controllers/scripts/aws/aws_station");
 
 
 // ── UP AWS ────────────────────────────────────────────────────────────────────
@@ -151,6 +152,12 @@ router.post("/karnataka-aws/departure-export",   karnatakaCtrl.fetchDepartureFor
 router.post("/iitm-mumbai/actual-departure",   iitmMumbaiCtrl.fetchActualDeparture);
 router.post("/iitm-mumbai/departure-analysis", iitmMumbaiCtrl.fetchDepartureAnalysis);
 router.post("/iitm-mumbai/departure-export",   iitmMumbaiCtrl.fetchDepartureForAPIexport);
+
+
+// ── AWS STATION DAILY STORE ───────────────────────────────────────────────────
+router.post("/aws-station/store-override", awsStationCtrl.storeOverride);
+router.post("/aws-station/store-continue", awsStationCtrl.storeContinue);
+router.post("/aws-station/store-cron",     awsStationCtrl.storeCron);
 
 
 module.exports = router;

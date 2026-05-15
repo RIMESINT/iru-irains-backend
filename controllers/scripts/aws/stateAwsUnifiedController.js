@@ -5,7 +5,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
     try {
         let { startDate, endDate } = req.body;
 
-        const awsToday = moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        const awsToday = moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
         if (!startDate) startDate = awsToday;
         if (!endDate)   endDate   = awsToday;
 
@@ -19,9 +19,9 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
         const query = `
             WITH all_aws AS (
 
-                /* ── UP AWS (raw dat+time are UTC; shift to AWS day at 08:30 UTC) ── */
+                /* ── UP AWS (raw dat+time are UTC; AWS day boundary at 21:30 UTC) ── */
                 SELECT
-                    ((dat::date + time::time) - INTERVAL '8 hours 30 minutes')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     district          AS district_raw,
@@ -31,8 +31,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'UP AWS'          AS source
                 FROM up_aws_observations
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND ((dat::date + time::time) - INTERVAL '8 hours 30 minutes')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, district, lat, lon
 
@@ -40,7 +40,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
 
                 /* ── NHP AWS (IST-stored; AWS day = IST - 14h) ───────────────────── */
                 SELECT
-                    (dat::date + time::time - INTERVAL '14 hours')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     district          AS district_raw,
@@ -50,8 +50,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'NHP AWS'         AS source
                 FROM observations_aws_nhp
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND (dat::date + time::time - INTERVAL '14 hours')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, district
 
@@ -59,7 +59,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
 
                 /* ── ZOMATO AWS (IST-stored; uses 'city' instead of district) ──── */
                 SELECT
-                    (dat::date + time::time - INTERVAL '14 hours')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     city              AS district_raw,
@@ -69,8 +69,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'ZOMATO AWS'      AS source
                 FROM observations_aws_zomato
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND (dat::date + time::time - INTERVAL '14 hours')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, city, lat, lon
 
@@ -78,7 +78,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
 
                 /* ── MEGHALAYA AWS (IST-stored) ──────────────────────────────────── */
                 SELECT
-                    (dat::date + time::time - INTERVAL '14 hours')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     district          AS district_raw,
@@ -88,8 +88,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'MEGHALAYA AWS'   AS source
                 FROM observations_aws_meghalaya
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND (dat::date + time::time - INTERVAL '14 hours')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, district, block
 
@@ -97,7 +97,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
 
                 /* ── MIZORAM AWS (IST-stored) ────────────────────────────────────── */
                 SELECT
-                    (dat::date + time::time - INTERVAL '14 hours')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     district          AS district_raw,
@@ -107,8 +107,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'MIZORAM AWS'     AS source
                 FROM observations_aws_mizoram
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND (dat::date + time::time - INTERVAL '14 hours')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, district
 
@@ -116,7 +116,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
 
                 /* ── TAMILNADU AWS (IST-stored) ──────────────────────────────────── */
                 SELECT
-                    (dat::date + time::time - INTERVAL '14 hours')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     district          AS district_raw,
@@ -126,8 +126,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'TAMILNADU AWS'   AS source
                 FROM observations_aws_tamilnadu
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND (dat::date + time::time - INTERVAL '14 hours')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, district, block
 
@@ -135,7 +135,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
 
                 /* ── UTTARAKHAND AWS (IST-stored) ────────────────────────────────── */
                 SELECT
-                    (dat::date + time::time - INTERVAL '14 hours')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     district          AS district_raw,
@@ -145,8 +145,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'UTTARAKHAND AWS' AS source
                 FROM observations_aws_uttarakhand
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND (dat::date + time::time - INTERVAL '14 hours')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, district, block, lat, lon
 
@@ -154,7 +154,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
 
                 /* ── TELANGANA AWS (IST-stored) ──────────────────────────────────── */
                 SELECT
-                    (dat::date + time::time - INTERVAL '14 hours')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     district          AS district_raw,
@@ -164,8 +164,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'TELANGANA AWS'   AS source
                 FROM observations_aws_telangana
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND (dat::date + time::time - INTERVAL '14 hours')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, district, block, lat, lon
 
@@ -173,7 +173,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
 
                 /* ── KARNATAKA AWS (IST-stored) ──────────────────────────────────── */
                 SELECT
-                    (dat::date + time::time - INTERVAL '14 hours')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     district          AS district_raw,
@@ -183,8 +183,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'KARNATAKA AWS'   AS source
                 FROM observations_aws_karnataka
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND (dat::date + time::time - INTERVAL '14 hours')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, district, block, lat, lon
 
@@ -192,7 +192,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
 
                 /* ── IITM MUMBAI (IST-stored) ────────────────────────────────────── */
                 SELECT
-                    (dat::date + time::time - INTERVAL '14 hours')::date  AS collection_date,
+                    (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date  AS collection_date,
                     id::text          AS station_id,
                     station           AS station_name,
                     district          AS district_raw,
@@ -202,8 +202,8 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     SUM(rainfall)     AS data,
                     'IITM MUMBAI'     AS source
                 FROM observations_iitm_mumbai
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
-                  AND (dat::date + time::time - INTERVAL '14 hours')::date
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
+                  AND (dat::date + time::time + INTERVAL '2 hours 30 minutes')::date
                       BETWEEN $1::date AND $2::date
                 GROUP BY collection_date, id, station, district, lat, lon
             ),

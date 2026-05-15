@@ -1,19 +1,8 @@
 const client = require("../../../connection");
 const moment = require("moment-timezone");
+const { IST, AWS_DAY_EXPR: AWS_DAY, resolveDates } = require("./awsConfig");
 
-const IST = "Asia/Kolkata";
-
-// UTC-stored data: AWS day boundary at 08:30 UTC = 14:00 IST
-const AWS_DAY  = `(dat::date + time::time - INTERVAL '8 hours 30 minutes')::date`;
 const IST_TIME = `(dat::date + time::time + INTERVAL '5 hours 30 minutes')::time`;
-
-const resolveDates = (startDate, endDate) => {
-    const awsToday = moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
-    if (!startDate && !endDate) return { startDate: awsToday, endDate: awsToday };
-    if (!startDate) return { startDate: endDate, endDate };
-    if (!endDate)   return { startDate, endDate: startDate };
-    return { startDate, endDate };
-};
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,7 +31,7 @@ exports.fetchDailyData = async (req, res) => {
                 SELECT *,
                     ${AWS_DAY} AS aws_day
                 FROM up_aws_observations
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
                   ${districtFilter}
             )
             SELECT
@@ -84,7 +73,7 @@ exports.fetchDailyData = async (req, res) => {
 exports.fetchHourlyData = async (req, res) => {
     try {
         let { date, hour, district } = req.body;
-        date = date || moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        date = date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
 
         let params = [date];
         let hourFilter     = "";
@@ -105,7 +94,7 @@ exports.fetchHourlyData = async (req, res) => {
                     ${AWS_DAY} AS aws_day,
                     ${IST_TIME} AS ist_time
                 FROM up_aws_observations
-                WHERE dat BETWEEN $1::date AND ($1::date + INTERVAL '1 day')
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date
                   ${districtFilter}
             )
             SELECT
@@ -144,7 +133,7 @@ exports.fetchHourlyData = async (req, res) => {
 exports.fetchSlotData = async (req, res) => {
     try {
         let { date, time, district } = req.body;
-        date = date || moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        date = date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
         time = time || moment().tz(IST).startOf("hour").format("HH:mm:ss");
 
         let params = [date, time];
@@ -228,7 +217,7 @@ exports.fetchCumulativeData = async (req, res) => {
                     district, id, station,
                     SUM(rainfall)                   AS daily_rainfall
                 FROM up_aws_observations
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
                   ${districtFilter}
                   AND ${AWS_DAY} BETWEEN $1::date AND $2::date
                 GROUP BY ${AWS_DAY}, district, id, station
@@ -257,7 +246,7 @@ exports.fetchCumulativeData = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.fetchDistrictSummary = async (req, res) => {
     try {
-        const date = req.body.date || moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
 
         const query = `
             SELECT
@@ -276,7 +265,7 @@ exports.fetchDistrictSummary = async (req, res) => {
                     SUM(rainfall)                           AS daily_rain,
                     AVG(temp)                               AS avg_temp
                 FROM up_aws_observations
-                WHERE dat BETWEEN $1::date AND ($1::date + INTERVAL '1 day')
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date
                   AND ${AWS_DAY} = $1::date
                 GROUP BY ${AWS_DAY}, district, id
             ) AS station_daily
@@ -300,9 +289,9 @@ exports.fetchDistrictSummary = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DEPARTURE — shared helper (mirrors block.js fetchBetweenDates)
-// UP data is stored in UTC; AWS_DAY_EXPR converts to AWS day for joins.
+// UTC-stored data: AWS day boundary at 21:30 UTC = 03:00 IST (next day label)
 // ─────────────────────────────────────────────────────────────────────────────
-const AWS_DAY_EXPR = `(dat::date + time::time - INTERVAL '8 hours 30 minutes')::date`;
+const AWS_DAY_EXPR = AWS_DAY;
 
 const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
@@ -344,7 +333,7 @@ const fetchBetweenDates = async (startDate, endDate) => {
                     ${AWS_DAY_EXPR} AS aws_dat,
                     SUM(rainfall) AS station_rf
                 FROM up_aws_observations
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
                   AND ${AWS_DAY_EXPR} BETWEEN $1::date AND $2::date
                   AND block IS NOT NULL AND TRIM(block) != ''
                 GROUP BY block, district, state, id, ${AWS_DAY_EXPR}
@@ -522,7 +511,7 @@ exports.fetchDepartureForAPIexport = async (req, res) => {
         if (user !== "CWC_DEP" || pass !== "!Md@15O#cwc") {
             return res.status(401).json({ success: false, message: "Unauthorized: Invalid credentials" });
         }
-        const awsToday = moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        const awsToday = moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
         if (!fromDate && !toDate) { fromDate = toDate = awsToday; }
         else if (!fromDate) { fromDate = toDate; }
         else if (!toDate)   { toDate = fromDate; }

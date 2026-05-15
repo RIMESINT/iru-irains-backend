@@ -1,15 +1,6 @@
 const client = require("../../../connection");
-const moment = require("moment");
-
-const AWS_DAY = `(dat::date + time::time - INTERVAL '14 hours')::date`;
-
-const resolveDates = (startDate, endDate) => {
-    const awsToday = moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
-    if (!startDate && !endDate) return { startDate: awsToday, endDate: awsToday };
-    if (!startDate) return { startDate: endDate, endDate };
-    if (!endDate)   return { startDate, endDate: startDate };
-    return { startDate, endDate };
-};
+const moment = require("moment-timezone");
+const { AWS_DAY_EXPR: AWS_DAY, resolveDates } = require("./awsConfig");
 
 // 1. DAILY
 exports.fetchDailyData = async (req, res) => {
@@ -25,7 +16,7 @@ exports.fetchDailyData = async (req, res) => {
             WITH aws AS (
                 SELECT *, ${AWS_DAY} AS aws_day
                 FROM observations_aws_nhp
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day') ${districtFilter}
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date ${districtFilter}
             )
             SELECT
                 aws_day AS dat,
@@ -54,7 +45,7 @@ exports.fetchDailyData = async (req, res) => {
 exports.fetchHourlyData = async (req, res) => {
     try {
         let { date, hour, district } = req.body;
-        date = date || moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        date = date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
 
         let params = [date];
         let hourFilter = "", districtFilter = "";
@@ -65,7 +56,7 @@ exports.fetchHourlyData = async (req, res) => {
             WITH aws AS (
                 SELECT *, ${AWS_DAY} AS aws_day
                 FROM observations_aws_nhp
-                WHERE dat BETWEEN $1::date AND ($1::date + INTERVAL '1 day') ${districtFilter}
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date ${districtFilter}
             )
             SELECT
                 aws_day AS dat,
@@ -92,7 +83,7 @@ exports.fetchHourlyData = async (req, res) => {
 exports.fetchSlotData = async (req, res) => {
     try {
         let { date, time, district } = req.body;
-        date = date || moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        date = date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
         time = time || moment().startOf("hour").format("HH:mm:ss");
 
         let params = [date, time];
@@ -136,7 +127,7 @@ exports.fetchCumulativeData = async (req, res) => {
                 SELECT ${AWS_DAY} AS aws_day, district, id, station,
                     SUM(rainfall) AS daily_rainfall
                 FROM observations_aws_nhp
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day') ${districtFilter}
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date ${districtFilter}
                   AND ${AWS_DAY} BETWEEN $1::date AND $2::date
                 GROUP BY ${AWS_DAY}, district, id, station
             ) AS daily_totals
@@ -153,7 +144,7 @@ exports.fetchCumulativeData = async (req, res) => {
 // 5. DISTRICT SUMMARY
 exports.fetchDistrictSummary = async (req, res) => {
     try {
-        const date = req.body.date || moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
 
         const result = await client.query(`
             SELECT aws_day AS dat, district, state,
@@ -168,7 +159,7 @@ exports.fetchDistrictSummary = async (req, res) => {
                     SUM(rainfall) AS daily_rain,
                     AVG(temp)     AS avg_temp
                 FROM observations_aws_nhp
-                WHERE dat BETWEEN $1::date AND ($1::date + INTERVAL '1 day')
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date
                   AND ${AWS_DAY} = $1::date
                 GROUP BY ${AWS_DAY}, district, state, id
             ) AS station_daily
@@ -221,7 +212,7 @@ const fetchBetweenDates = async (startDate, endDate) => {
             FROM (
                 SELECT district, state, id, ${AWS_DAY} AS dat, SUM(rainfall) AS station_rf
                 FROM observations_aws_nhp
-                WHERE dat BETWEEN $1::date AND ($2::date + INTERVAL '1 day')
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
                   AND ${AWS_DAY} BETWEEN $1::date AND $2::date
                 GROUP BY district, state, id, ${AWS_DAY}
             ) AS aws
@@ -351,7 +342,7 @@ exports.fetchDepartureForAPIexport = async (req, res) => {
         if (user !== "CWC_DEP" || pass !== "!Md@15O#cwc") {
             return res.status(401).json({ success: false, message: "Unauthorized: Invalid credentials" });
         }
-        const awsToday = moment.utc().subtract(8, 'hours').subtract(30, 'minutes').format("YYYY-MM-DD");
+        const awsToday = moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
         if (!fromDate && !toDate) { fromDate = toDate = awsToday; }
         else if (!fromDate) { fromDate = toDate; }
         else if (!toDate)   { toDate = fromDate; }

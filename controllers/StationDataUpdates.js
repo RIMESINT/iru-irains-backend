@@ -38,6 +38,7 @@ const fetchFilteredData = async (startDate, endDate = null) => {
                     JOIN normal_district_details AS ndd 
                     ON ndd.district_code = sdd.district_code
                     WHERE sdd.collection_date BETWEEN $1 AND $2 and sdd.data != (-999.9)
+                    AND sd.flag != 0
                     group by sd.station_code
                     order by station_code
                 `;
@@ -69,7 +70,8 @@ const fetchFilteredData = async (startDate, endDate = null) => {
           ON sdd.station_id = sd.station_code
         JOIN normal_district_details AS ndd 
           ON ndd.district_code = sdd.district_code
-        WHERE sdd.collection_date = $1;
+        WHERE sdd.collection_date = $1
+        AND sd.flag != 0;
       `;
       values = [startDate];
     }
@@ -82,6 +84,8 @@ const fetchFilteredData = async (startDate, endDate = null) => {
       throw error;
     }
 };
+
+
 const fetchFilteredDataIncludingVerification = async (startDate) => {
   const query = `
     WITH station_pairs AS (

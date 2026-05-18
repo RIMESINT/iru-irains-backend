@@ -65,7 +65,8 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
         JOIN station_details as sd ON sd.station_code = sddf.station_id
         JOIN normal_district_details ndd on ndd.district_code = sd.district_code
         WHERE sddf.district_code = ANY($1)
-        AND sddf.collection_date BETWEEN $2 AND $3;
+        AND sddf.collection_date BETWEEN $2 AND $3
+        AND sd.flag != 0;
     `;
     
 

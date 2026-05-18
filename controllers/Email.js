@@ -145,14 +145,15 @@ dailyDataUpdateReminderQuery = async (req, res) => {
                         JOIN 
                             public.login AS l 
                         ON LOWER(l.name) = LOWER(sd.centre_type || ' ' || sd.centre_name)
-                        WHERE 
-                            sd.station_code IN (
-                                SELECT 
-                                    station_id 
-                                FROM 
+                        WHERE
+                            sd.flag != 0
+                            AND sd.station_code IN (
+                                SELECT
+                                    station_id
+                                FROM
                                     public.station_daily_data_updates
-                                WHERE 
-                                    collection_date = CURRENT_DATE 
+                                WHERE
+                                    collection_date = CURRENT_DATE
                                     AND (data IS NULL OR data = -999.9)
                             )
                     )
@@ -225,14 +226,15 @@ dailyDataVerificationReminderQuery = async (req, res) => {
                         JOIN 
                             public.login AS l 
                         ON LOWER(l.name) = LOWER(sd.centre_type || ' ' || sd.centre_name)
-                        WHERE 
-                            sd.station_code IN (
-                                SELECT 
-                                    station_id 
-                                FROM 
+                        WHERE
+                            sd.flag != 0
+                            AND sd.station_code IN (
+                                SELECT
+                                    station_id
+                                FROM
                                     public.station_daily_data_updates
-                                WHERE 
-                                    collection_date = CURRENT_DATE 
+                                WHERE
+                                    collection_date = CURRENT_DATE
                                     AND (data IS NOT NULL AND data != (-999.9)) AND is_verified = 0
                             )
                     )

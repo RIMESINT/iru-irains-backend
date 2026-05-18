@@ -47,7 +47,7 @@ exports.getSpatialDistributionData = async (req, res) => {
         total_stations AS (
           SELECT n.subdiv_name, MIN(n.id) AS id, COUNT(s.station_code) AS total_stations
           FROM normal_district_details n
-          LEFT JOIN station_details s ON n.district_code = s.district_code
+          LEFT JOIN station_details s ON n.district_code = s.district_code AND s.flag != 0
           GROUP BY n.subdiv_name
         ),
         subdiv_date_stats AS (
@@ -250,7 +250,7 @@ exports.getSpatialDistributionDataState = async (req, res) => {
         total_stations AS (
           SELECT n.state_name, MIN(n.id) AS id, COUNT(s.station_code) AS total_stations
           FROM normal_district_details n
-          LEFT JOIN station_details s ON n.district_code = s.district_code
+          LEFT JOIN station_details s ON n.district_code = s.district_code AND s.flag != 0
           GROUP BY n.state_name
         ),
         date_stats AS (

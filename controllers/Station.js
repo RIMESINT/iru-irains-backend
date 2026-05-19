@@ -131,9 +131,10 @@ const fetchFilteredData = async (startDate, endDate = null) => {
 // }
 
 
-const addNewStationQuery = async ({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate}) => {
+const addNewStationQuery = async ({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate, block_code, block_name}) => {
     let district_code = station_id.toString().substring(0, 8);
-    
+    let derived_block_code = block_code || station_id.toString().substring(0, 10);
+
     // Query to check if the station already exists
     const checkQuery = `SELECT 1 FROM station_details WHERE station_code = $1`;
     const checkValues = [station_id];
@@ -151,11 +152,11 @@ const addNewStationQuery = async ({station_name, station_id, station_type, centr
         // Insert new station if it doesn't exist
         const insertQuery = `
             INSERT INTO station_details (
-                district_code, station_name, station_code, station_type, centre_type, centre_name, 
-                is_new_station, latitude, longitude, activationdate
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`;
+                district_code, station_name, station_code, station_type, centre_type, centre_name,
+                is_new_station, latitude, longitude, activationdate, block_code, block_name, flag
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1);`;
 
-        const insertValues = [district_code, station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate];
+        const insertValues = [district_code, station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate, derived_block_code, block_name || null];
 
         const insertResult = await client.query(insertQuery, insertValues);
         addNewStationLogQuery({station_name,station_code:station_id,userid:111,action:"added"})
@@ -373,23 +374,24 @@ const deleteStationQuery = async (station_id) => {
         WHERE station_code = $1;
     `;
 
-    const deleteStationQuery = `
-        DELETE FROM station_details
+    const softDeleteQuery = `
+        UPDATE station_details
+        SET flag = 0, updated_at = NOW()
         WHERE station_code = $1;
     `;
 
     try {
         // Execute the select query to get the station name
         const getResult = await client.query(getStationQuery, [station_id]);
-        
+
         if (getResult.rows.length === 0) {
             return 'No station found';
         }
 
         const station_name = getResult.rows[0].station_name;
 
-        // Execute the delete query
-        const deleteResult = await client.query(deleteStationQuery, [station_id]);
+        // Soft delete: set flag=0 instead of hard deleting
+        const deleteResult = await client.query(softDeleteQuery, [station_id]);
         console.log(deleteResult);
 
         // Optionally, log the deletion action
@@ -715,12 +717,12 @@ exports.fetchInRangeStationdata = async(req, res) => {
 
 exports.addNewStation = async (req, res) => {
     try {
-        const { station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activation_date } = req.body;
+        const { station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activation_date, block_code, block_name } = req.body;
 
         // Check if all required parameters are provided
         if (station_name && station_id && station_type && centre_type && centre_name && is_new_station !== undefined && latitude && longitude && activation_date) {
             // Call addNewStationQuery and get the result
-            const data = await addNewStationQuery({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate: activation_date});
+            const data = await addNewStationQuery({station_name, station_id, station_type, centre_type, centre_name, is_new_station, latitude, longitude, activationdate: activation_date, block_code, block_name});
             
             // Check if the station already exists
             if (data.success == false) {

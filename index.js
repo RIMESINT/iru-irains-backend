@@ -27,6 +27,7 @@ const spatialDistribution = require("./routes/spatialDistributionRoutes");
 const awsRoutes = require("./routes/awsRoutes");
 const adminRoutes = require("./routes/adminpanelRoutes");
 const geojsonRoutes = require("./routes/geojsonRoutes");
+const stationDashboardRoutes = require("./routes/stationDashboardRoutes");
 
 // // Load SSL Certificate
 const options = {
@@ -105,6 +106,7 @@ app.use("/api/v1/", spatialDistribution);
 app.use("/api/v1/", awsRoutes);
 app.use("/api/v1/", adminRoutes);
 app.use("/api/v1/", geojsonRoutes);
+app.use("/api/v1/", stationDashboardRoutes);
 
 // Use HTTPS Server
 https.createServer(options, app).listen(port, () => {

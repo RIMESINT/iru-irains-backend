@@ -16,16 +16,16 @@ const upload = multer({ storage: storage });
 const { fetchStationData,
 
 
-        // updateStationData, 
-        addNewStation, 
-        editStation, 
-        deleteStation, 
+        // updateStationData,
+        addNewStation,
+        editStation,
+        deleteStation,
         insertMultipleStations,
-        EditMultipleStations, 
+        EditMultipleStations,
         fetchStationDataInRadius,
-        fetchStationWithMaxRainfall, 
-        // verifyStationData, 
-        // verifyMultipleStationData, 
+        fetchStationWithMaxRainfall,
+        // verifyStationData,
+        // verifyMultipleStationData,
         fetchInRangeStationdata,
         fetchStationLogs,
         fetchAllDatesAndDataOfStation,
@@ -33,6 +33,7 @@ const { fetchStationData,
         dataActions,
         fetchStationDataNWP,
         fetchCentreStationSummary,
+        getAllStations,
     } = require("../controllers/Station")
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 const { aggregateRainfallData } = require("../controllers/scripts/all/calculateAndIncludeAllDatesData")
@@ -101,6 +102,7 @@ router.post("/fetchCentreStationSummary", fetchCentreStationSummary);
 
 
 router.get("/fetchStationLogs", fetchStationLogs);
+router.get("/getAllStations", getAllStations);
 router.post("/fetchAllDatesAndDataOfStation", fetchAllDatesAndDataOfStation);
 
 

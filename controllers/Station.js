@@ -1620,6 +1620,21 @@ const fetchCentreStationSummaryData = async (startDate, endDate) => {
   }
 };
 
+exports.getAllStations = async (req, res) => {
+  try {
+    const result = await client.query(
+      `SELECT station_code, station_name, station_type, centre_type, centre_name,
+              latitude, longitude
+       FROM public.station_details
+       WHERE flag = 1
+       ORDER BY station_code`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('getAllStations error', err);
+    res.status(500).json({ error: 'Failed to fetch stations' });
+  }
+};
 
 
 

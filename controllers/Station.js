@@ -66,11 +66,11 @@ const fetchFilteredData = async (startDate, endDate = null) => {
                         min(sd.activationdate) as activationdate,
                         sum(sdd.data) as data
                     FROM public.station_details AS sd
-                    JOIN public.station_daily_data AS sdd 
+                    JOIN public.station_daily_data AS sdd
                     ON sdd.station_id = sd.station_code
-                    JOIN normal_district_details AS ndd 
+                    JOIN normal_district_details AS ndd
                     ON ndd.district_code = sdd.district_code
-                    WHERE sdd.collection_date BETWEEN $1 AND $2 and sdd.data != (-999.9)
+                    WHERE sdd.collection_date BETWEEN $1 AND $2 and sdd.data != (-999.9) AND sd.flag != 0
                     group by sd.station_code
                     order by station_code
                 `;
@@ -98,11 +98,11 @@ const fetchFilteredData = async (startDate, endDate = null) => {
                sdd.is_verified,
                sdd.verified_at
         FROM public.station_details AS sd
-        JOIN public.station_daily_data AS sdd 
+        JOIN public.station_daily_data AS sdd
           ON sdd.station_id = sd.station_code
-        JOIN normal_district_details AS ndd 
+        JOIN normal_district_details AS ndd
           ON ndd.district_code = sdd.district_code
-        WHERE sdd.collection_date = $1;
+        WHERE sdd.collection_date = $1 AND sd.flag != 0;
       `;
       values = [startDate];
     }
@@ -544,7 +544,7 @@ const fetchFilteredDataInRange = async (Date, lat,long,range) => {
             POWER(SIN((radians(latitude::numeric) - radians(params.lat_point)) / 2), 2) +
             COS(radians(params.lat_point)) * COS(radians(latitude::numeric)) *
             POWER(SIN((radians(longitude::numeric) - radians(params.lon_point)) / 2), 2)
-        )) <= params.radius_km) AS sd
+        )) <= params.radius_km AND flag != 0) AS sd
 
 		JOIN public.station_daily_data AS sdd 
           ON sdd.station_id = sd.station_code
@@ -1337,8 +1337,8 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
             SELECT *
             FROM public.station_daily_data as sddf
 			join station_details as sd on sd.station_code = sddf.station_id
-            WHERE sddf.district_code = ANY($1) 
-            AND collection_date BETWEEN $2 AND $3;
+            WHERE sddf.district_code = ANY($1)
+            AND collection_date BETWEEN $2 AND $3 AND sd.flag != 0;
         `;
 
         // Execute the query using the client
@@ -1435,11 +1435,11 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
                         min(sd.longitude) as longitude,
                         sum(sdd.data) as rainfall_data_in_mm
                     FROM public.station_details AS sd
-                    JOIN public.station_daily_data_updates AS sdd 
+                    JOIN public.station_daily_data_updates AS sdd
                     ON sdd.station_id = sd.station_code
-                    JOIN normal_district_details AS ndd 
+                    JOIN normal_district_details AS ndd
                     ON ndd.district_code = sdd.district_code
-                    WHERE sdd.collection_date BETWEEN $1 AND $2 and sdd.data != (-999.9)
+                    WHERE sdd.collection_date BETWEEN $1 AND $2 and sdd.data != (-999.9) AND sd.flag != 0
                     group by sd.station_code
                     order by station_code
                 `;
@@ -1460,11 +1460,11 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
                sd.longitude,
                sdd.data as rainfall_data_in_mm
         FROM public.station_details AS sd
-        JOIN public.station_daily_data_updates AS sdd 
+        JOIN public.station_daily_data_updates AS sdd
           ON sdd.station_id = sd.station_code
-        JOIN normal_district_details AS ndd 
+        JOIN normal_district_details AS ndd
           ON ndd.district_code = sdd.district_code
-        WHERE sdd.collection_date = $1;
+        WHERE sdd.collection_date = $1 AND sd.flag != 0;
       `;
       values = [startDate];
     }
@@ -1575,6 +1575,7 @@ const fetchCentreStationSummaryData = async (startDate, endDate) => {
               centre_type || ' ' || centre_name AS centre,
               COUNT(*) AS total_stations
           FROM public.station_details
+          WHERE flag != 0
           GROUP BY centre_type || ' ' || centre_name
       ),
       data_summary AS (
@@ -1587,9 +1588,9 @@ const fetchCentreStationSummaryData = async (startDate, endDate) => {
                        AND sdd.is_verified = 1 
                        AND sdd.verified_at IS NOT NULL THEN 1 ELSE 0 END) AS has_verified
           FROM public.station_daily_data sdd
-          JOIN public.station_details sd 
-              ON sd.station_code = sdd.station_id
-          JOIN target_dates td 
+          JOIN public.station_details sd
+              ON sd.station_code = sdd.station_id AND sd.flag != 0
+          JOIN target_dates td
               ON sdd.collection_date = td.collection_date
           GROUP BY sd.centre_type || ' ' || sd.centre_name, 
                    sdd.collection_date, 

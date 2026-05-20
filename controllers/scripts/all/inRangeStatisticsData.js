@@ -34,6 +34,7 @@ exports.fetchBlockRangeStatistics = async (req, res) => {
                     MIN(block_name) AS block_name,
                     MIN(district_code) AS district_code
                 FROM public.station_details
+                WHERE flag != 0
                 GROUP BY block_code
             ),
             district_metadata AS (

@@ -298,6 +298,7 @@ async function fetchStationMetadata() {
                 ndd.region_code
             FROM public.station_details sd
             JOIN public.normal_district_details ndd ON ndd.district_code = sd.district_code
+            WHERE sd.flag != 0
             ORDER BY ndd.region_name, ndd.subdiv_name, ndd.state_name, ndd.district_name, sd.block_name, sd.station_name;
         `;
         const result = await client.query(query);

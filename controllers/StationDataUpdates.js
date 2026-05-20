@@ -108,10 +108,11 @@ const fetchFilteredDataIncludingVerification = async (startDate) => {
             ON s1.station_code <> s2.station_code  
         LEFT JOIN public.station_daily_data_updates sd 
             ON s2.station_code = sd.station_id
-        WHERE 
-            s1.latitude IS NOT NULL AND s1.longitude IS NOT NULL 
-            AND s2.latitude IS NOT NULL AND s2.longitude IS NOT NULL 
+        WHERE
+            s1.latitude IS NOT NULL AND s1.longitude IS NOT NULL
+            AND s2.latitude IS NOT NULL AND s2.longitude IS NOT NULL
             AND sd.collection_date = $1
+            AND s1.flag != 0 AND s2.flag != 0
     ),
     station_stats AS (
         SELECT 
@@ -160,6 +161,7 @@ const fetchFilteredDataIncludingVerification = async (startDate) => {
         END AS deviation_status
     FROM public.station_details sd
     LEFT JOIN percentiles zp ON sd.station_code = zp.source_station
+    WHERE sd.flag != 0
     GROUP BY sd.station_code, sd.latitude, sd.longitude
     ORDER BY sd.station_code;
   `;

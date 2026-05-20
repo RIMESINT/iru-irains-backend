@@ -37,7 +37,7 @@ router.post("/calculation-exclusion/bulk-toggle",    bulkToggle);
 
 
 // ── Station List (for exclusion UI) ─────────────────────────
-router.get("/getAllStations", getAllStations);
+router.get("/getStationsForExclusion", getAllStations);
 
 
 module.exports = router;

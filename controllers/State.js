@@ -127,7 +127,6 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                                 OR ndd2.district_code IN (
                                     SELECT entity_code FROM public.calculation_exclusions
                                     WHERE entity_type = 'district')
-                                OR sd.flag = 0
                         )
                     GROUP BY
                         ndd.district_code,

@@ -4,6 +4,7 @@ const router  = express.Router();
 const {
   trackVisit,
   getDailyCount,
+  getTotalCount,
   getHistory
 } = require("../controllers/scripts/admin-panel/visitorController");
 
@@ -22,9 +23,10 @@ const {
 
 
 // ── Visitor ──────────────────────────────────────────────────
-router.post("/visitor/track",   trackVisit);
-router.get("/visitor/count",    getDailyCount);
-router.get("/visitor/history",  getHistory);
+router.post("/visitor/track",        trackVisit);
+router.get("/visitor/count",         getDailyCount);
+router.get("/visitor/total-count",   getTotalCount);
+router.get("/visitor/history",       getHistory);
 
 
 // ── Calculation Exclusions ───────────────────────────────────

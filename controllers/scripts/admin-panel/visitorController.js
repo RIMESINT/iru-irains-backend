@@ -50,6 +50,29 @@ exports.getDailyCount = async (req, res) => {
   }
 };
 
+// Get total visitor count (all rows in the table)
+exports.getTotalCount = async (req, res) => {
+  try {
+    const result = await client.query(`
+      SELECT COUNT(*) AS total_visitors
+      FROM app_daily_visitors
+    `);
+
+    res.status(200).json({
+      success: true,
+      message: "Total visitor count fetched successfully",
+      count: parseInt(result.rows[0].total_visitors, 10)
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch total visitor count",
+      error: error.message
+    });
+  }
+};
+
 // Get last 30 days history
 exports.getHistory = async (req, res) => {
   try {

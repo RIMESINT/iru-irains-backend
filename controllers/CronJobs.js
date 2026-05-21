@@ -57,34 +57,27 @@ const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder);
 
 
 // ─── AWS — all states every 15 minutes all day ───────────────────────────────
+const runAllAwsFetchers = async () => {
+    console.log(`[AWS CRON] Running at ${new Date().toLocaleString()}`);
+    try { await fetchAndStoreUP();          } catch (e) { console.error("[UP AWS] Failed:",          e.message); }
+    try { await fetchAndStoreNHP();         } catch (e) { console.error("[NHP AWS] Failed:",         e.message); }
+    try { await fetchAndStoreZomato();      } catch (e) { console.error("[ZOMATO AWS] Failed:",      e.message); }
+    try { await fetchAndStoreMeghalaya();   } catch (e) { console.error("[MEG AWS] Failed:",         e.message); }
+    try { await fetchAndStoreMizoram();     } catch (e) { console.error("[MIZ AWS] Failed:",         e.message); }
+    try { await fetchAndStoreTamilnadu();   } catch (e) { console.error("[TN AWS] Failed:",          e.message); }
+    try { await fetchAndStoreUttarakhand(); } catch (e) { console.error("[UK AWS] Failed:",          e.message); }
+    try { await fetchAndStoreTelangana();   } catch (e) { console.error("[TG AWS] Failed:",          e.message); }
+    try { await fetchAndStoreKarnataka();   } catch (e) { console.error("[KA AWS] Failed:",          e.message); }
+    try { await fetchAndStoreIITMMumbai();  } catch (e) { console.error("[IITM MUM] Failed:",        e.message); }
+};
+
 const awsJobs = ['0 * * * *', '15 * * * *', '30 * * * *', '45 * * * *'].map((pattern) =>
-    schedule.scheduleJob(pattern, async () => {
-        console.log(`[AWS CRON] Running at ${new Date().toLocaleString()}`);
-        try { await fetchAndStoreUP();          } catch (e) { console.error("[UP AWS] Failed:",          e.message); }
-        try { await fetchAndStoreNHP();         } catch (e) { console.error("[NHP AWS] Failed:",         e.message); }
-        try { await fetchAndStoreZomato();      } catch (e) { console.error("[ZOMATO AWS] Failed:",      e.message); }
-        try { await fetchAndStoreMeghalaya();   } catch (e) { console.error("[MEG AWS] Failed:",         e.message); }
-        try { await fetchAndStoreMizoram();     } catch (e) { console.error("[MIZ AWS] Failed:",         e.message); }
-        try { await fetchAndStoreTamilnadu();   } catch (e) { console.error("[TN AWS] Failed:",          e.message); }
-        try { await fetchAndStoreUttarakhand(); } catch (e) { console.error("[UK AWS] Failed:",          e.message); }
-        try { await fetchAndStoreTelangana();   } catch (e) { console.error("[TG AWS] Failed:",          e.message); }
-        try { await fetchAndStoreKarnataka();   } catch (e) { console.error("[KA AWS] Failed:",          e.message); }
-        try { await fetchAndStoreIITMMumbai();  } catch (e) { console.error("[IITM MUM] Failed:",        e.message); }
-    })
+    schedule.scheduleJob(pattern, runAllAwsFetchers)
 );
 
 
 // ─── Run once immediately on server start ────────────────────────────────────
-(async () => {
-    console.log("[AWS] Initial fetch on server start...");
-    try { await fetchAndStoreUP();          } catch (e) { console.error("[UP AWS] Init failed:",          e.message); }
-    try { await fetchAndStoreNHP();         } catch (e) { console.error("[NHP AWS] Init failed:",         e.message); }
-    try { await fetchAndStoreZomato();      } catch (e) { console.error("[ZOMATO AWS] Init failed:",      e.message); }
-    try { await fetchAndStoreMeghalaya();   } catch (e) { console.error("[MEG AWS] Init failed:",         e.message); }
-    try { await fetchAndStoreMizoram();     } catch (e) { console.error("[MIZ AWS] Init failed:",         e.message); }
-    try { await fetchAndStoreTamilnadu();   } catch (e) { console.error("[TN AWS] Init failed:",          e.message); }
-    try { await fetchAndStoreUttarakhand(); } catch (e) { console.error("[UK AWS] Init failed:",          e.message); }
-    try { await fetchAndStoreTelangana();   } catch (e) { console.error("[TG AWS] Init failed:",          e.message); }
-    try { await fetchAndStoreKarnataka();   } catch (e) { console.error("[KA AWS] Init failed:",          e.message); }
-    try { await fetchAndStoreIITMMumbai();  } catch (e) { console.error("[IITM MUM] Init failed:",        e.message); }
-})();
+console.log("[AWS] Initial fetch on server start...");
+runAllAwsFetchers();
+
+

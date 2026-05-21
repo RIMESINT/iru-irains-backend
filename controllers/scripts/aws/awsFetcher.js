@@ -16,7 +16,7 @@ const parseVal = (val) => {
 // ─── UP AWS ───────────────────────────────────────────────────────────────────
 const fetchAndStoreUP = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getUPAWS", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getUPAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
@@ -48,7 +48,7 @@ const fetchAndStoreUP = async () => {
 // ─── NHP AWS ──────────────────────────────────────────────────────────────────
 const fetchAndStoreNHP = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getNHPAWS", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getNHPAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
@@ -85,7 +85,7 @@ const fetchAndStoreNHP = async () => {
 // ─── ZOMATO AWS ───────────────────────────────────────────────────────────────
 const fetchAndStoreZomato = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getZomatoAWS", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getZomatoAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
@@ -121,7 +121,7 @@ const fetchAndStoreZomato = async () => {
 // ─── MEGHALAYA AWS ────────────────────────────────────────────────────────────
 const fetchAndStoreMeghalaya = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getMeghalayaAWS", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getMeghalayaAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
@@ -168,7 +168,7 @@ const fetchAndStoreMeghalaya = async () => {
 // ─── MIZORAM AWS ──────────────────────────────────────────────────────────────
 const fetchAndStoreMizoram = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getMizoramAWS", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getMizoramAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
@@ -209,7 +209,7 @@ const fetchAndStoreMizoram = async () => {
 // ─── TAMILNADU AWS ────────────────────────────────────────────────────────────
 const fetchAndStoreTamilnadu = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getTamilnaduAWS", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getTamilnaduAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
@@ -245,7 +245,7 @@ const fetchAndStoreTamilnadu = async () => {
 // ─── UTTARAKHAND AWS ──────────────────────────────────────────────────────────
 const fetchAndStoreUttarakhand = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getUttrakhandAWS", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getUttrakhandAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
@@ -284,7 +284,7 @@ const fetchAndStoreUttarakhand = async () => {
 // ─── TELANGANA AWS ────────────────────────────────────────────────────────────
 const fetchAndStoreTelangana = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getTelanganaAWS", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getTelanganaAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
@@ -330,7 +330,7 @@ const parseRainfallKA = (val) => {
 // ─── KARNATAKA AWS ────────────────────────────────────────────────────────────
 const fetchAndStoreKarnataka = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getKarnatakaAWS", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getKarnatakaAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
@@ -370,7 +370,7 @@ const fetchAndStoreKarnataka = async () => {
 // ─── IITM MUMBAI ARG ──────────────────────────────────────────────────────────
 const fetchAndStoreIITMMumbai = async () => {
     const today    = moment().tz(IST).format("YYYY-MM-DD");
-    const response = await axios.get("https://city.imd.gov.in/api/v1/getIITMRainfallData", { timeout: 15000 });
+    const response = await axios.get("https://city.imd.gov.in/api/v1/getIITMRainfallData", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 

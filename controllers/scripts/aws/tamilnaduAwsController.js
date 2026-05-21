@@ -330,7 +330,7 @@ exports.fetchStationSlots = async (req, res) => {
                    slp, solar_radiation, soil_temp, soil_moist,
                    row_type
             FROM totals
-            ORDER BY id, sort_order, ist_time NULLS LAST
+            ORDER BY id, row_type, ist_time NULLS LAST
         `;
 
         const result = await client.query(query, [date]);

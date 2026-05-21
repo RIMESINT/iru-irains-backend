@@ -175,6 +175,67 @@ exports.fetchCitySummary = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6. STATION SLOTS — all 15-min slots + total row per station for one AWS day
+//    POST /api/v1/zomato-aws/station-slots
+//    Body: { date? }
+// ─────────────────────────────────────────────────────────────────────────────
+exports.fetchStationSlots = async (req, res) => {
+    try {
+        const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
+
+        const query = `
+            WITH aws AS (
+                SELECT *,
+                    ${AWS_DAY} AS aws_day,
+                    (dat::date + time::time + INTERVAL '5 hours 30 minutes')::time AS ist_time
+                FROM observations_aws_zomato
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date
+                  AND ${AWS_DAY} = $1::date
+            ),
+            slots AS (
+                SELECT
+                    id, station, city, type, lat, lon,
+                    ist_time, rainfall, temp, feel_like, rh, winds, windd,
+                    'slot'::text AS row_type, 0 AS sort_order
+                FROM aws
+            ),
+            totals AS (
+                SELECT
+                    id, station, city, type, lat, lon,
+                    NULL::time AS ist_time, SUM(rainfall) AS rainfall,
+                    NULL::numeric AS temp, NULL::numeric AS feel_like,
+                    NULL::numeric AS rh, NULL::numeric AS winds, NULL::numeric AS windd,
+                    'total'::text AS row_type, 1 AS sort_order
+                FROM aws
+                GROUP BY id, station, city, type, lat, lon
+            )
+            SELECT id, station, city, type, lat, lon,
+                   ist_time, rainfall, temp, feel_like, rh, winds, windd,
+                   row_type
+            FROM slots
+            UNION ALL
+            SELECT id, station, city, type, lat, lon,
+                   ist_time, rainfall, temp, feel_like, rh, winds, windd,
+                   row_type
+            FROM totals
+            ORDER BY id, sort_order, ist_time NULLS LAST
+        `;
+
+        const result = await client.query(query, [date]);
+        res.status(200).json({
+            success: true,
+            message: "Zomato AWS station slots fetched successfully",
+            data: result.rows
+        });
+
+    } catch (error) {
+        console.error("[ZOMATO AWS] fetchStationSlots error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch station slots", error: error.message });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DEPARTURE — city-level helper (mirrors block.js fetchBetweenDates)
 // Zomato has no block/district column; groups by city.
 // Normals match city names against normal_district_details.district_name.

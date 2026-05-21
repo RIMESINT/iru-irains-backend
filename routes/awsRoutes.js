@@ -22,6 +22,7 @@ router.post("/up-aws/hourly",           upCtrl.fetchHourlyData);
 router.post("/up-aws/slot",             upCtrl.fetchSlotData);
 router.post("/up-aws/cumulative",       upCtrl.fetchCumulativeData);
 router.post("/up-aws/district-summary", upCtrl.fetchDistrictSummary);
+router.post("/up-aws/station-slots",    upCtrl.fetchStationSlots);
 
 
 // ── NHP AWS ───────────────────────────────────────────────────────────────────
@@ -30,14 +31,16 @@ router.post("/nhp-aws/hourly",           nhpCtrl.fetchHourlyData);
 router.post("/nhp-aws/slot",             nhpCtrl.fetchSlotData);
 router.post("/nhp-aws/cumulative",       nhpCtrl.fetchCumulativeData);
 router.post("/nhp-aws/district-summary", nhpCtrl.fetchDistrictSummary);
+router.post("/nhp-aws/station-slots",    nhpCtrl.fetchStationSlots);
 
 
 // ── ZOMATO AWS ────────────────────────────────────────────────────────────────
-router.post("/zomato-aws/daily",        zomatoCtrl.fetchDailyData);
-router.post("/zomato-aws/hourly",       zomatoCtrl.fetchHourlyData);
-router.post("/zomato-aws/slot",         zomatoCtrl.fetchSlotData);
-router.post("/zomato-aws/cumulative",   zomatoCtrl.fetchCumulativeData);
-router.post("/zomato-aws/city-summary", zomatoCtrl.fetchCitySummary);
+router.post("/zomato-aws/daily",          zomatoCtrl.fetchDailyData);
+router.post("/zomato-aws/hourly",         zomatoCtrl.fetchHourlyData);
+router.post("/zomato-aws/slot",           zomatoCtrl.fetchSlotData);
+router.post("/zomato-aws/cumulative",     zomatoCtrl.fetchCumulativeData);
+router.post("/zomato-aws/city-summary",   zomatoCtrl.fetchCitySummary);
+router.post("/zomato-aws/station-slots",  zomatoCtrl.fetchStationSlots);
 
 
 // ── MEGHALAYA AWS ─────────────────────────────────────────────────────────────
@@ -46,6 +49,7 @@ router.post("/meghalaya-aws/hourly",           meghalayaCtrl.fetchHourlyData);
 router.post("/meghalaya-aws/slot",             meghalayaCtrl.fetchSlotData);
 router.post("/meghalaya-aws/cumulative",       meghalayaCtrl.fetchCumulativeData);
 router.post("/meghalaya-aws/district-summary", meghalayaCtrl.fetchDistrictSummary);
+router.post("/meghalaya-aws/station-slots",    meghalayaCtrl.fetchStationSlots);
 
 
 // ── MIZORAM AWS ───────────────────────────────────────────────────────────────
@@ -54,6 +58,7 @@ router.post("/mizoram-aws/hourly",           mizoramCtrl.fetchHourlyData);
 router.post("/mizoram-aws/slot",             mizoramCtrl.fetchSlotData);
 router.post("/mizoram-aws/cumulative",       mizoramCtrl.fetchCumulativeData);
 router.post("/mizoram-aws/district-summary", mizoramCtrl.fetchDistrictSummary);
+router.post("/mizoram-aws/station-slots",    mizoramCtrl.fetchStationSlots);
 
 
 // ── TAMILNADU AWS ─────────────────────────────────────────────────────────────
@@ -63,6 +68,7 @@ router.post("/tamilnadu-aws/slot",             tamilnaduCtrl.fetchSlotData);
 router.post("/tamilnadu-aws/cumulative",       tamilnaduCtrl.fetchCumulativeData);
 router.post("/tamilnadu-aws/district-summary", tamilnaduCtrl.fetchDistrictSummary);
 router.post("/tamilnadu-aws/block-summary",    tamilnaduCtrl.fetchBlockSummary);
+router.post("/tamilnadu-aws/station-slots",    tamilnaduCtrl.fetchStationSlots);
 
 
 // ── UTTARAKHAND AWS ───────────────────────────────────────────────────────────
@@ -71,6 +77,7 @@ router.post("/uttarakhand-aws/hourly",           uttarakhandCtrl.fetchHourlyData
 router.post("/uttarakhand-aws/slot",             uttarakhandCtrl.fetchSlotData);
 router.post("/uttarakhand-aws/cumulative",       uttarakhandCtrl.fetchCumulativeData);
 router.post("/uttarakhand-aws/district-summary", uttarakhandCtrl.fetchDistrictSummary);
+router.post("/uttarakhand-aws/station-slots",    uttarakhandCtrl.fetchStationSlots);
 
 
 // ── TELANGANA AWS ─────────────────────────────────────────────────────────────
@@ -79,6 +86,7 @@ router.post("/telangana-aws/hourly",           telanganaCtrl.fetchHourlyData);
 router.post("/telangana-aws/slot",             telanganaCtrl.fetchSlotData);
 router.post("/telangana-aws/cumulative",       telanganaCtrl.fetchCumulativeData);
 router.post("/telangana-aws/district-summary", telanganaCtrl.fetchDistrictSummary);
+router.post("/telangana-aws/station-slots",    telanganaCtrl.fetchStationSlots);
 
 
 // ── KARNATAKA AWS ─────────────────────────────────────────────────────────────
@@ -87,6 +95,7 @@ router.post("/karnataka-aws/hourly",           karnatakaCtrl.fetchHourlyData);
 router.post("/karnataka-aws/slot",             karnatakaCtrl.fetchSlotData);
 router.post("/karnataka-aws/cumulative",       karnatakaCtrl.fetchCumulativeData);
 router.post("/karnataka-aws/district-summary", karnatakaCtrl.fetchDistrictSummary);
+router.post("/karnataka-aws/station-slots",    karnatakaCtrl.fetchStationSlots);
 
 
 // ── STATE AWS UNIFIED ─────────────────────────────────────────────────────────
@@ -99,6 +108,7 @@ router.post("/iitm-mumbai/hourly",           iitmMumbaiCtrl.fetchHourlyData);
 router.post("/iitm-mumbai/slot",             iitmMumbaiCtrl.fetchSlotData);
 router.post("/iitm-mumbai/cumulative",       iitmMumbaiCtrl.fetchCumulativeData);
 router.post("/iitm-mumbai/district-summary", iitmMumbaiCtrl.fetchDistrictSummary);
+router.post("/iitm-mumbai/station-slots",    iitmMumbaiCtrl.fetchStationSlots);
 
 
 // ── DEPARTURE APIS (all 10 states × 3 endpoints each) ────────────────────────

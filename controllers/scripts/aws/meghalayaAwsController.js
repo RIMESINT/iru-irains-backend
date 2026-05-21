@@ -179,6 +179,72 @@ exports.fetchDistrictSummary = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6. STATION SLOTS — all 15-min slots + total row per station for one AWS day
+//    POST /api/v1/meghalaya-aws/station-slots
+//    Body: { date? }
+// ─────────────────────────────────────────────────────────────────────────────
+exports.fetchStationSlots = async (req, res) => {
+    try {
+        const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
+
+        const query = `
+            WITH aws AS (
+                SELECT *,
+                    ${AWS_DAY} AS aws_day,
+                    (dat::date + time::time + INTERVAL '5 hours 30 minutes')::time AS ist_time
+                FROM observations_aws_meghalaya
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date
+                  AND ${AWS_DAY} = $1::date
+            ),
+            slots AS (
+                SELECT
+                    id, station, facility, station_type, state, district, block, alt,
+                    ist_time, rainfall, rainfall_avg, temp, rh, slp, winds, windd,
+                    soil_temp, irradiance, water_content, conductivity, battery, panel_temp,
+                    'slot'::text AS row_type, 0 AS sort_order
+                FROM aws
+            ),
+            totals AS (
+                SELECT
+                    id, station, facility, station_type, state, district, block, alt,
+                    NULL::time AS ist_time, SUM(rainfall) AS rainfall,
+                    NULL::numeric AS rainfall_avg, NULL::numeric AS temp, NULL::numeric AS rh,
+                    NULL::numeric AS slp, NULL::numeric AS winds, NULL::numeric AS windd,
+                    NULL::numeric AS soil_temp, NULL::numeric AS irradiance, NULL::numeric AS water_content,
+                    NULL::numeric AS conductivity, NULL::numeric AS battery, NULL::numeric AS panel_temp,
+                    'total'::text AS row_type, 1 AS sort_order
+                FROM aws
+                GROUP BY id, station, facility, station_type, state, district, block, alt
+            )
+            SELECT id, station, facility, station_type, state, district, block, alt,
+                   ist_time, rainfall, rainfall_avg, temp, rh, slp, winds, windd,
+                   soil_temp, irradiance, water_content, conductivity, battery, panel_temp,
+                   row_type
+            FROM slots
+            UNION ALL
+            SELECT id, station, facility, station_type, state, district, block, alt,
+                   ist_time, rainfall, rainfall_avg, temp, rh, slp, winds, windd,
+                   soil_temp, irradiance, water_content, conductivity, battery, panel_temp,
+                   row_type
+            FROM totals
+            ORDER BY id, sort_order, ist_time NULLS LAST
+        `;
+
+        const result = await client.query(query, [date]);
+        res.status(200).json({
+            success: true,
+            message: "Meghalaya AWS station slots fetched successfully",
+            data: result.rows
+        });
+
+    } catch (error) {
+        console.error("[MEG AWS] fetchStationSlots error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch station slots", error: error.message });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DEPARTURE — shared helper (mirrors block.js fetchBetweenDates)
 // ─────────────────────────────────────────────────────────────────────────────
 const fetchBetweenDates = async (startDate, endDate) => {

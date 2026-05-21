@@ -218,6 +218,63 @@ exports.fetchDistrictSummary = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6. STATION SLOTS — all 15-min slots + total row per station for one AWS day
+//    POST /api/v1/iitm-mumbai/station-slots
+//    Body: { date? }
+// ─────────────────────────────────────────────────────────────────────────────
+exports.fetchStationSlots = async (req, res) => {
+    try {
+        const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
+
+        const query = `
+            WITH aws AS (
+                SELECT *,
+                    ${AWS_DAY} AS aws_day,
+                    (dat::date + time::time + INTERVAL '5 hours 30 minutes')::time AS ist_time
+                FROM observations_iitm_mumbai
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date
+                  AND ${AWS_DAY} = $1::date
+            ),
+            slots AS (
+                SELECT
+                    id, station, type, state, district, lat, lon,
+                    ist_time, rainfall,
+                    'slot'::text AS row_type, 0 AS sort_order
+                FROM aws
+            ),
+            totals AS (
+                SELECT
+                    id, station, type, state, district, lat, lon,
+                    NULL::time AS ist_time, SUM(rainfall) AS rainfall,
+                    'total'::text AS row_type, 1 AS sort_order
+                FROM aws
+                GROUP BY id, station, type, state, district, lat, lon
+            )
+            SELECT id, station, type, state, district, lat, lon,
+                   ist_time, rainfall, row_type
+            FROM slots
+            UNION ALL
+            SELECT id, station, type, state, district, lat, lon,
+                   ist_time, rainfall, row_type
+            FROM totals
+            ORDER BY id, sort_order, ist_time NULLS LAST
+        `;
+
+        const result = await client.query(query, [date]);
+        res.status(200).json({
+            success: true,
+            message: "IITM Mumbai station slots fetched successfully",
+            data: result.rows
+        });
+
+    } catch (error) {
+        console.error("[IITM MUM] fetchStationSlots error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch station slots", error: error.message });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DEPARTURE — district-level helper (mirrors block.js fetchBetweenDates)
 // IITM Mumbai has no block column; normals aggregated from block→district.
 // ─────────────────────────────────────────────────────────────────────────────

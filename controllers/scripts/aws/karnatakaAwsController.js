@@ -231,6 +231,68 @@ exports.fetchDistrictSummary = async (req, res) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6. STATION SLOTS — all 15-min slots + total row per station for one AWS day
+//    POST /api/v1/karnataka-aws/station-slots
+//    Body: { date? }
+// ─────────────────────────────────────────────────────────────────────────────
+exports.fetchStationSlots = async (req, res) => {
+    try {
+        const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
+
+        const query = `
+            WITH aws AS (
+                SELECT *,
+                    ${AWS_DAY} AS aws_day,
+                    (dat::date + time::time + INTERVAL '5 hours 30 minutes')::time AS ist_time
+                FROM observations_aws_karnataka
+                WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date
+                  AND ${AWS_DAY} = $1::date
+            ),
+            slots AS (
+                SELECT
+                    id, station, type, state, district, tehsil, block, lat, lon, alt,
+                    ist_time, rainfall, temp, feel_like, dewpoint, rh, winds, windd, slp, mslp,
+                    'slot'::text AS row_type, 0 AS sort_order
+                FROM aws
+            ),
+            totals AS (
+                SELECT
+                    id, station, type, state, district, tehsil, block, lat, lon, alt,
+                    NULL::time AS ist_time, SUM(rainfall) AS rainfall,
+                    NULL::numeric AS temp, NULL::numeric AS feel_like, NULL::numeric AS dewpoint,
+                    NULL::numeric AS rh, NULL::numeric AS winds, NULL::numeric AS windd,
+                    NULL::numeric AS slp, NULL::numeric AS mslp,
+                    'total'::text AS row_type, 1 AS sort_order
+                FROM aws
+                GROUP BY id, station, type, state, district, tehsil, block, lat, lon, alt
+            )
+            SELECT id, station, type, state, district, tehsil, block, lat, lon, alt,
+                   ist_time, rainfall, temp, feel_like, dewpoint, rh, winds, windd, slp, mslp,
+                   row_type
+            FROM slots
+            UNION ALL
+            SELECT id, station, type, state, district, tehsil, block, lat, lon, alt,
+                   ist_time, rainfall, temp, feel_like, dewpoint, rh, winds, windd, slp, mslp,
+                   row_type
+            FROM totals
+            ORDER BY id, sort_order, ist_time NULLS LAST
+        `;
+
+        const result = await client.query(query, [date]);
+        res.status(200).json({
+            success: true,
+            message: "Karnataka AWS station slots fetched successfully",
+            data: result.rows
+        });
+
+    } catch (error) {
+        console.error("[KA AWS] fetchStationSlots error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch station slots", error: error.message });
+    }
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DEPARTURE — shared helper (mirrors block.js fetchBetweenDates)
 // ─────────────────────────────────────────────────────────────────────────────
 const fetchBetweenDates = async (startDate, endDate) => {

@@ -60,7 +60,7 @@ const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder);
 // ─── Connectivity pre-check ──────────────────────────────────────────────────
 const checkImdConnectivity = async () => {
     try {
-        await axios.head("https://city.imd.gov.in", { timeout: 8000 });
+        await axios.head("https://city.imd.gov.in", { timeout: 30000 });
         return true;
     } catch {
         return false;

@@ -1,4 +1,5 @@
 const schedule = require('node-schedule');
+const axios = require('axios');
 const { AddDailyStationData } = require("../controllers/StationDataUpdates");
 const { dailyDataUpdateReminder, dailyDataVerificationReminder } = require("../controllers/Email");
 const { sendBulkReports } = require('./emailController');
@@ -56,9 +57,24 @@ const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder);
 // });
 
 
+// ─── Connectivity pre-check ──────────────────────────────────────────────────
+const checkImdConnectivity = async () => {
+    try {
+        await axios.head("https://city.imd.gov.in", { timeout: 8000 });
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 // ─── AWS — all states every 15 minutes all day ───────────────────────────────
 const runAllAwsFetchers = async () => {
     console.log(`[AWS CRON] Running at ${new Date().toLocaleString()}`);
+    const reachable = await checkImdConnectivity();
+    if (!reachable) {
+        console.error("[AWS CRON] city.imd.gov.in unreachable — skipping all fetchers");
+        return;
+    }
     try { await fetchAndStoreUP();          } catch (e) { console.error("[UP AWS] Failed:",          e.message); }
     try { await fetchAndStoreNHP();         } catch (e) { console.error("[NHP AWS] Failed:",         e.message); }
     try { await fetchAndStoreZomato();      } catch (e) { console.error("[ZOMATO AWS] Failed:",      e.message); }

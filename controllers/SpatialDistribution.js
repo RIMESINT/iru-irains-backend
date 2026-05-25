@@ -19,6 +19,10 @@ exports.getSpatialDistributionData = async (req, res) => {
 
     const isValidDate = (d) => moment(d, "YYYY-MM-DD", true).isValid();
 
+    const today = moment().format("YYYY-MM-DD");
+    const useUpdatesTable = startDate && endDate && startDate === endDate && startDate === today;
+    const dataTable = useUpdatesTable ? "station_daily_data_updates" : "station_daily_data";
+
     // ---------- Daywise Mode ----------
     if (mode === "daywise") {
       if (!startDate || !endDate) {
@@ -58,7 +62,7 @@ exports.getSpatialDistributionData = async (req, res) => {
             COUNT(DISTINCT CASE WHEN sdd.data >= 0.1 THEN sdd.station_id END) AS station_reported_rainfall
           FROM normal_district_details n
           CROSS JOIN dates d
-          LEFT JOIN station_daily_data sdd
+          LEFT JOIN ${dataTable} sdd
             ON n.district_code = sdd.district_code
             AND sdd.collection_date = d.collection_date
           GROUP BY n.subdiv_name, d.collection_date
@@ -163,14 +167,14 @@ exports.getSpatialDistributionData = async (req, res) => {
       reported_stations AS (
         SELECT n.subdiv_name, COUNT(DISTINCT d.station_id) AS station_reported_rainfall
         FROM normal_district_details n
-        JOIN station_daily_data d ON n.district_code = d.district_code
+        JOIN ${dataTable} d ON n.district_code = d.district_code
         WHERE d.collection_date BETWEEN $1 AND $2 AND d.data >= 0.1
         GROUP BY n.subdiv_name
       ),
       valid_stations AS (
         SELECT n.subdiv_name, COUNT(DISTINCT d.station_id) AS valid_stations
         FROM normal_district_details n
-        JOIN station_daily_data d ON n.district_code = d.district_code
+        JOIN ${dataTable} d ON n.district_code = d.district_code
         WHERE d.collection_date BETWEEN $1 AND $2
         GROUP BY n.subdiv_name
       )
@@ -222,6 +226,10 @@ exports.getSpatialDistributionDataState = async (req, res) => {
 
     const isValidDate = (d) => moment(d, "YYYY-MM-DD", true).isValid();
 
+    const today = moment().format("YYYY-MM-DD");
+    const useUpdatesTable = startDate && endDate && startDate === endDate && startDate === today;
+    const dataTable = useUpdatesTable ? "station_daily_data_updates" : "station_daily_data";
+
     // ---------- Daywise ----------
     if (mode === "daywise") {
       if (!startDate || !endDate) {
@@ -261,7 +269,7 @@ exports.getSpatialDistributionDataState = async (req, res) => {
             COUNT(DISTINCT CASE WHEN sdd.data >= 0.1 THEN sdd.station_id END) AS station_reported_rainfall
           FROM normal_district_details n
           CROSS JOIN dates d
-          LEFT JOIN station_daily_data sdd
+          LEFT JOIN ${dataTable} sdd
             ON n.district_code = sdd.district_code
             AND sdd.collection_date = d.collection_date
           GROUP BY n.state_name, d.collection_date
@@ -346,14 +354,14 @@ exports.getSpatialDistributionDataState = async (req, res) => {
       reported_stations AS (
         SELECT n.state_name, COUNT(DISTINCT d.station_id) AS station_reported_rainfall
         FROM normal_district_details n
-        JOIN station_daily_data d ON n.district_code = d.district_code
+        JOIN ${dataTable} d ON n.district_code = d.district_code
         WHERE d.collection_date BETWEEN $1 AND $2 AND d.data >= 0.1
         GROUP BY n.state_name
       ),
       valid_stations AS (
         SELECT n.state_name, COUNT(DISTINCT d.station_id) AS valid_stations
         FROM normal_district_details n
-        JOIN station_daily_data d ON n.district_code = d.district_code
+        JOIN ${dataTable} d ON n.district_code = d.district_code
         WHERE d.collection_date BETWEEN $1 AND $2
         GROUP BY n.state_name
       )

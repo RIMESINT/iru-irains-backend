@@ -37,7 +37,7 @@ exports.fetchDailyData = async (req, res) => {
             SELECT
                 aws_day                                     AS dat,
                 district, id, station, type, lat, lon,
-                SUM(rainfall)                               AS total_rainfall,
+                MAX(rainfall)                               AS total_rainfall,
                 ROUND(AVG(temp)::NUMERIC, 1)                AS avg_temp,
                 MAX(temp)                                   AS max_temp,
                 MIN(temp)                                   AS min_temp,
@@ -101,7 +101,7 @@ exports.fetchHourlyData = async (req, res) => {
                 aws_day                                     AS dat,
                 EXTRACT(HOUR FROM ist_time)::INT            AS hour,
                 district, id, station, type,
-                SUM(rainfall)                               AS total_rainfall,
+                MAX(rainfall)                               AS total_rainfall,
                 ROUND(AVG(temp)::NUMERIC, 1)                AS avg_temp,
                 ROUND(AVG(rh)::NUMERIC, 1)                  AS avg_rh,
                 COUNT(*)                                    AS readings_count
@@ -215,7 +215,7 @@ exports.fetchCumulativeData = async (req, res) => {
                 SELECT
                     ${AWS_DAY}                     AS aws_day,
                     district, id, station,
-                    SUM(rainfall)                   AS daily_rainfall
+                    MAX(rainfall)                   AS daily_rainfall
                 FROM up_aws_observations
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
                   ${districtFilter}
@@ -262,7 +262,7 @@ exports.fetchDistrictSummary = async (req, res) => {
                 SELECT
                     ${AWS_DAY}                             AS aws_day,
                     district, id,
-                    SUM(rainfall)                           AS daily_rain,
+                    MAX(rainfall)                           AS daily_rain,
                     AVG(temp)                               AS avg_temp
                 FROM up_aws_observations
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date
@@ -315,7 +315,7 @@ exports.fetchStationSlots = async (req, res) => {
             totals AS (
                 SELECT
                     id, station, type, state, district, tehsil, block, lat, lon, alt,
-                    NULL::time AS ist_time, SUM(rainfall) AS rainfall,
+                    NULL::time AS ist_time, MAX(rainfall) AS rainfall,
                     NULL::numeric AS temp, NULL::numeric AS feel_like, NULL::numeric AS dewpoint,
                     NULL::numeric AS rh, NULL::numeric AS winds, NULL::numeric AS windd,
                     NULL::numeric AS slp, NULL::numeric AS mslp,
@@ -393,7 +393,7 @@ const fetchBetweenDates = async (startDate, endDate) => {
             FROM (
                 SELECT block, district, state, id,
                     ${AWS_DAY_EXPR} AS aws_dat,
-                    SUM(rainfall) AS station_rf
+                    MAX(rainfall) AS station_rf
                 FROM up_aws_observations
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
                   AND ${AWS_DAY_EXPR} BETWEEN $1::date AND $2::date

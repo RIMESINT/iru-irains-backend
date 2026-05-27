@@ -28,7 +28,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     NULL::text        AS block_raw,
                     lat               AS latitude,
                     lon               AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'UP AWS'          AS source
                 FROM up_aws_observations
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
@@ -47,7 +47,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     NULL::text        AS block_raw,
                     NULL::numeric     AS latitude,
                     NULL::numeric     AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'NHP AWS'         AS source
                 FROM observations_aws_nhp
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
@@ -66,7 +66,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     NULL::text        AS block_raw,
                     lat               AS latitude,
                     lon               AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'ZOMATO AWS'      AS source
                 FROM observations_aws_zomato
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
@@ -85,7 +85,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     block             AS block_raw,
                     NULL::numeric     AS latitude,
                     NULL::numeric     AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'MEGHALAYA AWS'   AS source
                 FROM observations_aws_meghalaya
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
@@ -104,7 +104,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     NULL::text        AS block_raw,
                     NULL::numeric     AS latitude,
                     NULL::numeric     AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'MIZORAM AWS'     AS source
                 FROM observations_aws_mizoram
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
@@ -123,7 +123,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     block             AS block_raw,
                     NULL::numeric     AS latitude,
                     NULL::numeric     AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'TAMILNADU AWS'   AS source
                 FROM observations_aws_tamilnadu
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
@@ -142,7 +142,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     block             AS block_raw,
                     lat               AS latitude,
                     lon               AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'UTTARAKHAND AWS' AS source
                 FROM observations_aws_uttarakhand
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
@@ -161,7 +161,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     block             AS block_raw,
                     lat               AS latitude,
                     lon               AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'TELANGANA AWS'   AS source
                 FROM observations_aws_telangana
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
@@ -180,7 +180,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     block             AS block_raw,
                     lat               AS latitude,
                     lon               AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'KARNATAKA AWS'   AS source
                 FROM observations_aws_karnataka
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
@@ -199,7 +199,7 @@ exports.fetchFilteredStationUnifiedFile = async (req, res) => {
                     NULL::text        AS block_raw,
                     lat               AS latitude,
                     lon               AS longitude,
-                    SUM(rainfall)     AS data,
+                    MAX(rainfall)     AS data,
                     'IITM MUMBAI'     AS source
                 FROM observations_iitm_mumbai
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date

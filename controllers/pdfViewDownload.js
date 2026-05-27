@@ -62,10 +62,10 @@ const calculateSeasonPeriod = (startDate, endDate) => {
             seasonEndDate = end;
     }
     
-    // Don't go beyond current date
-    const currentDate = new Date();
-    if (seasonEndDate > currentDate) {
-        seasonEndDate = currentDate;
+    // Don't go beyond selected end date
+    const selectedEnd = new Date(endDate);
+    if (seasonEndDate > selectedEnd) {
+        seasonEndDate = selectedEnd;
     }
     
     return {

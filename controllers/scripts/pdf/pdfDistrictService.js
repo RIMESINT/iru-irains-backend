@@ -145,8 +145,8 @@ class PDFDistrictService {
                 seasonEndDate = endDate;
         }
 
-        if (seasonEndDate > new Date()) {
-            seasonEndDate = new Date();
+        if (seasonEndDate > endDate) {
+            seasonEndDate = endDate;
         }
     
         return {

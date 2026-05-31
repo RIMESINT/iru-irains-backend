@@ -1,4 +1,6 @@
 
+const awsCtrl = require('../AwsInclusiveControllers');
+const { isAwsEnabled } = require('../../utils/calculationsMode');
 const express = require("express");
 const router = express.Router();
 const app = express();
@@ -28,7 +30,10 @@ exports.fetchCountryDataFtp = async (req, res) => {
             });
         }
 
-        let data = await fetchBetweenDates(startDate, endDate);
+        const useAws = await isAwsEnabled();
+        let data = useAws
+            ? await awsCtrl.fetchCountryWithAWS(startDate, endDate)
+            : await fetchBetweenDates(startDate, endDate);
 
         res.status(200).json({
             success: true,

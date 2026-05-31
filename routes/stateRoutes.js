@@ -1,6 +1,7 @@
 const express = require("express")
 const router = express.Router()
 
+const { fetchStateDataWithAWS } = require("../controllers/AwsInclusiveControllers");
 const { fetchStateData, getAllStates, fetchStateDataAforAPIexport, getMetWiseStates, getStateAreaPercentages, fetchStateDistrictCount, getStateDisplayOrder, updateStateDisplayOrder, updateStateDisplayOrders, addStateDisplayOrderEntry, deleteStateDisplayOrderEntry } = require("../controllers/State")
 const { fetchStateDataFtp} = require("../controllers/ftp/State")
 const { getnStateDataAndInsertInNormalState } = require("../controllers/scripts/state/normalState");
@@ -16,6 +17,7 @@ router.get("/nStatePrev", getnStateDataAndInsertInNormalState);
 
 // fetch state data
 router.post("/fetchStateData", fetchStateData);
+router.post("/fetchStateDataWithAWS", fetchStateDataWithAWS);
 router.get("/fetchMetWiseStates", getMetWiseStates)
 router.get("/getStateAreaPercentages", getStateAreaPercentages);
 router.post("/fetchStateDistrictCount", fetchStateDistrictCount);

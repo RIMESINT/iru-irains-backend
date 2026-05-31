@@ -369,13 +369,12 @@ const fetchAndStoreKarnataka = async () => {
 
 // ─── IITM MUMBAI ARG ──────────────────────────────────────────────────────────
 const fetchAndStoreIITMMumbai = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
     const response = await axios.get("https://city.imd.gov.in/api/v1/getIITMRainfallData", { timeout: 30000 });
     const records  = response.data?.data || [];
-    let inserted = 0, skipped = 0;
+    let inserted = 0;
 
     for (const s of records) {
-        if (s.dat !== today) { skipped++; continue; }
+        if (!s.id || !s.dat || !s.time) continue;
         await client.query(`
             INSERT INTO observations_iitm_mumbai (
                 id, station, type, state, district,
@@ -392,7 +391,7 @@ const fetchAndStoreIITMMumbai = async () => {
         ]);
         inserted++;
     }
-    console.log(`[IITM MUM]     ${moment().tz(IST).format("YYYY-MM-DD HH:mm:ss")} IST | Inserted: ${inserted} | Skipped: ${skipped}`);
+    console.log(`[IITM MUM]     ${moment().tz(IST).format("YYYY-MM-DD HH:mm:ss")} IST | Inserted: ${inserted}`);
 };
 
 module.exports = {

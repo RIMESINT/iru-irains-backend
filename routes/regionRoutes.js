@@ -1,6 +1,7 @@
 const express = require("express")
 const router = express.Router()
 
+const { fetchRegionDataWithAWS } = require("../controllers/AwsInclusiveControllers");
 const { fetchRegionData, getAllRegions, fetchCummulativeRegionData, fetchRegionDataAforAPIexport, getRegionAreaPercentages, fetchRegionCoverageCount} = require("../controllers/Region")
 const { fetchRegionDataFtp, fetchCummulativeRegionDataFtp} = require("../controllers/ftp/Region")
 const { getnRegionDataAndInsertInNormalRegion } = require("../controllers/scripts/region/normalRegion")
@@ -15,6 +16,7 @@ router.get("/nRegionPrev", getnRegionDataAndInsertInNormalRegion);
 
 // fetch region data
 router.post("/fetchRegionData", fetchRegionData);
+router.post("/fetchRegionDataWithAWS", fetchRegionDataWithAWS);
 router.post("/fetchRegionDataAPIexport", fetchRegionDataAforAPIexport);
 
 //get all regions

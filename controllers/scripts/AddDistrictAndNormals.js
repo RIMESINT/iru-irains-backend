@@ -7,20 +7,30 @@ const convertDate = require("../../utils/convertDate");
 
 
 
-//     // Helper function to format date
+function isLeapYear(year) {
+    return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+}
+
 function formatDate(dateStr) {
-    const date = new Date(`2025-${dateStr}`);
+    const currentYear = new Date().getFullYear();
+
+    // If not a leap year, skip Feb 29
+    if (dateStr === '02-29' && !isLeapYear(currentYear)) {
+        return null;
+    }
+
+    const date = new Date(`${currentYear}-${dateStr}`);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
 
     return {
-      year: year,
-      month: month,
-      day: day,
-      date : `${year}-${month}-${day}`,
-  }
-  }
+        year: year,
+        month: month,
+        day: day,
+        date: `${year}-${month}-${day}`,
+    };
+}
       
 
 
@@ -261,7 +271,12 @@ exports.inserNewDistrictAndNormalValues = async (req, res) => {
 
     for (const [key, value] of Object.entries(row)) {
         if (key !== "district_code" && key !== "district_name" && key !== "district_area") {
-            const { month, date, year, day } = formatDate(key);
+            const formatted = formatDate(key);
+
+            // Skip Feb 29 on non-leap years
+            if (!formatted) continue;
+
+            const { month, date, year, day } = formatted;
 
             // Convert month and day to numbers
             const monthNum = parseInt(month, 10);
@@ -286,9 +301,27 @@ exports.inserNewDistrictAndNormalValues = async (req, res) => {
       res.status(200).json({ message: "Data insertion completed successfully." });
       
   } catch (error) {
-      await client.query('ROLLBACK');  // Rollback transaction on error
+      await client.query('ROLLBACK');
       console.error("Error during data insertion:", error);
-      res.status(500).json({ error: "Data insertion failed." });
+
+      let userMessage = "Data insertion failed.";
+      const msg = error.message || "";
+
+      if (msg.includes("violates not-null") || msg.includes("null value")) {
+          userMessage = "Missing required value in the file. Check that district_name, district_code, and district_area columns are filled for every row.";
+      } else if (msg.includes("invalid input syntax")) {
+          userMessage = `Invalid data format in file: ${msg}`;
+      } else if (msg.includes("duplicate key") || msg.includes("unique constraint")) {
+          userMessage = "Duplicate district_code found. One or more districts in this file already exist in the database.";
+      } else if (msg.includes("foreign key") || msg.includes("violates foreign key")) {
+          userMessage = "Could not match district to an existing subdivision or state. Ensure district_code is correct.";
+      } else if (msg.includes("no rows") || msg.includes("column") || msg.includes("does not exist")) {
+          userMessage = `Column error: ${msg}. Make sure all required columns are present in the file.`;
+      } else if (msg) {
+          userMessage = msg;
+      }
+
+      res.status(500).json({ error: userMessage });
   }
 };
 

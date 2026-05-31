@@ -14,18 +14,39 @@ const PDFSubdivService = require('../scripts/pdf/pdfSubdivService');
 const PDFRegionService = require('../scripts/pdf/pdfRegionService');
 
 // Import fetchers (excluding block)
-const district = require("../District");
-const state = require("../State");
+const district    = require("../District");
+const state       = require("../State");
 const subdivision = require("../SubDivision");
-const region = require("../Region");
-const country = require("../Country");
+const region      = require("../Region");
+const country     = require("../Country");
+const awsCtrl     = require("../AwsInclusiveControllers");
+const { isAwsEnabled } = require("../../utils/calculationsMode");
 
+// Returns the right set of fetchers based on the DB toggle
+const getFetchers = async () => {
+    const useAws = await isAwsEnabled();
+    return useAws ? {
+        district:    (s, e, cd, dt) => awsCtrl.fetchDistrictWithAWS(s, e),
+        state:       (s, e, cd, dt) => awsCtrl.fetchStateWithAWS(s, e),
+        subdivision: (s, e, cd, dt) => awsCtrl.fetchSubDivisionWithAWS(s, e),
+        region:      (s, e, cd, dt) => awsCtrl.fetchRegionWithAWS(s, e),
+        country:     (s, e, cd, dt) => awsCtrl.fetchCountryWithAWS(s, e),
+    } : {
+        district:    district.fetchBetweenDates,
+        state:       state.fetchBetweenDates,
+        subdivision: subdivision.fetchBetweenDates,
+        region:      region.fetchBetweenDates,
+        country:     country.fetchBetweenDates,
+    };
+};
+
+// Keep legacy fetchers object for any direct references
 const fetchers = {
-    district: district.fetchBetweenDates,
-    state: state.fetchBetweenDates,
+    district:    district.fetchBetweenDates,
+    state:       state.fetchBetweenDates,
     subdivision: subdivision.fetchBetweenDates,
-    region: region.fetchBetweenDates,
-    country: country.fetchBetweenDates,
+    region:      region.fetchBetweenDates,
+    country:     country.fetchBetweenDates,
 };
 
 const serviceMap = {
@@ -76,6 +97,9 @@ exports.uploadMonthlyDRMSAndMetadata = async (req, res) => {
         const fromDate = prevMonthStart.format('YYYY-MM-DD');
         const toDate = prevMonthEnd.format('YYYY-MM-DD');
         const currentDate = today.format('YYYY-MM-DD');
+
+        // Read toggle once for the entire upload run
+        const activeFetchers = await getFetchers();
         const specificTime = "07:50:15.744983+00";
         const specificDateTime = `${currentDate} ${specificTime}`;
 
@@ -138,7 +162,7 @@ exports.uploadMonthlyDRMSAndMetadata = async (req, res) => {
         const uploadedFiles = [];
 
         // Generate and upload each report
-        for (const [levelKey, fetchFunc] of Object.entries(fetchers)) {
+        for (const [levelKey, fetchFunc] of Object.entries(activeFetchers)) {
             const levelName = levelNames[levelKey];
             const ServiceClass = serviceMap[levelKey];
 
@@ -157,28 +181,28 @@ exports.uploadMonthlyDRMSAndMetadata = async (req, res) => {
 
                     if (levelKey === 'district') {
                         const [districtCurr, stateCurr, subdivCurr, districtSeason, stateSeason, subdivSeason] = await Promise.all([
-                            district.fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime),
-                            state.fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime),
-                            subdivision.fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime),
-                            district.fetchBetweenDates(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime),
-                            state.fetchBetweenDates(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime),
-                            subdivision.fetchBetweenDates(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime)
+                            activeFetchers.district(fromDate, toDate, currentDate, specificDateTime),
+                            activeFetchers.state(fromDate, toDate, currentDate, specificDateTime),
+                            activeFetchers.subdivision(fromDate, toDate, currentDate, specificDateTime),
+                            activeFetchers.district(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime),
+                            activeFetchers.state(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime),
+                            activeFetchers.subdivision(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime)
                         ]);
                         await service.setData(districtCurr, stateCurr, subdivCurr, districtSeason, stateSeason, subdivSeason, dateRange, seasonPeriod);
                     } else if (levelKey === 'state') {
                         const [stateCurr, regionCurr, stateSeason, regionSeason] = await Promise.all([
-                            state.fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime),
-                            region.fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime),
-                            state.fetchBetweenDates(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime),
-                            region.fetchBetweenDates(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime)
+                            activeFetchers.state(fromDate, toDate, currentDate, specificDateTime),
+                            activeFetchers.region(fromDate, toDate, currentDate, specificDateTime),
+                            activeFetchers.state(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime),
+                            activeFetchers.region(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime)
                         ]);
                         await service.setData(stateCurr, regionCurr, stateSeason, regionSeason, dateRange, seasonPeriod);
                     } else if (levelKey === 'subdivision') {
                         const [subdivCurr, regionCurr, subdivSeason, regionSeason] = await Promise.all([
-                            subdivision.fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime),
-                            region.fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime),
-                            subdivision.fetchBetweenDates(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime),
-                            region.fetchBetweenDates(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime)
+                            activeFetchers.subdivision(fromDate, toDate, currentDate, specificDateTime),
+                            activeFetchers.region(fromDate, toDate, currentDate, specificDateTime),
+                            activeFetchers.subdivision(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime),
+                            activeFetchers.region(seasonPeriod.startDate, seasonPeriod.endDate, currentDate, specificDateTime)
                         ]);
                         await service.setData(subdivCurr, regionCurr, subdivSeason, regionSeason, dateRange, seasonPeriod);
                     } else if (levelKey === 'region') {

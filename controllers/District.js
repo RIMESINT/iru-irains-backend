@@ -4,6 +4,8 @@ const router = express.Router();
 const app = express();
 const client = require("../connection");
 const moment = require('moment');
+const awsCtrl      = require('./AwsInclusiveControllers');
+const { isAwsEnabled } = require('../utils/calculationsMode');
 
 
 exports.fetchDistrictData = async (req, res) => {
@@ -387,7 +389,10 @@ exports.fetchDistrictDataforAPIexport = async (req, res) => {
         const specificDateTime = `${currentDate} ${specificTime}`;
 
         // 📊 Fetch data (reuse your same function)
-        let data = await fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime);
+        const useAws = await isAwsEnabled();
+        let data = useAws
+            ? await awsCtrl.fetchDistrictWithAWS(fromDate, toDate)
+            : await fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime);
 
         return res.status(200).json({
             success: true,
@@ -586,6 +591,62 @@ exports.deleteDistrictDisplayOrderEntry = async (req, res) => {
     } catch (error) {
         console.error("deleteDistrictDisplayOrderEntry error:", error);
         res.status(500).json({ success: false, message: "Failed to delete district display order entry", error: error.message });
+    }
+};
+
+exports.getDistrictNormals = async (req, res) => {
+    try {
+        const { district_code } = req.params;
+        const result = await client.query(`
+            SELECT DISTINCT ON (nd.date)
+                nd.date,
+                nd.cumulative_rainfall_value,
+                nd.rainfall_value
+            FROM normal_district nd
+            JOIN normal_district_details ndd ON ndd.id = nd.normal_district_details_id
+            WHERE ndd.district_code = $1
+            ORDER BY nd.date, nd.id DESC
+        `, [district_code]);
+        res.status(200).json(result.rows);
+    } catch (error) {
+        console.error("getDistrictNormals error:", error);
+        res.status(500).json({ success: false, error: 'Internal Server Error' });
+    }
+};
+
+exports.downloadDistrictNormalTemplate = (_req, res) => {
+    try {
+        const xlsx = require('xlsx');
+        const months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        const dates = [];
+        for (let m = 0; m < 12; m++) {
+            for (let d = 1; d <= months[m]; d++) {
+                dates.push(`${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+            }
+        }
+        dates.push('02-29');
+
+        const sampleRow = { district_name: 'Sample District', district_code: 101001, district_area: 1500.5 };
+        const seasonStarts = new Set(['01-01', '03-01', '06-01', '10-01']);
+        let counter = 0;
+        dates.forEach(d => {
+            if (seasonStarts.has(d)) counter = 0;
+            counter++;
+            sampleRow[d] = counter * 2;
+        });
+
+        const headers = ['district_name', 'district_code', 'district_area', ...dates];
+        const ws = xlsx.utils.json_to_sheet([sampleRow], { header: headers });
+        const wb = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(wb, ws, 'Template');
+        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+        res.setHeader('Content-Disposition', 'attachment; filename="district_normals_template.xlsx"');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buffer);
+    } catch (error) {
+        console.error("downloadDistrictNormalTemplate error:", error);
+        res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 };
 

@@ -66,7 +66,7 @@ const fetchFilteredData = async (startDate, endDate = null) => {
                         min(sd.activationdate) as activationdate,
                         sum(sdd.data) as data
                     FROM public.station_details AS sd
-                    JOIN public.station_daily_data AS sdd
+                    JOIN public.station_daily_data_updates AS sdd
                     ON sdd.station_id = sd.station_code
                     JOIN normal_district_details AS ndd
                     ON ndd.district_code = sdd.district_code
@@ -98,7 +98,7 @@ const fetchFilteredData = async (startDate, endDate = null) => {
                sdd.is_verified,
                sdd.verified_at
         FROM public.station_details AS sd
-        JOIN public.station_daily_data AS sdd
+        JOIN public.station_daily_data_updates AS sdd
           ON sdd.station_id = sd.station_code
         JOIN normal_district_details AS ndd
           ON ndd.district_code = sdd.district_code

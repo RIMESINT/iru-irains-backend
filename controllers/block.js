@@ -3,6 +3,8 @@ const router = express.Router();
 const app = express();
 const client = require("../connection");
 const moment = require('moment');
+const awsCtrl      = require('./AwsInclusiveControllers');
+const { isAwsEnabled } = require('../utils/calculationsMode');
 
 
 exports.fetchBlockData = async (req, res) => {
@@ -468,7 +470,10 @@ exports.fetchBlockDataAforAPIexport = async (req, res) => {
         const specificDateTime = `${currentDate} ${specificTime}`;
 
         // 📌 Call block service
-        let data = await fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime);
+        const useAws = await isAwsEnabled();
+        let data = useAws
+            ? await awsCtrl.fetchBlockWithAWS(fromDate, toDate)
+            : await fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime);
 
         return res.status(200).json({
             success: true,

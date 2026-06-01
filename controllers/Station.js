@@ -1676,9 +1676,14 @@ exports.fetchCalcModeStations = async (req, res) => {
       ORDER BY asd.station_code
     `;
 
-    const [imdResult, awsResult] = await Promise.all([
+    const imdTotalQuery = `SELECT COUNT(*) AS total FROM public.station_details WHERE flag = 1`;
+    const awsTotalQuery = `SELECT COUNT(*) AS total FROM public.aws_station_details`;
+
+    const [imdResult, awsResult, imdTotalResult, awsTotalResult] = await Promise.all([
       client.query(imdQuery, [today]),
       client.query(awsQuery, [today]),
+      client.query(imdTotalQuery),
+      client.query(awsTotalQuery),
     ]);
 
     res.status(200).json({
@@ -1686,6 +1691,8 @@ exports.fetchCalcModeStations = async (req, res) => {
       date: today,
       imd: imdResult.rows,
       aws: awsResult.rows,
+      imdTotal: parseInt(imdTotalResult.rows[0].total, 10),
+      awsTotal: parseInt(awsTotalResult.rows[0].total, 10),
     });
   } catch (err) {
     console.error('fetchCalcModeStations error', err);

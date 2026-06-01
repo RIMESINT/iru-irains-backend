@@ -63,7 +63,8 @@ const checkImdConnectivity = async () => {
         await axios.head("https://city.imd.gov.in", { timeout: 8000 });
         return true;
     } catch (err) {
-        console.error(`[AWS CRON] city.imd.gov.in connectivity check failed: ${err.message} | code: ${err.code || 'N/A'}`);
+        const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+        console.error(`[AWS CRON] [${ts} IST] city.imd.gov.in connectivity check failed: ${err.message} | code: ${err.code || 'N/A'}`);
         return false;
     }
 };

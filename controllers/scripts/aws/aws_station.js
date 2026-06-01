@@ -186,21 +186,27 @@ exports.storeContinue = async (req, res) => {
 // 3. CRON — always refreshes today
 //    POST /api/v1/aws-station/store-cron
 // ─────────────────────────────────────────────────────────────────────────────
+// Internal function — called directly by CronJobs.js (no req/res needed)
+const runDailyStore = async () => {
+    const date = getAwsToday();
+    await deleteForDay(date);
+    const summary = { date, sources: [] };
+
+    for (const src of SOURCES) {
+        const inserted = await insertFromSource(src.ctrl, src.source_table, src.flag, date);
+        summary.sources.push({ table: src.source_table, inserted });
+    }
+
+    summary.filled_no_data = await fillMissingWithNoData(date);
+    console.log(`[AWS STATION] ${moment().tz(IST).format("YYYY-MM-DD HH:mm:ss")} IST | Date: ${date} | Sources: ${JSON.stringify(summary.sources)} | Filled: ${summary.filled_no_data}`);
+    return summary;
+};
+exports.runDailyStore = runDailyStore;
+
 exports.storeCron = async (req, res) => {
     try {
-        const date = getAwsToday();
-        await deleteForDay(date);
-        const summary = { date, sources: [] };
-
-        for (const src of SOURCES) {
-            const inserted = await insertFromSource(src.ctrl, src.source_table, src.flag, date);
-            summary.sources.push({ table: src.source_table, inserted });
-        }
-
-        summary.filled_no_data = await fillMissingWithNoData(date);
-
-        console.log(`[AWS STATION CRON] ${moment().tz(IST).format("YYYY-MM-DD HH:mm:ss")} IST | Date: ${date} | Done`);
-        res.status(200).json({ success: true, message: `Cron store complete for ${date}`, summary });
+        const summary = await runDailyStore();
+        res.status(200).json({ success: true, message: `Cron store complete for ${summary.date}`, summary });
     } catch (error) {
         console.error("[AWS STATION] storeCron error:", error);
         res.status(500).json({ success: false, message: error.message });

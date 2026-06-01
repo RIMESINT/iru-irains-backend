@@ -17,6 +17,7 @@ const {
     fetchAndStoreKarnataka,
     fetchAndStoreIITMMumbai
 } = require("../controllers/scripts/aws/awsFetcher");
+const { runDailyStore } = require("../controllers/scripts/aws/aws_station");
 
 
 // ─── Existing — every 30 min 1:29PM to 5:59PM ────────────────────────────────
@@ -92,6 +93,17 @@ const runAllAwsFetchers = async () => {
 const awsJobs = ['0 * * * *', '15 * * * *', '30 * * * *', '45 * * * *'].map((pattern) =>
     schedule.scheduleJob(pattern, runAllAwsFetchers)
 );
+
+// ─── AWS Station Daily Store — every day at 1:30 PM IST ─────────────────────
+schedule.scheduleJob('30 13 * * *', async () => {
+    const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    console.log(`[AWS STATION] Daily store triggered at ${ts} IST`);
+    try {
+        await runDailyStore();
+    } catch (e) {
+        console.error(`[AWS STATION] Daily store failed: ${e.message}`);
+    }
+});
 
 
 // ─── Run once immediately on server start ────────────────────────────────────

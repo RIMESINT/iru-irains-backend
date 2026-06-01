@@ -73,10 +73,10 @@ const checkImdConnectivity = async () => {
 const runAllAwsFetchers = async () => {
     console.log(`[AWS CRON] Running at ${new Date().toLocaleString()}`);
     const reachable = await checkImdConnectivity();
-    if (!reachable) {
-        console.error("[AWS CRON] city.imd.gov.in unreachable — skipping all fetchers");
-        return;
-    }
+    // if (!reachable) {
+    //     console.error("[AWS CRON] city.imd.gov.in unreachable — skipping all fetchers");
+    //     return;
+    // }
     try { await fetchAndStoreUP();          } catch (e) { console.error("[UP AWS] Failed:",          e.message); }
     try { await fetchAndStoreNHP();         } catch (e) { console.error("[NHP AWS] Failed:",         e.message); }
     try { await fetchAndStoreZomato();      } catch (e) { console.error("[ZOMATO AWS] Failed:",      e.message); }

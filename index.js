@@ -31,11 +31,11 @@ const stationDashboardRoutes = require("./routes/stationDashboardRoutes");
 const calculationsModeRoutes = require("./routes/calculationsModeRoutes");
 
 // // Load SSL Certificate
-// const options = {
-//     key: fs.readFileSync("/etc/apache2/private.key"),
-//     cert: fs.readFileSync("/etc/apache2/*.imd.gov.in.crt"),
-//     ca: fs.readFileSync("/etc/apache2/emSign-SSL-CA-G1.crt"),
-// };
+const options = {
+    key: fs.readFileSync("/etc/apache2/private.key"),
+    cert: fs.readFileSync("/etc/apache2/*.imd.gov.in.crt"),
+    ca: fs.readFileSync("/etc/apache2/emSign-SSL-CA-G1.crt"),
+};
 
 app.use(cors());
 app.use(bodyParser.json({ limit: "10mb" }));

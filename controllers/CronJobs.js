@@ -62,7 +62,8 @@ const checkImdConnectivity = async () => {
     try {
         await axios.head("https://city.imd.gov.in", { timeout: 8000 });
         return true;
-    } catch {
+    } catch (err) {
+        console.error(`[AWS CRON] city.imd.gov.in connectivity check failed: ${err.message} | code: ${err.code || 'N/A'}`);
         return false;
     }
 };

@@ -1637,6 +1637,62 @@ exports.getAllStations = async (req, res) => {
   }
 };
 
+exports.fetchCalcModeStations = async (req, res) => {
+  const { date } = req.body;
+  const today = date || moment().format('YYYY-MM-DD');
+  try {
+    const imdQuery = `
+      SELECT
+        sd.station_code,
+        sd.station_name,
+        sd.block_code,
+        sd.block_name,
+        ndd.state_name,
+        ndd.district_name,
+        sdd.data
+      FROM public.station_details sd
+      JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+      JOIN public.normal_district_details ndd ON ndd.district_code = sdd.district_code
+      WHERE sdd.collection_date = $1
+        AND sdd.data != -999.9
+        AND sd.flag != 0
+      ORDER BY sd.station_code
+    `;
+
+    const awsQuery = `
+      SELECT
+        asd.station_code,
+        asd.station_name,
+        asd.block_code,
+        asd.block_name,
+        ndd.state_name,
+        ndd.district_name,
+        asdd.data
+      FROM public.aws_station_details asd
+      JOIN public.normal_district_details ndd ON ndd.district_code = asd.district_code
+      JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+      WHERE asdd.collection_date = $1
+        AND asdd.data >= 0
+      ORDER BY asd.station_code
+    `;
+
+    const [imdResult, awsResult] = await Promise.all([
+      client.query(imdQuery, [today]),
+      client.query(awsQuery, [today]),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      date: today,
+      imd: imdResult.rows,
+      aws: awsResult.rows,
+    });
+  } catch (err) {
+    console.error('fetchCalcModeStations error', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 
 
 

@@ -8,7 +8,7 @@ const { fetchDistrictDataWithAWS } = require("../controllers/AwsInclusiveControl
 const { fetchDistrictData, getAllDistrict, getLatestFiveYearDataOfDistrict, fetchDistrictDataforAPIexport, getDistrictAreaPercentages, fetchDistrictStationCount, getDistrictDisplayOrder, getNormalDistrictDetails, updateDistrictDisplayOrders, addDistrictDisplayOrderEntry, deleteDistrictDisplayOrderEntry, getDistrictNormals, downloadDistrictNormalTemplate } = require("../controllers/District")
 const { fetchDistrictDataFtp, fetchDistrictDataInBunchOfDatesFtp,getLatestFiveYearDataOfDistrictFtp} = require("../controllers/ftp/District")
 const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/scripts/district/normalDistrict");
-const { addNewDistrictDetails, updateDistrictNormals } = require("../controllers/scripts/district/addNormalDistrict");
+const { addNewDistrictDetails, updateDistrictNormals, bulkReplaceDistrictNormals } = require("../controllers/scripts/district/addNormalDistrict");
 const { inserNewDistrictAndNormalValues } = require("../controllers/scripts/AddDistrictAndNormals");
 
 
@@ -20,6 +20,7 @@ const { inserNewDistrictAndNormalValues } = require("../controllers/scripts/AddD
 router.get("/nDistrictPrev", getnDistrictDataAndInsertInNormalDistrict);
 router.put("/addNewDistrictDetails", addNewDistrictDetails);
 router.put("/updateDistrictNormals/:district_code", upload.single('file'), updateDistrictNormals);
+router.put("/bulkReplaceDistrictNormals", upload.single('file'), bulkReplaceDistrictNormals);
 router.post("/inserNewDistrictAndNormalValues", upload.single('file'), inserNewDistrictAndNormalValues);
 
 

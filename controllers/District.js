@@ -614,38 +614,62 @@ exports.getDistrictNormals = async (req, res) => {
     }
 };
 
+const buildNormalTemplate = (district_name, district_code, district_area) => {
+    const xlsx = require('xlsx');
+    const months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    const dates = [];
+    for (let m = 0; m < 12; m++) {
+        for (let d = 1; d <= months[m]; d++) {
+            dates.push(`${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+        }
+    }
+    dates.push('02-29');
+
+    const row = { district_name, district_code, district_area };
+    const seasonStarts = new Set(['01-01', '03-01', '06-01', '10-01']);
+    let counter = 0;
+    dates.forEach(d => {
+        if (seasonStarts.has(d)) counter = 0;
+        counter++;
+        row[d] = counter * 2;
+    });
+
+    const headers = ['district_name', 'district_code', 'district_area', ...dates];
+    const ws = xlsx.utils.json_to_sheet([row], { header: headers });
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, 'Template');
+    return xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+};
+
 exports.downloadDistrictNormalTemplate = (_req, res) => {
     try {
-        const xlsx = require('xlsx');
-        const months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-        const dates = [];
-        for (let m = 0; m < 12; m++) {
-            for (let d = 1; d <= months[m]; d++) {
-                dates.push(`${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
-            }
-        }
-        dates.push('02-29');
-
-        const sampleRow = { district_name: 'Sample District', district_code: 101001, district_area: 1500.5 };
-        const seasonStarts = new Set(['01-01', '03-01', '06-01', '10-01']);
-        let counter = 0;
-        dates.forEach(d => {
-            if (seasonStarts.has(d)) counter = 0;
-            counter++;
-            sampleRow[d] = counter * 2;
-        });
-
-        const headers = ['district_name', 'district_code', 'district_area', ...dates];
-        const ws = xlsx.utils.json_to_sheet([sampleRow], { header: headers });
-        const wb = xlsx.utils.book_new();
-        xlsx.utils.book_append_sheet(wb, ws, 'Template');
-        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
+        const buffer = buildNormalTemplate('Sample District', 101001, 1500.5);
         res.setHeader('Content-Disposition', 'attachment; filename="district_normals_template.xlsx"');
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.send(buffer);
     } catch (error) {
         console.error("downloadDistrictNormalTemplate error:", error);
+        res.status(500).json({ success: false, error: 'Internal Server Error' });
+    }
+};
+
+exports.downloadDistrictNormalTemplateForDistrict = async (req, res) => {
+    try {
+        const { district_code } = req.params;
+        const result = await client.query(
+            `SELECT district_name, district_code, district_area FROM normal_district_details WHERE district_code = $1 LIMIT 1`,
+            [district_code]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'District not found' });
+        }
+        const { district_name, district_area } = result.rows[0];
+        const buffer = buildNormalTemplate(district_name, district_code, district_area);
+        res.setHeader('Content-Disposition', `attachment; filename="normals_${district_code}.xlsx"`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buffer);
+    } catch (error) {
+        console.error("downloadDistrictNormalTemplateForDistrict error:", error);
         res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 };

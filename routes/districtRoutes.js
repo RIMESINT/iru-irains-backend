@@ -5,7 +5,7 @@ const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 const { fetchDistrictDataWithAWS } = require("../controllers/AwsInclusiveControllers");
-const { fetchDistrictData, getAllDistrict, getLatestFiveYearDataOfDistrict, fetchDistrictDataforAPIexport, getDistrictAreaPercentages, fetchDistrictStationCount, getDistrictDisplayOrder, getNormalDistrictDetails, updateDistrictDisplayOrders, addDistrictDisplayOrderEntry, deleteDistrictDisplayOrderEntry, getDistrictNormals, downloadDistrictNormalTemplate } = require("../controllers/District")
+const { fetchDistrictData, getAllDistrict, getLatestFiveYearDataOfDistrict, fetchDistrictDataforAPIexport, getDistrictAreaPercentages, fetchDistrictStationCount, getDistrictDisplayOrder, getNormalDistrictDetails, updateDistrictDisplayOrders, addDistrictDisplayOrderEntry, deleteDistrictDisplayOrderEntry, getDistrictNormals, downloadDistrictNormalTemplate, downloadDistrictNormalTemplateForDistrict } = require("../controllers/District")
 const { fetchDistrictDataFtp, fetchDistrictDataInBunchOfDatesFtp,getLatestFiveYearDataOfDistrictFtp} = require("../controllers/ftp/District")
 const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/scripts/district/normalDistrict");
 const { addNewDistrictDetails, updateDistrictNormals, bulkReplaceDistrictNormals } = require("../controllers/scripts/district/addNormalDistrict");
@@ -38,6 +38,7 @@ router.get("/getDistrictDisplayOrder", getDistrictDisplayOrder);
 router.get("/getNormalDistrictDetails", getNormalDistrictDetails);
 router.get("/getDistrictNormals/:district_code", getDistrictNormals);
 router.get("/downloadDistrictNormalTemplate", downloadDistrictNormalTemplate);
+router.get("/downloadDistrictNormalTemplate/:district_code", downloadDistrictNormalTemplateForDistrict);
 router.put("/updateDistrictDisplayOrders", updateDistrictDisplayOrders);
 router.post("/addDistrictDisplayOrderEntry", addDistrictDisplayOrderEntry);
 router.delete("/deleteDistrictDisplayOrderEntry/:display_order", deleteDistrictDisplayOrderEntry);

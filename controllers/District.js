@@ -616,14 +616,13 @@ exports.getDistrictNormals = async (req, res) => {
 
 const buildNormalTemplate = (district_name, district_code, district_area) => {
     const xlsx = require('xlsx');
-    const months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    const months = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     const dates = [];
     for (let m = 0; m < 12; m++) {
         for (let d = 1; d <= months[m]; d++) {
             dates.push(`${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
         }
     }
-    dates.push('02-29');
 
     const row = { district_name, district_code, district_area };
     const seasonStarts = new Set(['01-01', '03-01', '06-01', '10-01']);

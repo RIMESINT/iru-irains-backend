@@ -101,7 +101,7 @@ exports.bulkReplaceDistrictNormals = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Excel file is required' });
         }
 
-        const currentYear = new Date().getFullYear();
+        const currentYear = req.body.year ? parseInt(req.body.year, 10) : new Date().getFullYear();
         const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = xlsx.utils.sheet_to_json(worksheet);
@@ -172,7 +172,7 @@ exports.bulkReplaceDistrictNormals = async (req, res) => {
         await client.query('COMMIT');
         res.status(200).json({
             success: true,
-            message: `Bulk replace complete — ${results.length} district(s) updated`,
+            message: `Bulk replace complete for year ${currentYear} — ${results.length} district(s) updated`,
             details: results
         });
 
@@ -265,6 +265,91 @@ exports.addYearDistrictNormals = async (req, res) => {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('addYearDistrictNormals error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+exports.bulkAddYearDistrictNormals = async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ success: false, error: 'Excel file is required' });
+
+        const year = req.body.year ? parseInt(req.body.year, 10) : null;
+        if (!year || year < 2000 || year > 2100) {
+            return res.status(400).json({ success: false, error: 'Valid year is required' });
+        }
+
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = xlsx.utils.sheet_to_json(worksheet);
+
+        if (rows.length === 0) return res.status(400).json({ success: false, error: 'Excel file has no data rows' });
+
+        await client.query('BEGIN');
+
+        const inserted = [];
+        const skipped  = [];
+
+        for (const row of rows) {
+            const district_code = row.district_code;
+            if (!district_code) continue;
+
+            const detailResult = await client.query(
+                `SELECT id FROM normal_district_details WHERE district_code = $1`, [district_code]
+            );
+            if (detailResult.rows.length === 0) {
+                skipped.push({ district_code, district_name: row.district_name, reason: 'Not found in DB' });
+                continue;
+            }
+            const detailIds = detailResult.rows.map(r => r.id);
+            const primaryDetailId = detailIds[0];
+
+            // Check if year already exists
+            const existCheck = await client.query(
+                `SELECT COUNT(*) AS cnt FROM normal_district WHERE normal_district_details_id = ANY($1) AND EXTRACT(YEAR FROM date) = $2`,
+                [detailIds, year]
+            );
+            if (parseInt(existCheck.rows[0].cnt, 10) > 0) {
+                skipped.push({ district_code, district_name: row.district_name, reason: `Year ${year} already exists` });
+                continue;
+            }
+
+            const dateKeys = Object.keys(row)
+                .filter(k => /^\d{2}-\d{2}$/.test(k) && !SKIP_KEYS.has(k))
+                .sort();
+
+            const insertValues = [];
+            let prev = 0;
+            for (const key of dateKeys) {
+                if (key === '02-29' && !isLeapYear(year)) continue;
+                const value = row[key];
+                const dateStr = `${year}-${key}`;
+                if (SEASON_STARTS.has(key)) prev = 0;
+                insertValues.push(`('${dateStr}', ${value}, ${value - prev}, ${primaryDetailId})`);
+                prev = value;
+            }
+
+            if (insertValues.length === 0) {
+                skipped.push({ district_code, district_name: row.district_name, reason: 'No valid date columns' });
+                continue;
+            }
+
+            await client.query(
+                `INSERT INTO normal_district (date, cumulative_rainfall_value, rainfall_value, normal_district_details_id) VALUES ${insertValues.join(',')}`
+            );
+            inserted.push({ district_code, district_name: row.district_name, records: insertValues.length });
+        }
+
+        await client.query('COMMIT');
+        res.status(200).json({
+            success: true,
+            message: `Year ${year}: ${inserted.length} district(s) added, ${skipped.length} skipped`,
+            inserted,
+            skipped
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('bulkAddYearDistrictNormals error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

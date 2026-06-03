@@ -19,7 +19,7 @@ const SKIP_KEYS = new Set(['district_code', 'district_name', 'district_area']);
 exports.updateDistrictNormals = async (req, res) => {
     try {
         const { district_code } = req.params;
-        const currentYear = new Date().getFullYear();
+        const currentYear = req.body.year ? parseInt(req.body.year, 10) : new Date().getFullYear();
 
         if (!req.file) {
             return res.status(400).json({ success: false, error: 'Excel file is required' });
@@ -86,7 +86,7 @@ exports.updateDistrictNormals = async (req, res) => {
         );
 
         await client.query('COMMIT');
-        res.status(200).json({ success: true, message: `District normals updated successfully (${insertValues.length} records replaced)` });
+        res.status(200).json({ success: true, message: `${currentYear} normals replaced successfully (${insertValues.length} records)` });
 
     } catch (error) {
         await client.query('ROLLBACK');

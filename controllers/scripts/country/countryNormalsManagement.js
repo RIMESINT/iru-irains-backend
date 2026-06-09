@@ -263,3 +263,24 @@ exports.bulkAddCountryYearNormals = async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 };
+
+// ── Get countries missing normals for a given year ────────────────────────────
+exports.getMissingCountryNormals = async (req, res) => {
+    try {
+        const year = parseInt(req.query.year) || new Date().getFullYear();
+        const result = await client.query(
+            `SELECT DISTINCT country_name
+             FROM normal_country
+             WHERE country_name NOT IN (
+               SELECT DISTINCT country_name FROM normal_country
+               WHERE EXTRACT(YEAR FROM date) = $1
+             )
+             ORDER BY country_name`,
+            [year]
+        );
+        res.status(200).json({ success: true, data: result.rows, year });
+    } catch (err) {
+        console.error('getMissingCountryNormals error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};

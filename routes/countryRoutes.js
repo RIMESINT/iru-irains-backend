@@ -15,6 +15,7 @@ const {
     addCountryYearNormals,
     bulkReplaceCountryNormals,
     bulkAddCountryYearNormals,
+    getMissingCountryNormals,
 } = require("../controllers/scripts/country/countryNormalsManagement");
 
 
@@ -53,5 +54,6 @@ router.put("/replaceCountryNormals/:country_name",  upload.single('file'), repla
 router.post("/addCountryYearNormals/:country_name", upload.single('file'), addCountryYearNormals);
 router.put("/bulkReplaceCountryNormals",            upload.single('file'), bulkReplaceCountryNormals);
 router.post("/bulkAddCountryYearNormals",           upload.single('file'), bulkAddCountryYearNormals);
+router.get("/getMissingCountryNormals",             getMissingCountryNormals);
 
 module.exports = router;

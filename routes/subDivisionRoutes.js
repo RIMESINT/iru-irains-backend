@@ -15,6 +15,7 @@ const {
     addSubdivisionYearNormals,
     bulkReplaceSubdivisionNormals,
     bulkAddSubdivisionYearNormals,
+    getMissingSubdivisionNormals,
 } = require("../controllers/scripts/subDivision/subdivisionNormalsManagement");
 
 
@@ -63,5 +64,6 @@ router.put("/replaceSubdivisionNormals/:sub_division_code",  upload.single('file
 router.post("/addSubdivisionYearNormals/:sub_division_code", upload.single('file'), addSubdivisionYearNormals);
 router.put("/bulkReplaceSubdivisionNormals",                 upload.single('file'), bulkReplaceSubdivisionNormals);
 router.post("/bulkAddSubdivisionYearNormals",                upload.single('file'), bulkAddSubdivisionYearNormals);
+router.get("/getMissingSubdivisionNormals",                  getMissingSubdivisionNormals);
 
 module.exports = router;

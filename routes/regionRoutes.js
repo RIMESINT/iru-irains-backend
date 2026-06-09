@@ -15,6 +15,7 @@ const {
     addRegionYearNormals,
     bulkReplaceRegionNormals,
     bulkAddRegionYearNormals,
+    getMissingRegionNormals,
 } = require("../controllers/scripts/region/regionNormalsManagement");
 
 
@@ -55,5 +56,6 @@ router.put("/replaceRegionNormals/:region_id",  upload.single('file'), replaceRe
 router.post("/addRegionYearNormals/:region_id", upload.single('file'), addRegionYearNormals);
 router.put("/bulkReplaceRegionNormals",         upload.single('file'), bulkReplaceRegionNormals);
 router.post("/bulkAddRegionYearNormals",        upload.single('file'), bulkAddRegionYearNormals);
+router.get("/getMissingRegionNormals",          getMissingRegionNormals);
 
 module.exports = router;

@@ -289,3 +289,24 @@ exports.bulkAddRegionYearNormals = async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 };
+
+// ── Get regions missing normals for a given year ──────────────────────────────
+exports.getMissingRegionNormals = async (req, res) => {
+    try {
+        const year = parseInt(req.query.year) || new Date().getFullYear();
+        const result = await client.query(
+            `SELECT DISTINCT region_id, region_name
+             FROM normal_region
+             WHERE region_id NOT IN (
+               SELECT DISTINCT region_id FROM normal_region
+               WHERE EXTRACT(YEAR FROM date) = $1
+             )
+             ORDER BY region_name`,
+            [year]
+        );
+        res.status(200).json({ success: true, data: result.rows, year });
+    } catch (err) {
+        console.error('getMissingRegionNormals error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};

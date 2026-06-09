@@ -302,3 +302,24 @@ exports.bulkAddSubdivisionYearNormals = async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 };
+
+// ── Get subdivisions missing normals for a given year ─────────────────────────
+exports.getMissingSubdivisionNormals = async (req, res) => {
+    try {
+        const year = parseInt(req.query.year) || new Date().getFullYear();
+        const result = await client.query(
+            `SELECT DISTINCT sub_division_code, sub_division_name
+             FROM normal_sub_division
+             WHERE sub_division_code NOT IN (
+               SELECT DISTINCT sub_division_code FROM normal_sub_division
+               WHERE EXTRACT(YEAR FROM date) = $1
+             )
+             ORDER BY sub_division_name`,
+            [year]
+        );
+        res.status(200).json({ success: true, data: result.rows, year });
+    } catch (err) {
+        console.error('getMissingSubdivisionNormals error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};

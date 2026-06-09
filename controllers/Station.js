@@ -1496,11 +1496,20 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
 
         let data = await fetchFilteredDataNWP(effectiveDate);
 
+        const inactiveResult = await client.query(
+          `SELECT COUNT(*) FROM public.station_details sd
+           JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+           WHERE sdd.collection_date = $1 AND sd.flag = 0`,
+          [effectiveDate]
+        );
+
         res.status(200).json({
             success: true,
             message: "Station data fetched Successfully",
+            note: "Only IMD stations having data",
             date:effectiveDate,
             count: data.length,
+            inactive: parseInt(inactiveResult.rows[0].count),
             data: data
         });
     }
@@ -1594,11 +1603,20 @@ exports.fetchStationDataNWP_AWS = async (req, res) => {
     if (user === 'IMD_NWP' && pass === '!Md@15O#nWp') {
       const effectiveDate = moment().format('YYYY-MM-DD');
       const data = await fetchFilteredDataNWP_AWS(effectiveDate);
+      const inactiveResult = await client.query(
+        `SELECT COUNT(*) FROM public.aws_station_details asd
+         JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+         WHERE asdd.collection_date = $1 AND asd.flag = 0`,
+        [effectiveDate]
+      );
+
       return res.status(200).json({
         success: true,
         message: 'AWS station data fetched successfully',
+        note: 'Only State AWS stations having data',
         date: effectiveDate,
         count: data.length,
+        inactive: parseInt(inactiveResult.rows[0].count),
         data
       });
     }
@@ -1708,14 +1726,34 @@ exports.fetchStationDataNWP_Combined = async (req, res) => {
       const data = await fetchFilteredDataNWP_Combined(effectiveDate);
       const imd_count = data.filter(r => r.source === 'IMD').length;
       const aws_count = data.filter(r => r.source === 'AWS').length;
+
+      const [imdInactive, awsInactive] = await Promise.all([
+        client.query(
+          `SELECT COUNT(*) FROM public.station_details sd
+           JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+           WHERE sdd.collection_date = $1 AND sd.flag = 0`,
+          [effectiveDate]
+        ),
+        client.query(
+          `SELECT COUNT(*) FROM public.aws_station_details asd
+           JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+           WHERE asdd.collection_date = $1 AND asd.flag = 0`,
+          [effectiveDate]
+        )
+      ]);
+
       return res.status(200).json({
         success: true,
         message: 'Combined IMD + AWS station data fetched successfully',
+        note: 'All stations of IMD + State AWS including having no data',
         date: effectiveDate,
         count: data.length,
         imd_count,
         aws_count,
         total_count: data.length,
+        inactive: parseInt(imdInactive.rows[0].count) + parseInt(awsInactive.rows[0].count),
+        imd_inactive: parseInt(imdInactive.rows[0].count),
+        aws_inactive: parseInt(awsInactive.rows[0].count),
         data
       });
     }

@@ -1516,9 +1516,9 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
             message: "Station data fetched Successfully",
             note: "Only IMD stations having data",
             date:effectiveDate,
-            total_stations: parseInt(totalResult.rows[0].count),
-            count: data.length,
-            inactive: parseInt(inactiveResult.rows[0].count),
+            imd_total_stations: parseInt(totalResult.rows[0].count),
+            imd_stations_having_data: data.length,
+            imd_inactive_stations: parseInt(inactiveResult.rows[0].count),
             data: data
         });
     }
@@ -1632,9 +1632,9 @@ exports.fetchStationDataNWP_AWS = async (req, res) => {
         message: 'AWS station data fetched successfully',
         note: 'Only State AWS stations having data',
         date: effectiveDate,
-        total_stations: parseInt(totalResult.rows[0].count),
-        count: data.length,
-        inactive: parseInt(inactiveResult.rows[0].count),
+        state_aws_total_stations: parseInt(totalResult.rows[0].count),
+        state_aws_stations_having_data: data.length,
+        state_aws_inactive_stations: parseInt(inactiveResult.rows[0].count),
         data
       });
     }
@@ -1782,14 +1782,13 @@ exports.fetchStationDataNWP_Combined = async (req, res) => {
         date: effectiveDate,
         total_stations: imd_total + aws_total,
         imd_total_stations: imd_total,
-        aws_total_stations: aws_total,
-        count: data.length,
-        imd_count,
-        aws_count,
-        total_count: data.length,
-        inactive: parseInt(imdInactive.rows[0].count) + parseInt(awsInactive.rows[0].count),
-        imd_inactive: parseInt(imdInactive.rows[0].count),
-        aws_inactive: parseInt(awsInactive.rows[0].count),
+        state_aws_total_stations: aws_total,
+        total_stations_having_data: data.length,
+        imd_stations_having_data: imd_count,
+        state_aws_stations_having_data: aws_count,
+        total_inactive_stations: parseInt(imdInactive.rows[0].count) + parseInt(awsInactive.rows[0].count),
+        imd_inactive_stations: parseInt(imdInactive.rows[0].count),
+        state_aws_inactive_stations: parseInt(awsInactive.rows[0].count),
         data
       });
     }

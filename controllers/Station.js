@@ -1523,6 +1523,206 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
 
 
 
+// ── AWS-only NWP ──────────────────────────────────────────────────────────────
+const fetchFilteredDataNWP_AWS = async (startDate, endDate = null) => {
+  let query, values;
+
+  if (endDate) {
+    query = `
+      SELECT
+        min(ndd.region_name)    as region_name,
+        min(ndd.subdiv_name)    as subdiv_name,
+        min(ndd.state_name)     as state_name,
+        min(ndd.district_name)  as district_name,
+        asd.station_code        as station_code,
+        min(asd.station_name)   as station_name,
+        min(asd.station_type)   as station_type,
+        min(asd.centre_type)    as centre_type,
+        min(asd.centre_name)    as centre_name,
+        min(asd.latitude)       as latitude,
+        min(asd.longitude)      as longitude,
+        sum(asdd.data)          as rainfall_data_in_mm
+      FROM public.aws_station_details AS asd
+      JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
+      WHERE asdd.collection_date BETWEEN $1 AND $2
+        AND asdd.data != -999.9
+        AND asd.flag != 0
+      GROUP BY asd.station_code
+      ORDER BY asd.station_code
+    `;
+    values = [startDate, endDate];
+  } else {
+    query = `
+      SELECT
+        ndd.region_name,
+        ndd.subdiv_name,
+        ndd.state_name,
+        ndd.district_name,
+        asd.station_code,
+        asd.station_name,
+        asd.station_type,
+        asd.centre_type,
+        asd.centre_name,
+        asd.latitude,
+        asd.longitude,
+        asdd.data as rainfall_data_in_mm
+      FROM public.aws_station_details AS asd
+      JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
+      WHERE asdd.collection_date = $1
+        AND asdd.data != -999.9
+        AND asd.flag != 0
+      ORDER BY asd.station_code
+    `;
+    values = [startDate];
+  }
+
+  try {
+    const result = await client.query(query, values);
+    return result.rows;
+  } catch (error) {
+    console.error('Error executing fetchFilteredDataNWP_AWS:', error.stack);
+    throw error;
+  }
+};
+
+exports.fetchStationDataNWP_AWS = async (req, res) => {
+  try {
+    const { user, pass } = req.body;
+    if (user === 'IMD_NWP' && pass === '!Md@15O#nWp') {
+      const effectiveDate = moment().format('YYYY-MM-DD');
+      const data = await fetchFilteredDataNWP_AWS(effectiveDate);
+      return res.status(200).json({
+        success: true,
+        message: 'AWS station data fetched successfully',
+        date: effectiveDate,
+        data
+      });
+    }
+    res.status(401).json({ success: false, message: 'You are not authorized to use this API' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Failed to fetch AWS station data' });
+  }
+};
+
+// ── Combined (IMD + AWS) NWP ──────────────────────────────────────────────────
+const fetchFilteredDataNWP_Combined = async (startDate, endDate = null) => {
+  let imdQuery, awsQuery, values;
+
+  if (endDate) {
+    imdQuery = `
+      SELECT
+        min(ndd.region_name)   as region_name,
+        min(ndd.subdiv_name)   as subdiv_name,
+        min(ndd.state_name)    as state_name,
+        min(ndd.district_name) as district_name,
+        sd.station_code        as station_code,
+        min(sd.station_name)   as station_name,
+        min(sd.station_type)   as station_type,
+        min(sd.centre_type)    as centre_type,
+        min(sd.centre_name)    as centre_name,
+        min(sd.latitude)       as latitude,
+        min(sd.longitude)      as longitude,
+        sum(sdd.data)          as rainfall_data_in_mm,
+        'IMD'                  as source
+      FROM public.station_details AS sd
+      JOIN public.station_daily_data_updates AS sdd ON sdd.station_id = sd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = sdd.district_code
+      WHERE sdd.collection_date BETWEEN $1 AND $2 AND sdd.data != -999.9 AND sd.flag != 0
+      GROUP BY sd.station_code
+    `;
+    awsQuery = `
+      SELECT
+        min(ndd.region_name)   as region_name,
+        min(ndd.subdiv_name)   as subdiv_name,
+        min(ndd.state_name)    as state_name,
+        min(ndd.district_name) as district_name,
+        asd.station_code       as station_code,
+        min(asd.station_name)  as station_name,
+        min(asd.station_type)  as station_type,
+        min(asd.centre_type)   as centre_type,
+        min(asd.centre_name)   as centre_name,
+        min(asd.latitude)      as latitude,
+        min(asd.longitude)     as longitude,
+        sum(asdd.data)         as rainfall_data_in_mm,
+        'AWS'                  as source
+      FROM public.aws_station_details AS asd
+      JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
+      WHERE asdd.collection_date BETWEEN $1 AND $2
+        AND asdd.data != -999.9
+        AND asd.flag != 0
+      GROUP BY asd.station_code
+    `;
+    values = [startDate, endDate];
+  } else {
+    imdQuery = `
+      SELECT
+        ndd.region_name, ndd.subdiv_name, ndd.state_name, ndd.district_name,
+        sd.station_code, sd.station_name, sd.station_type, sd.centre_type, sd.centre_name,
+        sd.latitude, sd.longitude,
+        sdd.data as rainfall_data_in_mm,
+        'IMD'    as source
+      FROM public.station_details AS sd
+      JOIN public.station_daily_data_updates AS sdd ON sdd.station_id = sd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = sdd.district_code
+      WHERE sdd.collection_date = $1 AND sd.flag != 0
+    `;
+    awsQuery = `
+      SELECT
+        ndd.region_name, ndd.subdiv_name, ndd.state_name, ndd.district_name,
+        asd.station_code, asd.station_name,
+        asd.station_type, asd.centre_type, asd.centre_name,
+        asd.latitude, asd.longitude,
+        asdd.data as rainfall_data_in_mm,
+        'AWS'     as source
+      FROM public.aws_station_details AS asd
+      JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
+      WHERE asdd.collection_date = $1
+        AND asdd.data != -999.9
+        AND asd.flag != 0
+    `;
+    values = [startDate];
+  }
+
+  try {
+    const [imdResult, awsResult] = await Promise.all([
+      client.query(imdQuery, values),
+      client.query(awsQuery, values)
+    ]);
+    return [...imdResult.rows, ...awsResult.rows];
+  } catch (error) {
+    console.error('Error executing fetchFilteredDataNWP_Combined:', error.stack);
+    throw error;
+  }
+};
+
+exports.fetchStationDataNWP_Combined = async (req, res) => {
+  try {
+    const { user, pass } = req.body;
+    if (user === 'IMD_NWP' && pass === '!Md@15O#nWp') {
+      const effectiveDate = moment().format('YYYY-MM-DD');
+      const data = await fetchFilteredDataNWP_Combined(effectiveDate);
+      return res.status(200).json({
+        success: true,
+        message: 'Combined IMD + AWS station data fetched successfully',
+        date: effectiveDate,
+        imd_count: data.filter(r => r.source === 'IMD').length,
+        aws_count: data.filter(r => r.source === 'AWS').length,
+        total_count: data.length,
+        data
+      });
+    }
+    res.status(401).json({ success: false, message: 'You are not authorized to use this API' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Failed to fetch combined station data' });
+  }
+};
+
 exports.fetchCentreStationSummary = async (req, res) => {
   try {
       let { startDate, endDate } = req.body;

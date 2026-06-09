@@ -32,6 +32,8 @@ const { fetchStationData,
         fetchStationUnifiedFile,
         dataActions,
         fetchStationDataNWP,
+        fetchStationDataNWP_AWS,
+        fetchStationDataNWP_Combined,
         fetchCentreStationSummary,
         getAllStations,
         fetchCalcModeStations,
@@ -86,7 +88,9 @@ router.post("/EditMultipleStations", upload.single('file'), EditMultipleStations
 
 router.get("/createStationDetailsTable", createStationDetailsTable);
 router.post("/fetchStationDataNew", fetchStationData);
-router.post("/station_data_for_nwp", fetchStationDataNWP);
+router.post("/station_data_for_nwp",          fetchStationDataNWP);
+router.post("/station_data_for_nwp_aws",      fetchStationDataNWP_AWS);
+router.post("/station_data_for_nwp_combined", fetchStationDataNWP_Combined);
 router.post("/fetchStationData", fetchStationDataNew);
 router.post("/fetchStationDataIncludingVerification", fetchStationDataIncludingVerification);
 router.post("/fetchInRangeStationdata", fetchInRangeStationdataNew);

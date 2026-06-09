@@ -5,6 +5,17 @@ const { fetchRegionDataWithAWS } = require("../controllers/AwsInclusiveControlle
 const { fetchRegionData, getAllRegions, fetchCummulativeRegionData, fetchRegionDataAforAPIexport, getRegionAreaPercentages, fetchRegionCoverageCount} = require("../controllers/Region")
 const { fetchRegionDataFtp, fetchCummulativeRegionDataFtp} = require("../controllers/ftp/Region")
 const { getnRegionDataAndInsertInNormalRegion } = require("../controllers/scripts/region/normalRegion")
+const multer  = require('multer');
+const upload  = multer({ storage: multer.memoryStorage() });
+const {
+    getRegionNormalList,
+    getRegionNormals,
+    downloadRegionNormalTemplate,
+    replaceRegionNormals,
+    addRegionYearNormals,
+    bulkReplaceRegionNormals,
+    bulkAddRegionYearNormals,
+} = require("../controllers/scripts/region/regionNormalsManagement");
 
 
 // ********************************************************************************************************
@@ -35,5 +46,14 @@ router.post("/fetchCummulativeRegionDataFtp", fetchCummulativeRegionDataFtp);
 
 
 
+
+// ── Region Normals Management ────────────────────────────────────────────────
+router.get("/getRegionNormalList",                                  getRegionNormalList);
+router.get("/getRegionNormals/:region_id",                          getRegionNormals);
+router.get("/downloadRegionNormalTemplate/:region_id",              downloadRegionNormalTemplate);
+router.put("/replaceRegionNormals/:region_id",  upload.single('file'), replaceRegionNormals);
+router.post("/addRegionYearNormals/:region_id", upload.single('file'), addRegionYearNormals);
+router.put("/bulkReplaceRegionNormals",         upload.single('file'), bulkReplaceRegionNormals);
+router.post("/bulkAddRegionYearNormals",        upload.single('file'), bulkAddRegionYearNormals);
 
 module.exports = router;

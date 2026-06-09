@@ -1496,18 +1496,27 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
 
         let data = await fetchFilteredDataNWP(effectiveDate);
 
-        const inactiveResult = await client.query(
-          `SELECT COUNT(*) FROM public.station_details sd
-           JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
-           WHERE sdd.collection_date = $1 AND sd.flag = 0`,
-          [effectiveDate]
-        );
+        const [inactiveResult, totalResult] = await Promise.all([
+          client.query(
+            `SELECT COUNT(*) FROM public.station_details sd
+             JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+             WHERE sdd.collection_date = $1 AND sd.flag = 0`,
+            [effectiveDate]
+          ),
+          client.query(
+            `SELECT COUNT(*) FROM public.station_details sd
+             JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+             WHERE sdd.collection_date = $1`,
+            [effectiveDate]
+          )
+        ]);
 
         res.status(200).json({
             success: true,
             message: "Station data fetched Successfully",
             note: "Only IMD stations having data",
             date:effectiveDate,
+            total_stations: parseInt(totalResult.rows[0].count),
             count: data.length,
             inactive: parseInt(inactiveResult.rows[0].count),
             data: data
@@ -1603,18 +1612,27 @@ exports.fetchStationDataNWP_AWS = async (req, res) => {
     if (user === 'IMD_NWP' && pass === '!Md@15O#nWp') {
       const effectiveDate = moment().format('YYYY-MM-DD');
       const data = await fetchFilteredDataNWP_AWS(effectiveDate);
-      const inactiveResult = await client.query(
-        `SELECT COUNT(*) FROM public.aws_station_details asd
-         JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
-         WHERE asdd.collection_date = $1 AND asd.flag = 0`,
-        [effectiveDate]
-      );
+      const [inactiveResult, totalResult] = await Promise.all([
+        client.query(
+          `SELECT COUNT(*) FROM public.aws_station_details asd
+           JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+           WHERE asdd.collection_date = $1 AND asd.flag = 0`,
+          [effectiveDate]
+        ),
+        client.query(
+          `SELECT COUNT(*) FROM public.aws_station_details asd
+           JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+           WHERE asdd.collection_date = $1`,
+          [effectiveDate]
+        )
+      ]);
 
       return res.status(200).json({
         success: true,
         message: 'AWS station data fetched successfully',
         note: 'Only State AWS stations having data',
         date: effectiveDate,
+        total_stations: parseInt(totalResult.rows[0].count),
         count: data.length,
         inactive: parseInt(inactiveResult.rows[0].count),
         data
@@ -1667,7 +1685,7 @@ const fetchFilteredDataNWP_Combined = async (startDate, endDate = null) => {
         min(asd.latitude)      as latitude,
         min(asd.longitude)     as longitude,
         sum(asdd.data)         as rainfall_data_in_mm,
-        'AWS'                  as source
+        'State AWS'            as source
       FROM public.aws_station_details AS asd
       JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
       JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
@@ -1696,7 +1714,7 @@ const fetchFilteredDataNWP_Combined = async (startDate, endDate = null) => {
         asd.station_type, asd.centre_type, asd.centre_name,
         asd.latitude, asd.longitude,
         asdd.data as rainfall_data_in_mm,
-        'AWS'     as source
+        'State AWS' as source
       FROM public.aws_station_details AS asd
       JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
       JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
@@ -1725,9 +1743,9 @@ exports.fetchStationDataNWP_Combined = async (req, res) => {
       const effectiveDate = moment().format('YYYY-MM-DD');
       const data = await fetchFilteredDataNWP_Combined(effectiveDate);
       const imd_count = data.filter(r => r.source === 'IMD').length;
-      const aws_count = data.filter(r => r.source === 'AWS').length;
+      const aws_count = data.filter(r => r.source === 'State AWS').length;
 
-      const [imdInactive, awsInactive] = await Promise.all([
+      const [imdInactive, awsInactive, imdTotal, awsTotal] = await Promise.all([
         client.query(
           `SELECT COUNT(*) FROM public.station_details sd
            JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
@@ -1739,14 +1757,32 @@ exports.fetchStationDataNWP_Combined = async (req, res) => {
            JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
            WHERE asdd.collection_date = $1 AND asd.flag = 0`,
           [effectiveDate]
+        ),
+        client.query(
+          `SELECT COUNT(*) FROM public.station_details sd
+           JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+           WHERE sdd.collection_date = $1`,
+          [effectiveDate]
+        ),
+        client.query(
+          `SELECT COUNT(*) FROM public.aws_station_details asd
+           JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+           WHERE asdd.collection_date = $1`,
+          [effectiveDate]
         )
       ]);
+
+      const imd_total = parseInt(imdTotal.rows[0].count);
+      const aws_total = parseInt(awsTotal.rows[0].count);
 
       return res.status(200).json({
         success: true,
         message: 'Combined IMD + AWS station data fetched successfully',
         note: 'All stations of IMD + State AWS including having no data',
         date: effectiveDate,
+        total_stations: imd_total + aws_total,
+        imd_total_stations: imd_total,
+        aws_total_stations: aws_total,
         count: data.length,
         imd_count,
         aws_count,

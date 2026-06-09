@@ -29,6 +29,7 @@ const adminRoutes = require("./routes/adminpanelRoutes");
 const geojsonRoutes = require("./routes/geojsonRoutes");
 const stationDashboardRoutes = require("./routes/stationDashboardRoutes");
 const calculationsModeRoutes = require("./routes/calculationsModeRoutes");
+const dbInfoRoutes = require("./routes/dbInfoRoutes");
 
 // // Load SSL Certificate
 const options = {
@@ -109,6 +110,7 @@ app.use("/api/v1/", adminRoutes);
 app.use("/api/v1/", geojsonRoutes);
 app.use("/api/v1/", stationDashboardRoutes);
 app.use("/api/v1/", calculationsModeRoutes);
+app.use("/api/v1/", dbInfoRoutes);
 
 // Use HTTPS Server
 https.createServer(options, app).listen(port, () => {

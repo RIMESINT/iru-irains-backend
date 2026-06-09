@@ -1500,6 +1500,7 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
             success: true,
             message: "Station data fetched Successfully",
             date:effectiveDate,
+            count: data.length,
             data: data
         });
     }
@@ -1597,6 +1598,7 @@ exports.fetchStationDataNWP_AWS = async (req, res) => {
         success: true,
         message: 'AWS station data fetched successfully',
         date: effectiveDate,
+        count: data.length,
         data
       });
     }
@@ -1652,7 +1654,6 @@ const fetchFilteredDataNWP_Combined = async (startDate, endDate = null) => {
       JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
       JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
       WHERE asdd.collection_date BETWEEN $1 AND $2
-        AND asdd.data != -999.9
         AND asd.flag != 0
       GROUP BY asd.station_code
     `;
@@ -1682,7 +1683,6 @@ const fetchFilteredDataNWP_Combined = async (startDate, endDate = null) => {
       JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
       JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
       WHERE asdd.collection_date = $1
-        AND asdd.data != -999.9
         AND asd.flag != 0
     `;
     values = [startDate];
@@ -1706,12 +1706,15 @@ exports.fetchStationDataNWP_Combined = async (req, res) => {
     if (user === 'IMD_NWP' && pass === '!Md@15O#nWp') {
       const effectiveDate = moment().format('YYYY-MM-DD');
       const data = await fetchFilteredDataNWP_Combined(effectiveDate);
+      const imd_count = data.filter(r => r.source === 'IMD').length;
+      const aws_count = data.filter(r => r.source === 'AWS').length;
       return res.status(200).json({
         success: true,
         message: 'Combined IMD + AWS station data fetched successfully',
         date: effectiveDate,
-        imd_count: data.filter(r => r.source === 'IMD').length,
-        aws_count: data.filter(r => r.source === 'AWS').length,
+        count: data.length,
+        imd_count,
+        aws_count,
         total_count: data.length,
         data
       });

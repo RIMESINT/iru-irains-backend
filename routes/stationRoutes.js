@@ -56,6 +56,7 @@ const {
     verifyStationData, 
     verifyMultipleStationData, 
     fetchInRangeStationdataNew,
+    fetchStationDataEntryRange,
     // fetchStationLogs,
     // fetchAllDatesAndDataOfStation,
     AddDailyStationData,
@@ -95,6 +96,7 @@ router.post("/fetchStationData", fetchStationDataNew);
 router.post("/fetchStationDataIncludingVerification", fetchStationDataIncludingVerification);
 router.post("/fetchInRangeStationdata", fetchInRangeStationdataNew);
 router.post("/fetchInRangeStationdataNew", fetchInRangeStationdata);
+router.post("/fetchStationDataEntryRange", fetchStationDataEntryRange);
 router.post("/updateStationData", updateStationData);
 router.post("/addNewStation", addNewStation);
 router.post("/editStation", editStation);

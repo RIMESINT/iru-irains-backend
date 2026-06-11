@@ -1,7 +1,6 @@
 const client = require("../connection");
 
 // GET /api/v1/scheduler/jobs
-// Returns all scheduler rows, grouped is left to the frontend.
 exports.getAllSchedules = async (req, res) => {
     try {
         const result = await client.query(
@@ -22,25 +21,17 @@ exports.updateSchedule = async (req, res) => {
     try {
         const { id } = req.params;
         const {
-            job_name,
-            description,
-            schedule_type,
-            run_time,
-            window_start_time,
-            window_end_time,
-            interval_minutes,
-            timezone,
-            is_active,
+            job_name, description, schedule_type, run_time,
+            window_start_time, window_end_time, interval_minutes,
+            timezone, is_active,
         } = req.body;
 
         if (!['daily_time', 'interval'].includes(schedule_type)) {
             return res.status(400).json({ success: false, message: "schedule_type must be 'daily_time' or 'interval'" });
         }
-
         if (schedule_type === 'daily_time' && !run_time) {
             return res.status(400).json({ success: false, message: "run_time is required for schedule_type 'daily_time'" });
         }
-
         if (schedule_type === 'interval' && (!window_start_time || !window_end_time || !interval_minutes)) {
             return res.status(400).json({ success: false, message: "window_start_time, window_end_time and interval_minutes are required for schedule_type 'interval'" });
         }
@@ -59,23 +50,17 @@ exports.updateSchedule = async (req, res) => {
              WHERE id = $10
              RETURNING *`,
             [
-                job_name ?? null,
-                description ?? null,
-                schedule_type,
+                job_name ?? null, description ?? null, schedule_type,
                 schedule_type === 'daily_time' ? run_time : null,
                 schedule_type === 'interval' ? window_start_time : null,
                 schedule_type === 'interval' ? window_end_time : null,
                 schedule_type === 'interval' ? interval_minutes : null,
-                timezone ?? null,
-                is_active ?? null,
-                id,
+                timezone ?? null, is_active ?? null, id,
             ]
         );
-
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: "Schedule not found" });
         }
-
         res.status(200).json({ success: true, message: "Schedule updated successfully", data: result.rows[0] });
     } catch (error) {
         console.error("[SCHEDULER] updateSchedule:", error);
@@ -84,25 +69,20 @@ exports.updateSchedule = async (req, res) => {
 };
 
 // PATCH /api/v1/scheduler/jobs/:id/toggle
-// Body: { is_active: boolean }
 exports.toggleSchedule = async (req, res) => {
     try {
         const { id } = req.params;
         const { is_active } = req.body;
-
         if (typeof is_active !== 'boolean') {
             return res.status(400).json({ success: false, message: "is_active must be a boolean" });
         }
-
         const result = await client.query(
             `UPDATE cron_job_schedules SET is_active = $1 WHERE id = $2 RETURNING *`,
             [is_active, id]
         );
-
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: "Schedule not found" });
         }
-
         res.status(200).json({ success: true, message: "Schedule status updated", data: result.rows[0] });
     } catch (error) {
         console.error("[SCHEDULER] toggleSchedule:", error);

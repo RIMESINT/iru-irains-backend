@@ -20,18 +20,24 @@ const {
 const { runDailyStore } = require("../controllers/scripts/aws/aws_station");
 
 
-// ─── Existing — every 30 min 1:29PM to 5:59PM ────────────────────────────────
+// ─── Existing — every 30 min 10:30AM to 6:00PM ───────────────────────────────
 const cronPatterns = [
-    '29 13 * * *', // 1:29 PM
-    '59 13 * * *', // 1:59 PM
-    '29 14 * * *', // 2:29 PM
-    '59 14 * * *', // 2:59 PM
-    '29 15 * * *', // 3:29 PM
-    '59 15 * * *', // 3:59 PM
-    '29 16 * * *', // 4:29 PM
-    '59 16 * * *', // 4:59 PM
-    '29 17 * * *', // 5:29 PM
-    '59 17 * * *'  // 5:59 PM
+    '30 10 * * *', // 10:30 AM
+    '00 11 * * *', // 11:00 AM
+    '30 11 * * *', // 11:30 AM
+    '00 12 * * *', // 12:00 PM
+    '30 12 * * *', // 12:30 PM
+    '00 13 * * *', // 1:00 PM
+    '30 13 * * *', // 1:30 PM
+    '00 14 * * *', // 2:00 PM
+    '30 14 * * *', // 2:30 PM
+    '00 15 * * *', // 3:00 PM
+    '30 15 * * *', // 3:30 PM
+    '00 16 * * *', // 4:00 PM
+    '30 16 * * *', // 4:30 PM
+    '00 17 * * *', // 5:00 PM
+    '30 17 * * *', // 5:30 PM
+    '00 18 * * *'  // 6:00 PM
 ];
 
 const jobs = cronPatterns.map((pattern, index) =>
@@ -42,8 +48,8 @@ const jobs = cronPatterns.map((pattern, index) =>
 // ─── Other existing jobs ──────────────────────────────────────────────────────
 const seasonalJobs  = schedule.scheduleJob('01 23 * * *', aggregateCurrentSeasonData);
 const seasonalJobs2 = schedule.scheduleJob('01 15 * * *', aggregateCurrentSeasonData);
-const job2 = schedule.scheduleJob('30 12 * * *', dailyDataUpdateReminder);  // 12:30 PM
-const job3 = schedule.scheduleJob('15 13 * * *', dailyDataVerificationReminder); // 1:15 PM
+const job2 = schedule.scheduleJob('30 09 * * *', dailyDataUpdateReminder);  // 9:30 AM
+const job3 = schedule.scheduleJob('15 10 * * *', dailyDataVerificationReminder); // 10:15 AM
 // const job4 = schedule.scheduleJob('59 14 * * *', sendBulkReports);
 
 
@@ -94,8 +100,8 @@ const awsJobs = ['0 * * * *', '15 * * * *', '30 * * * *', '45 * * * *'].map((pat
     schedule.scheduleJob(pattern, runAllAwsFetchers)
 );
 
-// ─── AWS Station Daily Store — every day at 1:30 PM IST ─────────────────────
-schedule.scheduleJob('30 13 * * *', async () => {
+// ─── AWS Station Daily Store — every day at 10:30 AM IST ─────────────────────
+schedule.scheduleJob('30 10 * * *', async () => {
     const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     console.log(`[AWS STATION] Daily store triggered at ${ts} IST`);
     try {

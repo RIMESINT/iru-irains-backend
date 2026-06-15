@@ -201,9 +201,10 @@ const fetchStateWithAWS = async (startDate, endDate) => {
     WITH
     combined_raw AS (
         SELECT sdd.district_code::bigint AS district_code, sdd.collection_date AS date,
-               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data END AS rainfall
+               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data::numeric END AS rainfall
         FROM station_daily_data sdd
         WHERE sdd.collection_date BETWEEN $1 AND $2
+          AND sdd.data::numeric >= 0
           AND sdd.station_id NOT IN (${EXCLUSION_SQL})
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
@@ -269,9 +270,10 @@ const fetchSubDivisionWithAWS = async (startDate, endDate) => {
     WITH
     combined_raw AS (
         SELECT sdd.district_code::bigint AS district_code, sdd.collection_date AS date,
-               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data END AS rainfall
+               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data::numeric END AS rainfall
         FROM station_daily_data sdd
         WHERE sdd.collection_date BETWEEN $1 AND $2
+          AND sdd.data::numeric >= 0
           AND sdd.station_id NOT IN (${EXCLUSION_SQL})
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
@@ -337,9 +339,10 @@ const fetchRegionWithAWS = async (startDate, endDate) => {
     WITH
     combined_raw AS (
         SELECT sdd.district_code::bigint AS district_code, sdd.collection_date AS date,
-               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data END AS rainfall
+               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data::numeric END AS rainfall
         FROM station_daily_data sdd
         WHERE sdd.collection_date BETWEEN $1 AND $2
+          AND sdd.data::numeric >= 0
           AND sdd.station_id NOT IN (${EXCLUSION_SQL})
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
@@ -419,9 +422,10 @@ const fetchCountryWithAWS = async (startDate, endDate) => {
     ),
     combined_raw AS (
         SELECT sdd.district_code::bigint AS district_code, sdd.collection_date AS date,
-               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data END AS rainfall
+               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data::numeric END AS rainfall
         FROM station_daily_data sdd
         WHERE sdd.collection_date BETWEEN $1 AND $2
+          AND sdd.data::numeric >= 0
           AND sdd.station_id NOT IN (${EXCLUSION_SQL})
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data

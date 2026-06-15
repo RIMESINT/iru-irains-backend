@@ -95,9 +95,10 @@ const fetchBetweenDates = async (startDate, endDate, currentDate, specificDateTi
                         MIN(district_area) AS d_area,
                         MIN(rainfall_value) AS normal_rainfall,
                         AVG(
-                            CASE 
-                                WHEN sdd.data = '-999.9' THEN NULL 
-                                ELSE sdd.data 
+                            CASE
+                                WHEN sdd.data = '-999.9' THEN NULL
+                                WHEN sdd.data::numeric < 0 THEN NULL
+                                ELSE sdd.data
                             END
                         ) AS actual_rainfall
                     FROM 

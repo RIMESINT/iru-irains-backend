@@ -210,12 +210,18 @@ const fetchStateWithAWS = async (startDate, endDate) => {
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
         WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+    ),
+    state_normals AS (
+        SELECT state_code, SUM(rainfall_value) AS rainfall_normal_value
+        FROM normal_state
+        WHERE date BETWEEN $1 AND $2
+        GROUP BY state_code
     )
     SELECT
         state_name, result.state_code, r_code AS region_code,
-        rainfall_normal_value, actual_state_rainfall,
-        ((actual_state_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END))
-         / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 AS departure
+        sn.rainfall_normal_value, actual_state_rainfall,
+        ((actual_state_rainfall - (CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END))
+         / (CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END)) * 100 AS departure
     FROM (
         SELECT MIN(state_name) AS state_name, state_code, MIN(r_code) AS r_code,
                MIN(rainfall_value) AS rainfall_normal_value,
@@ -241,7 +247,8 @@ const fetchStateWithAWS = async (startDate, endDate) => {
             GROUP BY d_code, d_area
         ) AS sub2
         GROUP BY state_code
-    ) AS result;
+    ) AS result
+    JOIN state_normals sn ON sn.state_code = result.state_code;
     `;
     const result = await client.query(query, [startDate, endDate]);
     return result.rows;
@@ -279,12 +286,18 @@ const fetchSubDivisionWithAWS = async (startDate, endDate) => {
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
         WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+    ),
+    subdiv_normals AS (
+        SELECT sub_division_id AS s_code, SUM(rainfall_value) AS rainfall_normal_value
+        FROM normal_sub_division
+        WHERE date BETWEEN $1 AND $2
+        GROUP BY sub_division_id
     )
     SELECT
         result.name AS subdiv_name, result.s_code,
-        result.r_code AS region_code, result.rainfall_normal_value, result.actual_subdiv_rainfall,
-        ((result.actual_subdiv_rainfall - (CASE WHEN result.rainfall_normal_value = 0 THEN 0.01 ELSE result.rainfall_normal_value END))
-         / (CASE WHEN result.rainfall_normal_value = 0 THEN 0.01 ELSE result.rainfall_normal_value END)) * 100 AS departure
+        result.r_code AS region_code, sn.rainfall_normal_value, result.actual_subdiv_rainfall,
+        ((result.actual_subdiv_rainfall - (CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END))
+         / (CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END)) * 100 AS departure
     FROM (
         SELECT MIN(name) AS name, s_code, MIN(r_code) AS r_code,
                MIN(rainfall_value) AS rainfall_normal_value,
@@ -310,7 +323,8 @@ const fetchSubDivisionWithAWS = async (startDate, endDate) => {
             GROUP BY d_code, d_area
         ) AS sub2
         GROUP BY s_code
-    ) AS result;
+    ) AS result
+    JOIN subdiv_normals sn ON sn.s_code = result.s_code;
     `;
     const result = await client.query(query, [startDate, endDate]);
     return result.rows;
@@ -348,10 +362,20 @@ const fetchRegionWithAWS = async (startDate, endDate) => {
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
         WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+    ),
+    region_normals AS (
+        SELECT region_id AS r_code, SUM(rainfall_value) AS rainfall_normal_value
+        FROM normal_region
+        WHERE date BETWEEN $1 AND $2
+        GROUP BY region_id
     )
-    SELECT *,
-        ((actual_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END))
-         / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 AS departure
+    SELECT
+        final_subquery.name,
+        final_subquery.r_code,
+        final_subquery.actual_rainfall,
+        rn.rainfall_normal_value,
+        ((final_subquery.actual_rainfall - (CASE WHEN rn.rainfall_normal_value = 0 THEN 0.01 ELSE rn.rainfall_normal_value END))
+         / (CASE WHEN rn.rainfall_normal_value = 0 THEN 0.01 ELSE rn.rainfall_normal_value END)) * 100 AS departure
     FROM (
         SELECT MIN(name) AS name, MIN(r_code) AS r_code,
                (SUM(CASE WHEN actual_reg_num IS NOT NULL THEN actual_reg_num ELSE 0 END) /
@@ -388,7 +412,8 @@ const fetchRegionWithAWS = async (startDate, endDate) => {
             ) AS result
         ) AS subquery
         GROUP BY r_code
-    ) AS final_subquery;
+    ) AS final_subquery
+    JOIN region_normals rn ON rn.r_code = final_subquery.r_code;
     `;
     const result = await client.query(query, [startDate, endDate]);
     return result.rows;

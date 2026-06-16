@@ -228,6 +228,8 @@ exports.fetchStateDataAforAPIexport = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "State data fetched successfully",
+            fromDate: fromDate,
+            toDate: toDate,
             data: data
         });
 

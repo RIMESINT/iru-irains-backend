@@ -42,7 +42,7 @@ const IMD_COUNT_PER_DATE_SQL = `
     FROM public.station_daily_data_updates sdd
     JOIN public.station_details sd ON sd.station_code = sdd.station_id
     WHERE sdd.collection_date BETWEEN $1 AND $2
-      AND sdd.data  != -999.9
+      AND sdd.data::float >= 0
       AND sd.flag   != 0
     GROUP BY sdd.collection_date
     ORDER BY sdd.collection_date
@@ -69,7 +69,7 @@ const IMD_COUNTRY_PER_DATE_SQL = `
         FROM public.station_daily_data_updates sdd
         JOIN public.station_details sd ON sd.station_code = sdd.station_id
         WHERE sdd.collection_date BETWEEN $1 AND $2
-          AND sdd.data != -999.9
+          AND sdd.data::float >= 0
           AND sd.flag  != 0
         GROUP BY sdd.collection_date, sdd.district_code
     )
@@ -92,7 +92,7 @@ const AWS_COUNTRY_PER_DATE_SQL = `
         FROM public.station_daily_data_updates sdd
         JOIN public.station_details sd ON sd.station_code = sdd.station_id
         WHERE sdd.collection_date BETWEEN $1 AND $2
-          AND sdd.data != -999.9
+          AND sdd.data::float >= 0
           AND sd.flag  != 0
         UNION ALL
         SELECT

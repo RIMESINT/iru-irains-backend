@@ -169,6 +169,7 @@ router.post("/aws-station/store-override",    awsStationCtrl.storeOverride);
 router.post("/aws-station/store-continue",    awsStationCtrl.storeContinue);
 router.post("/aws-station/store-cron",        awsStationCtrl.storeCron);
 router.post("/aws-station/run-daily-store",   awsStationCtrl.storeCron);
+router.post("/aws-station/fetchFilteredStationUnifiedFile", awsStationCtrl.fetchFilteredStationUnifiedFile);
 
 
 module.exports = router;

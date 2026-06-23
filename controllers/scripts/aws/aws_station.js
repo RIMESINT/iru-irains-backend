@@ -212,3 +212,68 @@ exports.storeCron = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. UNIFIED FILE — same shape as IMD's fetchFilteredStationUnifiedFileFtp,
+//    but reads from aws_station_details / aws_station_daily_data.
+//    POST /api/v1/aws-station/fetchFilteredStationUnifiedFile
+//    Body: { startDate, endDate, districtCodes }
+// ─────────────────────────────────────────────────────────────────────────────
+const fetchFilteredGovtAwsUnifiedFile = async (startDate, endDate, districtCodes) => {
+    const query = `
+        SELECT
+            TO_CHAR(asdd.collection_date, 'YYYY-MM-DD') AS collection_date,
+            asdd.data,
+            asdd.station_id,
+            asdd.district_code,
+            ndd.district_name,
+            ndd.state_name,
+            asd.station_name,
+            asd.latitude,
+            asd.longitude,
+            asd.block_name,
+            asd.block_code
+        FROM public.aws_station_daily_data as asdd
+        JOIN aws_station_details as asd ON asd.station_code = asdd.station_id
+        JOIN normal_district_details ndd on ndd.district_code = asd.district_code
+        WHERE asdd.district_code = ANY($1)
+        AND asdd.collection_date BETWEEN $2 AND $3
+        AND asd.flag != 0;
+    `;
+
+    const result = await client.query(query, [districtCodes, startDate, endDate]);
+    return result.rows;
+};
+
+exports.fetchFilteredStationUnifiedFile = async (req, res) => {
+    try {
+        let { startDate, endDate, districtCodes } = req.body;
+
+        const currentDate = moment().format('YYYY-MM-DD');
+        if (!startDate) startDate = currentDate;
+        if (!endDate) endDate = currentDate;
+
+        if (!Array.isArray(districtCodes)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid district codes format. Expecting an array of numbers.",
+            });
+        }
+
+        const data = await fetchFilteredGovtAwsUnifiedFile(startDate, endDate, districtCodes);
+
+        res.status(200).json({
+            success: true,
+            message: "Govt AWS station data fetched successfully",
+            data: data,
+        });
+    } catch (error) {
+        console.error("[AWS STATION] fetchFilteredStationUnifiedFile error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Govt AWS station data",
+            error: error.message,
+        });
+    }
+};

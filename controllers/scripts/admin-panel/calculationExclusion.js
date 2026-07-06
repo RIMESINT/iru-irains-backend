@@ -2,7 +2,7 @@ const client = require("../../../connection");
 
 // controllers/scripts/admin-panel/calculationExclusion.js
 
-const VALID_TYPES = ['station', 'block', 'district', 'state', 'subdivision', 'region'];
+const VALID_TYPES = ['station', 'aws_station', 'block', 'district', 'state', 'subdivision', 'region'];
 
 function validateInput(entity_type, entity_code, from_date, to_date) {
     if (!entity_type || !entity_code || !from_date) {

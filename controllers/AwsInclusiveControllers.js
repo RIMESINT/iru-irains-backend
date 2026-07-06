@@ -1,7 +1,7 @@
 const client = require("../connection");
 const moment = require('moment');
 
-// ─── SHARED EXCLUSION SUBQUERY ────────────────────────────────────────────────
+// ─── SHARED EXCLUSION SUBQUERY (IMD stations) ────────────────────────────────
 const EXCLUSION_SQL = `
     SELECT sd2.station_code
     FROM public.station_details sd2
@@ -10,6 +10,16 @@ const EXCLUSION_SQL = `
         sd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'station')
         OR sd2.block_code  IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'block')
         OR ndd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'district')
+`;
+
+// ─── SHARED EXCLUSION SUBQUERY (AWS stations) ────────────────────────────────
+const AWS_EXCLUSION_SQL = `
+    SELECT asd2.station_code
+    FROM public.aws_station_details asd2
+    WHERE
+        asd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_station')
+        OR asd2.block_code    IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'block')
+        OR asd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'district')
 `;
 
 // ─── DATE VALIDATION HELPER ───────────────────────────────────────────────────
@@ -66,6 +76,7 @@ const fetchBlockWithAWS = async (startDate, endDate) => {
             AND asdd.data >= 0
         LEFT JOIN normal_block nb ON asd.block_code = nb.block_id AND nb.date = asdd.collection_date
         WHERE asd.block_code IS NOT NULL
+          AND asd.station_code NOT IN (${AWS_EXCLUSION_SQL})
     ),
     combined AS (
         SELECT * FROM reg
@@ -145,7 +156,9 @@ const fetchDistrictWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
     ),
     daily_actuals AS (
         SELECT district_code, date, AVG(rainfall) AS raw_rainfall
@@ -209,7 +222,9 @@ const fetchStateWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
     ),
     state_normals AS (
         SELECT state_code, SUM(rainfall_value) AS rainfall_normal_value
@@ -285,7 +300,9 @@ const fetchSubDivisionWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
     ),
     subdiv_normals AS (
         SELECT sub_division_id AS s_code, SUM(rainfall_value) AS rainfall_normal_value
@@ -361,7 +378,9 @@ const fetchRegionWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
     ),
     region_normals AS (
         SELECT region_id AS r_code, SUM(rainfall_value) AS rainfall_normal_value
@@ -455,7 +474,9 @@ const fetchCountryWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
     )
     SELECT
         'INDIA' AS name,

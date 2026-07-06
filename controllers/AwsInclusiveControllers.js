@@ -17,7 +17,8 @@ const AWS_EXCLUSION_SQL = `
     SELECT asd2.station_code
     FROM public.aws_station_details asd2
     WHERE
-        asd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_station' AND from_date <= $2 AND to_date >= $1)
+        asd2.flag = 0
+        OR asd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_station' AND from_date <= $2 AND to_date >= $1)
         OR asd2.block_code    IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_block' AND from_date <= $2 AND to_date >= $1)
         OR asd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_district' AND from_date <= $2 AND to_date >= $1)
 `;
@@ -76,7 +77,6 @@ const fetchBlockWithAWS = async (startDate, endDate) => {
             AND asdd.data >= 0
         LEFT JOIN normal_block nb ON asd.block_code = nb.block_id AND nb.date = asdd.collection_date
         WHERE asd.block_code IS NOT NULL
-          AND asd.flag != 0
           AND asd.station_code NOT IN (${AWS_EXCLUSION_SQL})
     ),
     combined AS (
@@ -157,7 +157,6 @@ const fetchDistrictWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        JOIN aws_station_details asd_f ON asd_f.station_code = asdd.station_id AND asd_f.flag != 0
         WHERE asdd.collection_date BETWEEN $1 AND $2
           AND asdd.data >= 0
           AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
@@ -224,7 +223,6 @@ const fetchStateWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        JOIN aws_station_details asd_f ON asd_f.station_code = asdd.station_id AND asd_f.flag != 0
         WHERE asdd.collection_date BETWEEN $1 AND $2
           AND asdd.data >= 0
           AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
@@ -303,7 +301,6 @@ const fetchSubDivisionWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        JOIN aws_station_details asd_f ON asd_f.station_code = asdd.station_id AND asd_f.flag != 0
         WHERE asdd.collection_date BETWEEN $1 AND $2
           AND asdd.data >= 0
           AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
@@ -382,7 +379,6 @@ const fetchRegionWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        JOIN aws_station_details asd_f ON asd_f.station_code = asdd.station_id AND asd_f.flag != 0
         WHERE asdd.collection_date BETWEEN $1 AND $2
           AND asdd.data >= 0
           AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
@@ -479,7 +475,6 @@ const fetchCountryWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        JOIN aws_station_details asd_f ON asd_f.station_code = asdd.station_id AND asd_f.flag != 0
         WHERE asdd.collection_date BETWEEN $1 AND $2
           AND asdd.data >= 0
           AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})

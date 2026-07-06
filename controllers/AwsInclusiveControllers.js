@@ -18,8 +18,8 @@ const AWS_EXCLUSION_SQL = `
     FROM public.aws_station_details asd2
     WHERE
         asd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_station')
-        OR asd2.block_code    IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'block')
-        OR asd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'district')
+        OR asd2.block_code    IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_block')
+        OR asd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_district')
 `;
 
 // ─── DATE VALIDATION HELPER ───────────────────────────────────────────────────

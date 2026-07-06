@@ -7,9 +7,9 @@ const EXCLUSION_SQL = `
     FROM public.station_details sd2
     JOIN public.normal_district_details ndd2 ON ndd2.district_code = sd2.district_code
     WHERE
-        sd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'station')
-        OR sd2.block_code  IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'block')
-        OR ndd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'district')
+        sd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'station' AND from_date <= $2 AND to_date >= $1)
+        OR sd2.block_code  IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'block' AND from_date <= $2 AND to_date >= $1)
+        OR ndd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'district' AND from_date <= $2 AND to_date >= $1)
 `;
 
 // ─── SHARED EXCLUSION SUBQUERY (AWS stations) ────────────────────────────────
@@ -17,9 +17,9 @@ const AWS_EXCLUSION_SQL = `
     SELECT asd2.station_code
     FROM public.aws_station_details asd2
     WHERE
-        asd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_station')
-        OR asd2.block_code    IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_block')
-        OR asd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_district')
+        asd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_station' AND from_date <= $2 AND to_date >= $1)
+        OR asd2.block_code    IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_block' AND from_date <= $2 AND to_date >= $1)
+        OR asd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_district' AND from_date <= $2 AND to_date >= $1)
 `;
 
 // ─── DATE VALIDATION HELPER ───────────────────────────────────────────────────

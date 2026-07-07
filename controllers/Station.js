@@ -1925,7 +1925,17 @@ exports.fetchCalcModeStations = async (req, res) => {
         sd.block_name,
         ndd.state_name,
         ndd.district_name,
-        sdd.data
+        sdd.data,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM public.calculation_exclusions ce
+          WHERE ce.from_date <= $1 AND ce.to_date >= $1
+            AND (
+              (ce.entity_type = 'station'  AND ce.entity_code = sd.station_code)
+              OR (ce.entity_type = 'block'    AND ce.entity_code = sd.block_code)
+              OR (ce.entity_type = 'district' AND ce.entity_code = ndd.district_code::text)
+              OR (ce.entity_type = 'state'    AND ce.entity_code = ndd.new_state_code::text)
+            )
+        ) THEN true ELSE false END AS is_excluded
       FROM public.station_details sd
       JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
       JOIN public.normal_district_details ndd ON ndd.district_code = sdd.district_code
@@ -1943,7 +1953,16 @@ exports.fetchCalcModeStations = async (req, res) => {
         asd.block_name,
         ndd.state_name,
         ndd.district_name,
-        asdd.data
+        asdd.data,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM public.calculation_exclusions ce
+          WHERE ce.from_date <= $1 AND ce.to_date >= $1
+            AND (
+              (ce.entity_type = 'aws_station'  AND ce.entity_code = asd.station_code)
+              OR (ce.entity_type = 'aws_block'    AND ce.entity_code = asd.block_code)
+              OR (ce.entity_type = 'aws_district' AND ce.entity_code = ndd.district_code::text)
+            )
+        ) THEN true ELSE false END AS is_excluded
       FROM public.aws_station_details asd
       JOIN public.normal_district_details ndd ON ndd.district_code = asd.district_code
       JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code

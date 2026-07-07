@@ -1928,7 +1928,7 @@ exports.fetchCalcModeStations = async (req, res) => {
         sdd.data,
         CASE WHEN EXISTS (
           SELECT 1 FROM public.calculation_exclusions ce
-          WHERE ce.from_date <= $1::date AND ce.to_date >= $1::date
+          WHERE ce.from_date <= $1 AND ce.to_date >= $1
             AND (
               (ce.entity_type = 'station'  AND ce.entity_code = sd.station_code::text)
               OR (ce.entity_type = 'block'    AND ce.entity_code = sd.block_code::text)
@@ -1937,7 +1937,7 @@ exports.fetchCalcModeStations = async (req, res) => {
         ) THEN true ELSE false END AS is_excluded
       FROM public.station_details sd
       JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
-      JOIN public.normal_district_details ndd ON ndd.district_code = sdd.district_code
+      LEFT JOIN public.normal_district_details ndd ON ndd.district_code = sd.district_code
       WHERE sdd.collection_date = $1
         AND sdd.data != -999.9
         AND sd.flag != 0
@@ -1955,15 +1955,15 @@ exports.fetchCalcModeStations = async (req, res) => {
         asdd.data,
         CASE WHEN EXISTS (
           SELECT 1 FROM public.calculation_exclusions ce
-          WHERE ce.from_date <= $1::date AND ce.to_date >= $1::date
+          WHERE ce.from_date <= $1 AND ce.to_date >= $1
             AND (
               (ce.entity_type = 'aws_station'  AND ce.entity_code = asd.station_code::text)
               OR (ce.entity_type = 'aws_block'    AND ce.entity_code = asd.block_code::text)
-              OR (ce.entity_type = 'aws_district' AND ce.entity_code = ndd.district_code::text)
+              OR (ce.entity_type = 'aws_district' AND ce.entity_code = asd.district_code::text)
             )
         ) THEN true ELSE false END AS is_excluded
       FROM public.aws_station_details asd
-      JOIN public.normal_district_details ndd ON ndd.district_code = asd.district_code
+      LEFT JOIN public.normal_district_details ndd ON ndd.district_code = asd.district_code
       JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
       WHERE asdd.collection_date = $1
         AND asdd.data >= 0

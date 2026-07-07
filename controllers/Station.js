@@ -1923,21 +1923,13 @@ exports.fetchCalcModeStations = async (req, res) => {
         sd.station_name,
         sd.block_code,
         sd.block_name,
+        sd.district_code,
         ndd.state_name,
         ndd.district_name,
-        sdd.data,
-        CASE WHEN EXISTS (
-          SELECT 1 FROM public.calculation_exclusions ce
-          WHERE ce.from_date <= $1 AND ce.to_date >= $1
-            AND (
-              (ce.entity_type = 'station'  AND ce.entity_code = sd.station_code::text)
-              OR (ce.entity_type = 'block'    AND ce.entity_code = sd.block_code::text)
-              OR (ce.entity_type = 'district' AND ce.entity_code = ndd.district_code::text)
-            )
-        ) THEN true ELSE false END AS is_excluded
+        sdd.data
       FROM public.station_details sd
       JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
-      LEFT JOIN public.normal_district_details ndd ON ndd.district_code = sd.district_code
+      JOIN public.normal_district_details ndd ON ndd.district_code = sdd.district_code
       WHERE sdd.collection_date = $1
         AND sdd.data != -999.9
         AND sd.flag != 0
@@ -1950,24 +1942,22 @@ exports.fetchCalcModeStations = async (req, res) => {
         asd.station_name,
         asd.block_code,
         asd.block_name,
+        asd.district_code,
         ndd.state_name,
         ndd.district_name,
-        asdd.data,
-        CASE WHEN EXISTS (
-          SELECT 1 FROM public.calculation_exclusions ce
-          WHERE ce.from_date <= $1 AND ce.to_date >= $1
-            AND (
-              (ce.entity_type = 'aws_station'  AND ce.entity_code = asd.station_code::text)
-              OR (ce.entity_type = 'aws_block'    AND ce.entity_code = asd.block_code::text)
-              OR (ce.entity_type = 'aws_district' AND ce.entity_code = asd.district_code::text)
-            )
-        ) THEN true ELSE false END AS is_excluded
+        asdd.data
       FROM public.aws_station_details asd
-      LEFT JOIN public.normal_district_details ndd ON ndd.district_code = asd.district_code
+      JOIN public.normal_district_details ndd ON ndd.district_code = asd.district_code
       JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
       WHERE asdd.collection_date = $1
         AND asdd.data >= 0
       ORDER BY asd.station_code
+    `;
+
+    const exclusionsQuery = `
+      SELECT entity_type, entity_code
+      FROM public.calculation_exclusions
+      WHERE from_date <= $1 AND to_date >= $1
     `;
 
     const imdTotalQuery = `SELECT COUNT(*) AS total FROM public.station_details WHERE flag = 1`;
@@ -1980,11 +1970,42 @@ exports.fetchCalcModeStations = async (req, res) => {
       client.query(awsTotalQuery),
     ]);
 
+    // Fetch exclusions separately — if this fails, still return station data
+    let exclusions = [];
+    try {
+      const exclResult = await client.query(exclusionsQuery, [today]);
+      exclusions = exclResult.rows;
+    } catch (e) {
+      console.warn('fetchCalcModeStations: exclusions query failed (table may not exist)', e.message);
+    }
+
+    // Build sets for fast lookup
+    const imdExcludedStations  = new Set(exclusions.filter(e => e.entity_type === 'station').map(e => e.entity_code));
+    const imdExcludedBlocks    = new Set(exclusions.filter(e => e.entity_type === 'block').map(e => e.entity_code));
+    const imdExcludedDistricts = new Set(exclusions.filter(e => e.entity_type === 'district').map(e => String(e.entity_code)));
+    const awsExcludedStations  = new Set(exclusions.filter(e => e.entity_type === 'aws_station').map(e => e.entity_code));
+    const awsExcludedBlocks    = new Set(exclusions.filter(e => e.entity_type === 'aws_block').map(e => e.entity_code));
+    const awsExcludedDistricts = new Set(exclusions.filter(e => e.entity_type === 'aws_district').map(e => String(e.entity_code)));
+
+    const imdRows = imdResult.rows.map(r => ({
+      ...r,
+      is_excluded: imdExcludedStations.has(r.station_code)
+        || imdExcludedBlocks.has(String(r.block_code))
+        || imdExcludedDistricts.has(String(r.district_code)),
+    }));
+
+    const awsRows = awsResult.rows.map(r => ({
+      ...r,
+      is_excluded: awsExcludedStations.has(r.station_code)
+        || awsExcludedBlocks.has(String(r.block_code))
+        || awsExcludedDistricts.has(String(r.district_code)),
+    }));
+
     res.status(200).json({
       success: true,
       date: today,
-      imd: imdResult.rows,
-      aws: awsResult.rows,
+      imd: imdRows,
+      aws: awsRows,
       imdTotal: parseInt(imdTotalResult.rows[0].total, 10),
       awsTotal: parseInt(awsTotalResult.rows[0].total, 10),
     });

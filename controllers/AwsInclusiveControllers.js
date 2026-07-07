@@ -96,6 +96,34 @@ const fetchBlockWithAWS = async (startDate, endDate) => {
             subdiv_code, centre_name, centre_type
         FROM combined
         ORDER BY block_code
+    ),
+    imd_stats AS (
+        SELECT
+            sd.block_code,
+            COUNT(DISTINCT sdd.station_id)       AS station_details_count,
+            COALESCE(SUM(sdd.data::numeric), 0)  AS station_details_rainfall_sum
+        FROM station_details sd
+        JOIN station_daily_data sdd
+            ON sd.station_code = sdd.station_id
+            AND sdd.collection_date BETWEEN $1 AND $2
+            AND sdd.data::numeric >= 0
+            AND sdd.data != '-999.9'
+        WHERE sd.block_code IS NOT NULL
+          AND sd.station_code NOT IN (${EXCLUSION_SQL})
+        GROUP BY sd.block_code
+    ),
+    aws_stats AS (
+        SELECT
+            asd.block_code,
+            COUNT(DISTINCT asdd.station_id)  AS aws_station_count,
+            COALESCE(SUM(asdd.data), 0)      AS aws_station_rainfall_sum
+        FROM aws_station_details asd
+        JOIN aws_station_daily_data asdd
+            ON asd.station_code = asdd.station_id
+            AND asdd.collection_date BETWEEN $1 AND $2
+            AND asdd.data >= 0
+        WHERE asd.block_code IS NOT NULL
+        GROUP BY asd.block_code
     )
     SELECT
         bm.block_code,
@@ -115,9 +143,17 @@ const fetchBlockWithAWS = async (startDate, endDate) => {
             WHEN SUM(bd.avg_normal) IS NULL THEN NULL
             ELSE ((SUM(bd.avg_actual) - SUM(CASE WHEN bd.avg_normal = 0 THEN 0.01 ELSE bd.avg_normal END))
                 / SUM(CASE WHEN bd.avg_normal = 0 THEN 0.01 ELSE bd.avg_normal END)) * 100
-        END AS departure
+        END AS departure,
+        COALESCE(MIN(imd_s.station_details_count), 0)        AS station_details_count,
+        COALESCE(MIN(aws_s.aws_station_count), 0)            AS aws_station_count,
+        COALESCE(MIN(imd_s.station_details_count), 0)
+            + COALESCE(MIN(aws_s.aws_station_count), 0)      AS total_station_count,
+        COALESCE(MIN(imd_s.station_details_rainfall_sum), 0) AS station_details_rainfall_sum,
+        COALESCE(MIN(aws_s.aws_station_rainfall_sum), 0)     AS aws_station_rainfall_sum
     FROM block_meta bm
-    LEFT JOIN block_daily bd ON bd.block_code = bm.block_code
+    LEFT JOIN block_daily  bd    ON bd.block_code    = bm.block_code
+    LEFT JOIN imd_stats    imd_s ON imd_s.block_code = bm.block_code
+    LEFT JOIN aws_stats    aws_s ON aws_s.block_code = bm.block_code
     GROUP BY bm.block_code
     ORDER BY bm.block_code;
     `;

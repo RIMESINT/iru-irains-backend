@@ -77,7 +77,6 @@ const fetchBlockWithAWS = async (startDate, endDate) => {
             AND asdd.data >= 0
         LEFT JOIN normal_block nb ON asd.block_code = nb.block_id AND nb.date = asdd.collection_date
         WHERE asd.block_code IS NOT NULL
-          AND asd.station_code NOT IN (${AWS_EXCLUSION_SQL})
     ),
     combined AS (
         SELECT * FROM reg

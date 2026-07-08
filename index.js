@@ -33,6 +33,7 @@ const dbInfoRoutes = require("./routes/dbInfoRoutes");
 const cronScheduleRoutes = require("./routes/cronScheduleRoutes");
 const dataEntryLockRoutes = require("./routes/dataEntryLockRoutes");
 const mapDataScheduleRoutes = require("./routes/mapDataScheduleRoutes");
+const topRainfallStationsRoutes = require("./routes/topRainfallStationsRoutes");
 
 // // Load SSL Certificate
 const options = {
@@ -117,6 +118,7 @@ app.use("/api/v1/", dbInfoRoutes);
 app.use("/api/v1/", cronScheduleRoutes);
 app.use("/api/v1/", dataEntryLockRoutes);
 app.use("/api/v1/", mapDataScheduleRoutes);
+app.use("/api/v1/", topRainfallStationsRoutes);
 
 // Use HTTPS Server
 https.createServer(options, app).listen(port, () => {

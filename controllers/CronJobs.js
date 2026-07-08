@@ -18,6 +18,7 @@ const {
     fetchAndStoreIITMMumbai
 } = require("../controllers/scripts/aws/awsFetcher");
 const { runDailyStore } = require("../controllers/scripts/aws/aws_station");
+const client = require("../connection");
 
 
 // ─── Existing — every 30 min 10:30AM to 6:00PM ───────────────────────────────
@@ -110,6 +111,29 @@ schedule.scheduleJob('30 10 * * *', async () => {
         console.error(`[AWS STATION] Daily store failed: ${e.message}`);
     }
 });
+
+
+// ─── Data Entry Lock — auto-open 8:30 AM, auto-lock 2:00 PM IST ──────────────
+// Admins can still flip the toggle manually anytime from Data Management ->
+// Calculation -> Review and Publish (data_entry_lock table); it just gets
+// overridden by whichever of these two triggers fires next.
+const setDataEntryLock = async (is_locked) => {
+    const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    try {
+        await client.query(
+            `INSERT INTO data_entry_lock (id, is_locked, updated_at)
+             VALUES (1, $1, now())
+             ON CONFLICT (id) DO UPDATE SET is_locked = $1, updated_at = now()`,
+            [is_locked]
+        );
+        console.log(`[DATA ENTRY LOCK] ${is_locked === 1 ? 'Locked' : 'Unlocked'} at ${ts} IST`);
+    } catch (e) {
+        console.error(`[DATA ENTRY LOCK] Failed to set is_locked=${is_locked}: ${e.message}`);
+    }
+};
+
+schedule.scheduleJob('30 08 * * *', () => setDataEntryLock(0)); // 8:30 AM — open data entry
+schedule.scheduleJob('00 14 * * *', () => setDataEntryLock(1)); // 2:00 PM — lock data entry for review
 
 
 // ─── Run once immediately on server start ────────────────────────────────────

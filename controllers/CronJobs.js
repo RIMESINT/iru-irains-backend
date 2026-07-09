@@ -137,9 +137,9 @@ schedule.scheduleJob('00 14 * * *', () => setDataEntryLock(1)); // 2:00 PM — l
 
 
 // ─── Publish Gate — auto-publish 2:00 PM-11:59 PM, auto-hold-back 12:00 AM-1:59 PM IST ──
-// Applies to both MC and HQ (map_data_schedules.publish). Admins can still flip
-// either role's toggle manually anytime from Review and Publish; it just gets
-// overridden by whichever of these two triggers fires next.
+// Applies to all four mcorhq_type roles (map_data_schedules.publish). Admins can
+// still flip any role's toggle manually anytime from Review and Publish; it just
+// gets overridden by whichever of these two triggers fires next.
 const setPublishForRole = async (role, publish) => {
     try {
         await client.query(
@@ -151,15 +151,17 @@ const setPublishForRole = async (role, publish) => {
     }
 };
 
-const setPublishBothRoles = async (publish) => {
+const setPublishAllRoles = async (publish) => {
     const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     await setPublishForRole('mc', publish);
     await setPublishForRole('hq', publish);
-    console.log(`[PUBLISH GATE] MC & HQ ${publish === 1 ? 'published' : 'held back'} at ${ts} IST`);
+    await setPublishForRole('sp', publish);
+    await setPublishForRole('public', publish);
+    console.log(`[PUBLISH GATE] MC, HQ, SP & Public ${publish === 1 ? 'published' : 'held back'} at ${ts} IST`);
 };
 
-schedule.scheduleJob('00 14 * * *', () => setPublishBothRoles(1)); // 2:00 PM — publish today's data
-schedule.scheduleJob('00 00 * * *', () => setPublishBothRoles(0)); // 12:00 AM — hold back today's data
+schedule.scheduleJob('00 14 * * *', () => setPublishAllRoles(1)); // 2:00 PM — publish today's data
+schedule.scheduleJob('00 00 * * *', () => setPublishAllRoles(0)); // 12:00 AM — hold back today's data
 
 
 // ─── Run once immediately on server start ────────────────────────────────────

@@ -14,7 +14,7 @@ const {
   includeEntity,
   getExclusions,
   checkStatus,
-  bulkToggle
+  bulkExclusion
 } = require("../controllers/scripts/admin-panel/calculationExclusion");
 
 const {
@@ -35,7 +35,8 @@ router.post("/calculation-exclusion/exclude",        excludeEntity);
 router.post("/calculation-exclusion/include",        includeEntity);
 router.post("/calculation-exclusion/get-exclusions", getExclusions);
 router.post("/calculation-exclusion/check-status",   checkStatus);
-router.post("/calculation-exclusion/bulk-toggle",    bulkToggle);
+router.post("/calculation-exclusion/bulk",           bulkExclusion);
+router.post("/calculation-exclusion/bulk-toggle",    bulkExclusion);
 
 
 // ── Station List (for exclusion UI) ─────────────────────────

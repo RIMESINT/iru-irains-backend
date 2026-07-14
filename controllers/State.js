@@ -422,7 +422,7 @@ exports.addStateDisplayOrderEntry = async (req, res) => {
             [new_display_order, region_code, region_name, state_code, state_name]
         );
         await client.query("COMMIT");
-        res.status(200).json({ success: true });
+        res.status(200).json({ success: true, display_order: new_display_order });
     } catch (error) {
         await client.query("ROLLBACK");
         console.error("addStateDisplayOrderEntry error:", error);

@@ -4,7 +4,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon index.js"
+    "start": "nodemon index.js",
+    "migrate:activity-logs": "node scripts/runMigration.js migrations/create_admin_activity_logs.sql",
+    "migrate:calculations-mode": "node scripts/runMigration.js migrations/create_calculations_imd_aws.sql"
   },
   "keywords": [],
   "author": "",
@@ -38,6 +40,7 @@
     "pg-promise": "^11.5.4",
     "pg-query-stream": "^4.7.1",
     "puppeteer": "^24.17.0",
+    "socket.io": "^4.8.3",
     "tmp-promise": "^3.0.3",
     "wget-improved": "^3.4.0",
     "xlsx": "^0.18.5"

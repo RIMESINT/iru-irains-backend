@@ -5,6 +5,11 @@ const app = express();
 const client = require("../connection");
 const moment = require('moment');
 const xlsx = require('xlsx');
+const {
+    validateOfficerFields,
+    logReviewPublishActivity,
+    logReviewPublishPageAccess,
+} = require("../utils/activityLogger");
 
 
 
@@ -180,7 +185,8 @@ const fetchFilteredDataIncludingVerification = async (startDate) => {
 const updateStationDataQuery = async (station_code, date, value ) => {
     const query = `
                 Update public.station_daily_data_updates set data =$1, updated_at =now()
-                WHERE collection_date = $2 and station_id = $3;`;  
+                WHERE collection_date = $2 and station_id = $3
+                RETURNING station_id, collection_date, data;`;  
 
     try {
         const result = await client.query(query, [value, date,station_code ]);
@@ -190,6 +196,27 @@ const updateStationDataQuery = async (station_code, date, value ) => {
         throw error;
     }
 }
+
+const fetchStationRainfallBeforeUpdate = async (station_code, date) => {
+    const query = `
+        SELECT sdd.data, sd.station_name
+        FROM public.station_daily_data_updates sdd
+        LEFT JOIN public.station_details sd ON sd.station_code = sdd.station_id
+        WHERE sdd.collection_date = $1 AND sdd.station_id = $2
+        LIMIT 1;
+    `;
+
+    const { rows } = await client.query(query, [date, station_code]);
+    return rows[0] || null;
+};
+
+const fetchStationName = async (station_id) => {
+    const { rows } = await client.query(
+        `SELECT station_name FROM public.station_details WHERE station_code = $1 LIMIT 1`,
+        [station_id]
+    );
+    return rows[0]?.station_name || null;
+};
 
 
 
@@ -248,6 +275,25 @@ const updateMultipleStations = async (date, station_ids, verified_by) => {
 
 
 
+
+exports.recordReviewPublishOfficerAccess = async (req, res) => {
+    try {
+        const err = validateOfficerFields(req.body);
+        if (err) return res.status(400).json({ success: false, message: err });
+
+        const date = req.body.date || req.body.Date || moment().format("YYYY-MM-DD");
+        await logReviewPublishPageAccess(req, date);
+
+        res.status(200).json({
+            success: true,
+            message: "Officer access recorded",
+            date,
+        });
+    } catch (error) {
+        console.error("[REVIEW PUBLISH] recordOfficerAccess:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
 
 exports.fetchStationDataNew = async (req, res) => {
     try {
@@ -344,7 +390,23 @@ exports.updateStationData = async (req, res) => {
         let { station_code, date, value } = req.body;
         
         if(station_code && date && (value||value==0) ){
-            let data = await updateStationDataQuery(station_code, date, value );
+            const previous = await fetchStationRainfallBeforeUpdate(station_code, date);
+            if (!previous) {
+                return res.status(404).json({
+                    success: false,
+                    message: "No data found for the given date and station_code",
+                });
+            }
+
+            await updateStationDataQuery(station_code, date, value);
+
+            await logReviewPublishActivity("UPDATE", req, {
+                station_code,
+                date,
+                station_name: previous.station_name,
+                old_value: previous.data,
+                new_value: value,
+            });
 
             res.status(200).json({
                 success: true,
@@ -357,10 +419,6 @@ exports.updateStationData = async (req, res) => {
                 message: "request pearmeters are missing",
             });
         }
-
-
-
-        
     } catch (error) {
         console.error(error);
         res.status(500).json({
@@ -414,6 +472,12 @@ exports.insertRainfallFile = async (req, res) => {
         }
         await client.query('COMMIT');
 
+        const fileName = req.file?.originalname || req.body?.file_name || req.body?.fileName || null;
+        await logReviewPublishActivity("UPLOAD", req, {
+            file_name: fileName,
+            row_count: formattedData.length,
+        });
+
         res.status(200).json({
             success: true,
             data: formattedData,
@@ -447,6 +511,13 @@ exports.verifyStationData = async (req, res) => {
           message: "No data found for the given date and station_id"
         });
       }
+
+      const station_name = await fetchStationName(station_id);
+      await logReviewPublishActivity("VERIFY", req, {
+        station_id,
+        date,
+        station_name,
+      });
   
       res.status(200).json({
         success: true,
@@ -482,6 +553,12 @@ exports.verifyMultipleStationData = async (req, res) => {
           message: "No data found for the given date and station_id"
         });
       }
+
+      await logReviewPublishActivity("BULK_VERIFY", req, {
+        date,
+        station_ids,
+        station_count: station_ids.length,
+      });
  
       res.status(200).json({
         success: true,
@@ -508,18 +585,28 @@ exports.AddDailyStationData = async (req, res) => {
         await copyDataFromUpdatesToStationDailyData();
         console.log("Cron : Data is migrated");
 
-        res.status(200).json({
-            success: true,
-            message: "Map data refreshed successfully",
-        });
+        if (req) {
+            await logReviewPublishActivity("PUBLISH", req, {
+                message: "Published reviewed station data to map",
+            });
+        }
+
+        if (res) {
+            res.status(200).json({
+                success: true,
+                message: "Map data refreshed successfully",
+            });
+        }
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to refresh map data",
-            error: error.message,
-        });
+        if (res) {
+            res.status(500).json({
+                success: false,
+                message: "Failed to refresh map data",
+                error: error.message,
+            });
+        }
     }
 }
 

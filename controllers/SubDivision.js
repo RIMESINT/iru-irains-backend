@@ -426,7 +426,7 @@ exports.addSubdivisionDisplayOrderEntry = async (req, res) => {
             [new_display_order, region_code, region_name, subdiv_code, subdivision_name]
         );
         await client.query("COMMIT");
-        res.status(200).json({ success: true });
+        res.status(200).json({ success: true, display_order: new_display_order });
     } catch (error) {
         await client.query("ROLLBACK");
         console.error("addSubdivisionDisplayOrderEntry error:", error);

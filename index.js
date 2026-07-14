@@ -1,3 +1,4 @@
+const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const client = require("./connection");
@@ -5,6 +6,7 @@ const express = require("express");
 const app = express();
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const bcrypt = require("bcrypt");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 require("dotenv").config();
@@ -29,13 +31,24 @@ const adminRoutes = require("./routes/adminpanelRoutes");
 const geojsonRoutes = require("./routes/geojsonRoutes");
 const stationDashboardRoutes = require("./routes/stationDashboardRoutes");
 const calculationsModeRoutes = require("./routes/calculationsModeRoutes");
+const reviewPublishRoutes = require("./routes/reviewPublishRoutes");
+const adminActivityLogRoutes = require("./routes/adminActivityLogRoutes");
+const { initAdminRealtime } = require("./utils/adminRealtime");
 
-// // Load SSL Certificate
-const options = {
-    key: fs.readFileSync("/etc/apache2/private.key"),
-    cert: fs.readFileSync("/etc/apache2/*.imd.gov.in.crt"),
-    ca: fs.readFileSync("/etc/apache2/emSign-SSL-CA-G1.crt"),
-};
+const SSL_KEY_PATH = process.env.SSL_KEY_PATH || "/etc/apache2/private.key";
+const SSL_CERT_PATH = process.env.SSL_CERT_PATH || "/etc/apache2/*.imd.gov.in.crt";
+const SSL_CA_PATH = process.env.SSL_CA_PATH || "/etc/apache2/emSign-SSL-CA-G1.crt";
+
+const sslFilesExist = () =>
+    fs.existsSync(SSL_KEY_PATH) &&
+    fs.existsSync(SSL_CERT_PATH) &&
+    fs.existsSync(SSL_CA_PATH);
+
+const loadSslOptions = () => ({
+    key: fs.readFileSync(SSL_KEY_PATH),
+    cert: fs.readFileSync(SSL_CERT_PATH),
+    ca: fs.readFileSync(SSL_CA_PATH),
+});
 
 app.use(cors());
 app.use(bodyParser.json({ limit: "10mb" }));
@@ -61,31 +74,64 @@ const generateSecretKey = () => {
 
 const secretKey = generateSecretKey();
 
-app.post("/login", (req, res) => {
-  client.query(
-    `SELECT * FROM login WHERE username = '${req.body.username}' AND password = '${req.body.password}';`,
-    (err, result) => {
-      if (err) {
-        res.send({ message: "Server Error", err });
-      } else {
-        if (result.rows.length) {
-          const user = {
-            userName: req.body.username,
-            password: req.body.password,
-          };
-          jwt.sign({ user }, secretKey, { expiresIn: "300s" }, (err, token) => {
-            res.json({
-              message: "Login successful",
-              token: token,
-              data: result.rows,
-            });
-          });
-        } else {
-          res.send({ message: "Username and Password are Invalid" });
-        }
+const verifyLoginPassword = async (plainPassword, storedPassword) => {
+  if (!storedPassword) return false;
+  if (/^\$2[aby]\$/.test(storedPassword)) {
+    return bcrypt.compare(plainPassword, storedPassword);
+  }
+  return plainPassword === storedPassword;
+};
+
+app.post("/login", async (req, res) => {
+  try {
+    const username = String(req.body.username ?? req.body.email ?? "").trim();
+    const password = req.body.password ?? "";
+
+    if (!username || !password) {
+      return res.status(400).json({ message: "Username and password are required" });
+    }
+
+    const result = await client.query(
+      `SELECT userid, name, username, password, mcorhq, status
+       FROM login
+       WHERE username = $1`,
+      [username]
+    );
+
+    if (!result.rows.length) {
+      return res.send({ message: "Username and Password are Invalid" });
+    }
+
+    let matchedUser = null;
+    for (const row of result.rows) {
+      if (row.status != null && Number(row.status) !== 1) continue;
+      if (await verifyLoginPassword(password, row.password)) {
+        matchedUser = row;
+        break;
       }
     }
-  );
+
+    if (!matchedUser) {
+      return res.send({ message: "Username and Password are Invalid" });
+    }
+
+    const { password: _pw, ...userData } = matchedUser;
+    const user = { userName: username };
+
+    jwt.sign({ user }, secretKey, { expiresIn: "300s" }, (err, token) => {
+      if (err) {
+        return res.status(500).json({ message: "Server Error", error: err.message });
+      }
+      res.json({
+        message: "Login successful",
+        token,
+        data: [userData],
+      });
+    });
+  } catch (err) {
+    console.error("[LOGIN]", err);
+    res.status(500).json({ message: "Server Error", error: err.message });
+  }
 });
 
 const port = process.env.PORT || 3000;
@@ -109,14 +155,23 @@ app.use("/api/v1/", adminRoutes);
 app.use("/api/v1/", geojsonRoutes);
 app.use("/api/v1/", stationDashboardRoutes);
 app.use("/api/v1/", calculationsModeRoutes);
+app.use("/api/v1/", reviewPublishRoutes);
+app.use("/api/v1/", adminActivityLogRoutes);
 
-// Use HTTPS Server
-https.createServer(options, app).listen(port, () => {
-  console.log(`Secure HTTPS Server started at PORT ${port}`);
+const useHttps = process.env.USE_HTTPS === "true" || (process.env.USE_HTTPS !== "false" && sslFilesExist());
+
+const server = useHttps
+  ? https.createServer(loadSslOptions(), app)
+  : http.createServer(app);
+
+initAdminRealtime(server);
+
+server.listen(port, () => {
+  if (useHttps) {
+    console.log(`Secure HTTPS Server started at PORT ${port} (WebSocket: /socket.io)`);
+  } else {
+    console.log(`HTTP Server started at http://localhost:${port} (WebSocket: /socket.io)`);
+  }
 });
-
-// app.listen(3000, () => {
-//   console.log(`Server running at http://localhost:${port}`);
-// });
 
 client.connect();

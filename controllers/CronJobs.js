@@ -41,8 +41,14 @@ const cronPatterns = [
     '00 18 * * *'  // 6:00 PM
 ];
 
-const jobs = cronPatterns.map((pattern, index) =>
-    schedule.scheduleJob(pattern, AddDailyStationData)
+const jobs = cronPatterns.map((pattern) =>
+    schedule.scheduleJob(pattern, async () => {
+        try {
+            await AddDailyStationData();
+        } catch (error) {
+            console.error("[CRON] AddDailyStationData failed:", error.message);
+        }
+    })
 );
 
 

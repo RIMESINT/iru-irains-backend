@@ -34,7 +34,7 @@ const cronScheduleRoutes = require("./routes/cronScheduleRoutes");
 const dataEntryLockRoutes = require("./routes/dataEntryLockRoutes");
 const mapDataScheduleRoutes = require("./routes/mapDataScheduleRoutes");
 const topRainfallStationsRoutes = require("./routes/topRainfallStationsRoutes");
-const basinRoutes = require("./routes/basinRoutes");
+const tapiBasinRoutes = require("./routes/tapiBasinRoutes");
 
 // // Load SSL Certificate
 const options = {
@@ -120,7 +120,7 @@ app.use("/api/v1/", cronScheduleRoutes);
 app.use("/api/v1/", dataEntryLockRoutes);
 app.use("/api/v1/", mapDataScheduleRoutes);
 app.use("/api/v1/", topRainfallStationsRoutes);
-app.use("/api/v1/", basinRoutes);
+app.use("/api/v1/", tapiBasinRoutes);
 
 // Use HTTPS Server
 https.createServer(options, app).listen(port, () => {

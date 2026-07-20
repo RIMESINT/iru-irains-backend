@@ -1,12 +1,12 @@
 const express = require("express");
 const router = express.Router();
 
-const { fetchBasinStationRainfallDataAPIexport } = require("../controllers/Basin");
+const { fetchTapiBasinRainfallDataAPIexport } = require("../controllers/TapiBasin");
 
 // ********************************************************************************************************
-//                                      Basin routes
+//                                      Tapi Basin routes
 // ********************************************************************************************************
 
-router.post("/fetchBasinStationRainfallDataAPIexport", fetchBasinStationRainfallDataAPIexport);
+router.post("/fetchTapiBasinRainfallDataAPIexport", fetchTapiBasinRainfallDataAPIexport);
 
 module.exports = router;

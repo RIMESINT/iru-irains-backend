@@ -606,14 +606,15 @@ exports.fetchRevisionLogByCentre = async (req, res) => {
             SELECT
                 sd.centre_type,
                 sd.centre_name,
-                COUNT(*)::int AS reupdate_count,
+                COUNT(*) FILTER (WHERE c.collection_date = c.updated_at::date)::int AS same_day_count,
+                COUNT(*) FILTER (WHERE c.collection_date < c.updated_at::date)::int AS back_dated_count,
                 COUNT(DISTINCT c.station_id)::int AS station_count
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             WHERE c.updated_at > c.created_at + INTERVAL '1 minute'
               AND c.updated_at >= NOW() - ($1 || ' days')::interval
             GROUP BY sd.centre_type, sd.centre_name
-            ORDER BY reupdate_count DESC;
+            ORDER BY (same_day_count + back_dated_count) DESC;
         `;
         const result = await client.query(query, [days]);
         res.status(200).json({ success: true, days, data: result.rows });
@@ -641,7 +642,8 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
                 ndd.district_name,
                 c.data AS station_value,
                 c.collection_date::text AS data_date,
-                c.updated_at
+                c.updated_at,
+                (c.collection_date < c.updated_at::date) AS back_dated
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code

@@ -540,6 +540,37 @@ exports.fetchRevisionLog = async (req, res) => {
     }
 };
 
+// Per-station detail for a single (revision day, data day) group — drilled into
+// from the "Stations" column on the Data Entry Investigation page. Current
+// value + station metadata only, no old/new value history.
+exports.fetchRevisionStationDetails = async (req, res) => {
+    try {
+        const { revisionDate, dataDate } = req.body;
+        const query = `
+            SELECT
+                sd.station_code,
+                sd.station_name,
+                sd.centre_type,
+                sd.centre_name,
+                ndd.state_name,
+                ndd.district_name,
+                sdd.data AS station_value
+            FROM public.station_daily_data_updates sdd
+            JOIN public.station_details sd ON sd.station_code = sdd.station_id
+            JOIN public.normal_district_details ndd ON ndd.district_code = sdd.district_code
+            WHERE sdd.updated_at::date = $1
+              AND sdd.collection_date = $2
+              AND sdd.updated_at > sdd.created_at + INTERVAL '1 minute'
+            ORDER BY sd.station_name;
+        `;
+        const result = await client.query(query, [revisionDate, dataDate]);
+        res.status(200).json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionStationDetails:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 
 exports.verifyStationData = async (req, res) => {
     try {

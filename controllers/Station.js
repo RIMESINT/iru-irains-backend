@@ -1421,32 +1421,32 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
   
     if (endDate) {
       query = `
-                SELECT  
-                        min(ndd.region_name) as region_name,
-                        min(ndd.subdiv_name) as subdiv_name,
-                        min( ndd.state_name) as state_name,
-                        min(ndd.district_name) as district_name,
-                        (sd.station_code) as station_code,
-                        min(sd.station_name) as station_name,
-                        min(sd.station_type) as station_type,
-                        min(sd.centre_type) as centre_type,
-                        min(sd.centre_name) as centre_name,
-                        min(sd.latitude) as latitude,
-                        min(sd.longitude) as longitude,
-                        sum(sdd.data) as rainfall_data_in_mm
+                SELECT
+                        ndd.region_name as region_name,
+                        ndd.subdiv_name as subdiv_name,
+                        ndd.state_name as state_name,
+                        ndd.district_name as district_name,
+                        sd.station_code as station_code,
+                        sd.station_name as station_name,
+                        sd.station_type as station_type,
+                        sd.centre_type as centre_type,
+                        sd.centre_name as centre_name,
+                        sd.latitude as latitude,
+                        sd.longitude as longitude,
+                        sdd.collection_date as date,
+                        sdd.data as rainfall_data_in_mm
                     FROM public.station_details AS sd
                     JOIN public.station_daily_data_updates AS sdd
                     ON sdd.station_id = sd.station_code
                     JOIN normal_district_details AS ndd
                     ON ndd.district_code = sdd.district_code
                     WHERE sdd.collection_date BETWEEN $1 AND $2 and sdd.data != (-999.9) AND sd.flag != 0
-                    group by sd.station_code
-                    order by station_code
+                    order by sdd.collection_date, sd.station_code
                 `;
       values = [startDate, endDate];
     } else {
       query = `
-        SELECT 
+        SELECT
                ndd.region_name,
                ndd.subdiv_name,
                ndd.state_name,
@@ -1458,6 +1458,7 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
                sd.centre_name,
                sd.latitude,
                sd.longitude,
+               sdd.collection_date as date,
                sdd.data as rainfall_data_in_mm
         FROM public.station_details AS sd
         JOIN public.station_daily_data_updates AS sdd

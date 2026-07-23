@@ -224,9 +224,12 @@ const fetchFilteredDataIncludingVerification = async (startDate) => {
 };
 
 const updateStationDataQuery = async (station_code, date, value ) => {
+    // Only bump updated_at when the value actually changes — otherwise
+    // re-saving an unchanged cell falsely counts as a "revision".
     const query = `
                 Update public.station_daily_data_updates set data =$1, updated_at =now()
-                WHERE collection_date = $2 and station_id = $3;`;  
+                WHERE collection_date = $2 and station_id = $3
+                AND data IS DISTINCT FROM $1;`;
 
     try {
         const result = await client.query(query, [value, date,station_code ]);
@@ -470,11 +473,16 @@ exports.insertRainfallFile = async (req, res) => {
             }));
         });
 
+        // WHERE guard: only touch updated_at when the incoming value actually
+        // differs from what's stored — otherwise re-uploading a wide sheet
+        // that overlaps existing dates falsely flags every unchanged cell
+        // as a "revision" in the Revision Log.
         const upsertQuery = `
             INSERT INTO public.station_daily_data_updates (station_id, district_code, collection_date, data)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (station_id, collection_date)
-            DO UPDATE SET data = EXCLUDED.data, updated_at = NOW();
+            DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+            WHERE public.station_daily_data_updates.data IS DISTINCT FROM EXCLUDED.data;
         `;
 
         const values = formattedData.map(data => [

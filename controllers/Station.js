@@ -1415,37 +1415,8 @@ const dataActionsTable = async (startDate) => {
 
 
 
-const fetchFilteredDataNWP = async (startDate, endDate = null) => {
-    let query;
-    let values;
-  
-    if (endDate) {
-      query = `
-                SELECT
-                        ndd.region_name as region_name,
-                        ndd.subdiv_name as subdiv_name,
-                        ndd.state_name as state_name,
-                        ndd.district_name as district_name,
-                        sd.station_code as station_code,
-                        sd.station_name as station_name,
-                        sd.station_type as station_type,
-                        sd.centre_type as centre_type,
-                        sd.centre_name as centre_name,
-                        sd.latitude as latitude,
-                        sd.longitude as longitude,
-                        sdd.collection_date as date,
-                        sdd.data as rainfall_data_in_mm
-                    FROM public.station_details AS sd
-                    JOIN public.station_daily_data_updates AS sdd
-                    ON sdd.station_id = sd.station_code
-                    JOIN normal_district_details AS ndd
-                    ON ndd.district_code = sdd.district_code
-                    WHERE sdd.collection_date BETWEEN $1 AND $2 and sdd.data != (-999.9) AND sd.flag != 0
-                    order by sdd.collection_date, sd.station_code
-                `;
-      values = [startDate, endDate];
-    } else {
-      query = `
+const fetchFilteredDataNWP = async (date) => {
+    const query = `
         SELECT
                ndd.region_name,
                ndd.subdiv_name,
@@ -1458,7 +1429,6 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
                sd.centre_name,
                sd.latitude,
                sd.longitude,
-               sdd.collection_date as date,
                sdd.data as rainfall_data_in_mm
         FROM public.station_details AS sd
         JOIN public.station_daily_data_updates AS sdd
@@ -1467,11 +1437,9 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
           ON ndd.district_code = sdd.district_code
         WHERE sdd.collection_date = $1 AND sd.flag != 0;
       `;
-      values = [startDate];
-    }
-  
+
     try {
-      const result = await client.query(query, values);
+      const result = await client.query(query, [date]);
       return result.rows;
     } catch (error) {
       console.error('Error executing query', error.stack);
@@ -1483,31 +1451,24 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
   exports.fetchStationDataNWP = async (req, res) => {
     try {
 
-        let { user, pass, start_date, end_date } = req.body;
+        let { user, pass, date } = req.body;
         if(user=="IMD_NWP" && pass=="!Md@15O#nWp"){
-        const today = moment().format('YYYY-MM-DD');
-        const startDate = start_date || today;
-        const endDate = start_date ? (end_date || today) : null;
+        const effectiveDate = date || moment().format('YYYY-MM-DD');
 
-        let data = await fetchFilteredDataNWP(startDate, endDate);
-
-        const dateCondition = endDate
-          ? `sdd.collection_date BETWEEN $1 AND $2`
-          : `sdd.collection_date = $1`;
-        const dateValues = endDate ? [startDate, endDate] : [startDate];
+        let data = await fetchFilteredDataNWP(effectiveDate);
 
         const [inactiveResult, totalResult] = await Promise.all([
           client.query(
             `SELECT COUNT(DISTINCT sd.station_code) FROM public.station_details sd
              JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
-             WHERE ${dateCondition} AND sd.flag = 0`,
-            dateValues
+             WHERE sdd.collection_date = $1 AND sd.flag = 0`,
+            [effectiveDate]
           ),
           client.query(
             `SELECT COUNT(DISTINCT sd.station_code) FROM public.station_details sd
              JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
-             WHERE ${dateCondition}`,
-            dateValues
+             WHERE sdd.collection_date = $1`,
+            [effectiveDate]
           )
         ]);
 
@@ -1515,7 +1476,7 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
             success: true,
             message: "Station data fetched Successfully",
             note: "Only IMD stations having data",
-            ...(endDate ? { start_date: startDate, end_date: endDate } : { date: startDate }),
+            date: effectiveDate,
             imd_total_stations: parseInt(totalResult.rows[0].count),
             imd_stations_having_data: data.length,
             imd_inactive_stations: parseInt(inactiveResult.rows[0].count),

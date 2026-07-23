@@ -470,7 +470,7 @@ exports.insertRainfallFile = async (req, res) => {
             INSERT INTO public.station_daily_data_updates (station_id, district_code, collection_date, data)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (station_id, collection_date)
-            DO UPDATE SET data = EXCLUDED.data;
+            DO UPDATE SET data = EXCLUDED.data, updated_at = NOW();
         `;
 
         const values = formattedData.map(data => [

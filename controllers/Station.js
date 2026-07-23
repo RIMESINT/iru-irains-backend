@@ -1482,32 +1482,31 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
   exports.fetchStationDataNWP = async (req, res) => {
     try {
 
-        let { user,pass } = req.body;
+        let { user, pass, start_date, end_date } = req.body;
         if(user=="IMD_NWP" && pass=="!Md@15O#nWp"){
-        const currentTime = moment();
-        const cutoffTime = moment().set({ hour: 13, minute: 59 });
-        
-        // const effectiveDate = currentTime.isAfter(cutoffTime)
-        //   ? currentTime.format('YYYY-MM-DD')
-        //   : currentTime.subtract(1, 'day').format('YYYY-MM-DD');
+        const today = moment().format('YYYY-MM-DD');
+        const startDate = start_date || today;
+        const endDate = start_date ? (end_date || today) : null;
 
-        const effectiveDate = currentTime.format('YYYY-MM-DD')
+        let data = await fetchFilteredDataNWP(startDate, endDate);
 
-
-        let data = await fetchFilteredDataNWP(effectiveDate);
+        const dateCondition = endDate
+          ? `sdd.collection_date BETWEEN $1 AND $2`
+          : `sdd.collection_date = $1`;
+        const dateValues = endDate ? [startDate, endDate] : [startDate];
 
         const [inactiveResult, totalResult] = await Promise.all([
           client.query(
-            `SELECT COUNT(*) FROM public.station_details sd
+            `SELECT COUNT(DISTINCT sd.station_code) FROM public.station_details sd
              JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
-             WHERE sdd.collection_date = $1 AND sd.flag = 0`,
-            [effectiveDate]
+             WHERE ${dateCondition} AND sd.flag = 0`,
+            dateValues
           ),
           client.query(
-            `SELECT COUNT(*) FROM public.station_details sd
+            `SELECT COUNT(DISTINCT sd.station_code) FROM public.station_details sd
              JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
-             WHERE sdd.collection_date = $1`,
-            [effectiveDate]
+             WHERE ${dateCondition}`,
+            dateValues
           )
         ]);
 
@@ -1515,7 +1514,7 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
             success: true,
             message: "Station data fetched Successfully",
             note: "Only IMD stations having data",
-            date:effectiveDate,
+            ...(endDate ? { start_date: startDate, end_date: endDate } : { date: startDate }),
             imd_total_stations: parseInt(totalResult.rows[0].count),
             imd_stations_having_data: data.length,
             imd_inactive_stations: parseInt(inactiveResult.rows[0].count),

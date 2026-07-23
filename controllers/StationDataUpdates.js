@@ -554,7 +554,9 @@ exports.fetchRevisionStationDetails = async (req, res) => {
                 sd.centre_name,
                 ndd.state_name,
                 ndd.district_name,
-                sdd.data AS station_value
+                sdd.data AS station_value,
+                sdd.collection_date::text AS data_date,
+                sdd.updated_at
             FROM public.station_daily_data_updates sdd
             JOIN public.station_details sd ON sd.station_code = sdd.station_id
             JOIN public.normal_district_details ndd ON ndd.district_code = sdd.district_code

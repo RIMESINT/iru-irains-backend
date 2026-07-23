@@ -619,7 +619,7 @@ exports.fetchRevisionLogByCentre = async (req, res) => {
             JOIN public.station_details sd ON sd.station_code = c.station_id
             WHERE c.updated_at >= NOW() - ($1 || ' days')::interval
             GROUP BY sd.centre_type, sd.centre_name
-            ORDER BY (same_day_count + back_dated_count) DESC;
+            ORDER BY COUNT(*) DESC;
         `;
         const result = await client.query(query, [days]);
         res.status(200).json({ success: true, days, data: result.rows });

@@ -64,11 +64,13 @@ const fetchFilteredData = async (startDate, endDate = null) => {
                sd.activationdate,
                sdd.data,
                sdd.is_verified,
-               sdd.verified_at
+               sdd.verified_at,
+               sdd.created_at,
+               sdd.updated_at
         FROM public.station_details AS sd
-        JOIN public.station_daily_data_updates AS sdd 
+        JOIN public.station_daily_data_updates AS sdd
           ON sdd.station_id = sd.station_code
-        JOIN normal_district_details AS ndd 
+        JOIN normal_district_details AS ndd
           ON ndd.district_code = sdd.district_code
         WHERE sdd.collection_date = $1
         AND sd.flag != 0;
@@ -107,7 +109,9 @@ const fetchRangeDataForEntry = async (fromDate, toDate) => {
                TO_CHAR(sdd.collection_date, 'YYYY-MM-DD') AS collection_date,
                sdd.data,
                sdd.is_verified,
-               sdd.verified_at
+               sdd.verified_at,
+               sdd.created_at,
+               sdd.updated_at
         FROM public.station_details AS sd
         JOIN public.station_daily_data_updates AS sdd
           ON sdd.station_id = sd.station_code
@@ -499,6 +503,34 @@ exports.insertRainfallFile = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 }
+
+// For each (revision day, data day) pair, how many stations had an
+// already-saved value edited again — used by the Data Entry "Revision Log".
+exports.fetchRevisionLog = async (req, res) => {
+    try {
+        let { days } = req.body;
+        days = Number(days) > 0 ? Number(days) : 30;
+
+        const query = `
+            SELECT
+                sdd.updated_at::date::text AS revision_date,
+                sdd.collection_date::text AS data_date,
+                COUNT(DISTINCT sdd.station_id)::int AS station_count,
+                ARRAY_AGG(DISTINCT sd.station_name ORDER BY sd.station_name) AS station_names
+            FROM public.station_daily_data_updates sdd
+            JOIN public.station_details sd ON sd.station_code = sdd.station_id
+            WHERE sdd.updated_at > sdd.created_at + INTERVAL '1 minute'
+              AND sdd.updated_at >= NOW() - ($1 || ' days')::interval
+            GROUP BY sdd.updated_at::date, sdd.collection_date
+            ORDER BY sdd.updated_at::date DESC, sdd.collection_date DESC;
+        `;
+        const result = await client.query(query, [days]);
+        res.status(200).json({ success: true, days, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionLog:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
 
 
 exports.verifyStationData = async (req, res) => {

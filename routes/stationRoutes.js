@@ -63,6 +63,8 @@ const {
     fetchStationDataIncludingVerification,
     fetchRevisionLog,
     fetchRevisionStationDetails,
+    fetchRevisionLogByCentre,
+    fetchCentreRevisionDetails,
 
 
 } = require("../controllers/StationDataUpdates")
@@ -84,6 +86,8 @@ router.post("/insertMultipleStations", upload.single('file'), insertMultipleStat
 router.post("/insertRainfallFile", upload.single('file'), insertRainfallFile);
 router.post("/fetchRevisionLog", fetchRevisionLog);
 router.post("/fetchRevisionStationDetails", fetchRevisionStationDetails);
+router.post("/fetchRevisionLogByCentre", fetchRevisionLogByCentre);
+router.post("/fetchCentreRevisionDetails", fetchCentreRevisionDetails);
 router.get("/insertLatLongInStationDetails", upload.single('file'), insertLatLongInStationDetails);
 router.post("/EditMultipleStations", upload.single('file'), EditMultipleStations);
 

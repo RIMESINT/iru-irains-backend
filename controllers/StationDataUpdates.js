@@ -512,6 +512,24 @@ exports.insertRainfallFile = async (req, res) => {
     }
 }
 
+// station_daily_data_updates only retains ~60 days (older rows get migrated
+// into station_daily_data and deleted here — see removePrevData()). To support
+// lookbacks beyond that (e.g. 90/130 days), every revision query below reads
+// from this combined view: recent rows from _updates, older rows from the
+// archive. The archive side is restricted to collection_date older than 60
+// days because station_daily_data is re-synced with the recent 60-day window
+// daily — including it unrestricted would double-count everything recent.
+const REVISION_SOURCE_CTE = `
+    WITH combined AS (
+        SELECT station_id, district_code, collection_date, data, created_at, updated_at
+        FROM public.station_daily_data_updates
+        UNION ALL
+        SELECT station_id, district_code, collection_date, data, created_at, updated_at
+        FROM public.station_daily_data
+        WHERE collection_date < CURRENT_DATE - INTERVAL '60 days'
+    )
+`;
+
 // For each (revision day, data day) pair, how many stations had an
 // already-saved value edited again — used by the Data Entry "Revision Log".
 exports.fetchRevisionLog = async (req, res) => {
@@ -520,17 +538,18 @@ exports.fetchRevisionLog = async (req, res) => {
         days = Number(days) > 0 ? Number(days) : 30;
 
         const query = `
+            ${REVISION_SOURCE_CTE}
             SELECT
-                sdd.updated_at::date::text AS revision_date,
-                sdd.collection_date::text AS data_date,
-                COUNT(DISTINCT sdd.station_id)::int AS station_count,
+                c.updated_at::date::text AS revision_date,
+                c.collection_date::text AS data_date,
+                COUNT(DISTINCT c.station_id)::int AS station_count,
                 ARRAY_AGG(DISTINCT sd.station_name ORDER BY sd.station_name) AS station_names
-            FROM public.station_daily_data_updates sdd
-            JOIN public.station_details sd ON sd.station_code = sdd.station_id
-            WHERE sdd.updated_at > sdd.created_at + INTERVAL '1 minute'
-              AND sdd.updated_at >= NOW() - ($1 || ' days')::interval
-            GROUP BY sdd.updated_at::date, sdd.collection_date
-            ORDER BY sdd.updated_at::date DESC, sdd.collection_date DESC;
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            WHERE c.updated_at > c.created_at + INTERVAL '1 minute'
+              AND c.updated_at >= NOW() - ($1 || ' days')::interval
+            GROUP BY c.updated_at::date, c.collection_date
+            ORDER BY c.updated_at::date DESC, c.collection_date DESC;
         `;
         const result = await client.query(query, [days]);
         res.status(200).json({ success: true, days, data: result.rows });
@@ -547,6 +566,7 @@ exports.fetchRevisionStationDetails = async (req, res) => {
     try {
         const { revisionDate, dataDate } = req.body;
         const query = `
+            ${REVISION_SOURCE_CTE}
             SELECT
                 sd.station_code,
                 sd.station_name,
@@ -554,21 +574,87 @@ exports.fetchRevisionStationDetails = async (req, res) => {
                 sd.centre_name,
                 ndd.state_name,
                 ndd.district_name,
-                sdd.data AS station_value,
-                sdd.collection_date::text AS data_date,
-                sdd.updated_at
-            FROM public.station_daily_data_updates sdd
-            JOIN public.station_details sd ON sd.station_code = sdd.station_id
-            JOIN public.normal_district_details ndd ON ndd.district_code = sdd.district_code
-            WHERE sdd.updated_at::date = $1
-              AND sdd.collection_date = $2
-              AND sdd.updated_at > sdd.created_at + INTERVAL '1 minute'
+                c.data AS station_value,
+                c.collection_date::text AS data_date,
+                c.updated_at
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            WHERE c.updated_at::date = $1
+              AND c.collection_date = $2
+              AND c.updated_at > c.created_at + INTERVAL '1 minute'
             ORDER BY sd.station_name;
         `;
         const result = await client.query(query, [revisionDate, dataDate]);
         res.status(200).json({ success: true, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchRevisionStationDetails:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// MC/RMC-wise reupdate counts, in the same style as the Verification HQ page
+// (grouping key: centre_type + ' ' + centre_name) — top-left "MC-Wise
+// Reupdates" button on the Investigation page.
+exports.fetchRevisionLogByCentre = async (req, res) => {
+    try {
+        let { days } = req.body;
+        days = Number(days) > 0 ? Number(days) : 30;
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                sd.centre_type,
+                sd.centre_name,
+                COUNT(*)::int AS reupdate_count,
+                COUNT(DISTINCT c.station_id)::int AS station_count
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            WHERE c.updated_at > c.created_at + INTERVAL '1 minute'
+              AND c.updated_at >= NOW() - ($1 || ' days')::interval
+            GROUP BY sd.centre_type, sd.centre_name
+            ORDER BY reupdate_count DESC;
+        `;
+        const result = await client.query(query, [days]);
+        res.status(200).json({ success: true, days, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionLogByCentre:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Per-station detail for a single MC/RMC — drilled into from the "MC-Wise
+// Reupdates" panel. Same row shape as fetchRevisionStationDetails.
+exports.fetchCentreRevisionDetails = async (req, res) => {
+    try {
+        const { centreType, centreName, days } = req.body;
+        const lookbackDays = Number(days) > 0 ? Number(days) : 30;
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                sd.station_code,
+                sd.station_name,
+                sd.centre_type,
+                sd.centre_name,
+                ndd.state_name,
+                ndd.district_name,
+                c.data AS station_value,
+                c.collection_date::text AS data_date,
+                c.updated_at
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            WHERE sd.centre_type = $1
+              AND sd.centre_name = $2
+              AND c.updated_at > c.created_at + INTERVAL '1 minute'
+              AND c.updated_at >= NOW() - ($3 || ' days')::interval
+            ORDER BY c.updated_at DESC;
+        `;
+        const result = await client.query(query, [centreType, centreName, lookbackDays]);
+        res.status(200).json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchCentreRevisionDetails:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

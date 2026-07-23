@@ -1429,6 +1429,7 @@ const fetchFilteredDataNWP = async (date) => {
                sd.centre_name,
                sd.latitude,
                sd.longitude,
+               TO_CHAR(sdd.collection_date, 'YYYY-MM-DD') as date,
                sdd.data as rainfall_data_in_mm
         FROM public.station_details AS sd
         JOIN public.station_daily_data_updates AS sdd

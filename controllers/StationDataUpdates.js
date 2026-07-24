@@ -665,6 +665,31 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
     }
 };
 
+// Same-day / backdated / stations-affected counts collapsed to a single day —
+// used by the Data Entry Investigation page's top-right "Day Wise" panel.
+exports.fetchDayWiseUpdateSummary = async (req, res) => {
+    try {
+        const { date } = req.body;
+        const targetDate = date || new Date().toISOString().slice(0, 10);
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                COUNT(*) FILTER (WHERE c.collection_date = c.updated_at::date)::int AS same_day_count,
+                COUNT(*) FILTER (WHERE c.collection_date < c.updated_at::date)::int AS back_dated_count,
+                COUNT(DISTINCT c.station_id)::int AS station_count
+            FROM combined c
+            WHERE c.updated_at::date = $1::date;
+        `;
+        const result = await client.query(query, [targetDate]);
+        const row = result.rows[0] || { same_day_count: 0, back_dated_count: 0, station_count: 0 };
+        res.status(200).json({ success: true, date: targetDate, ...row });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchDayWiseUpdateSummary:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 
 exports.verifyStationData = async (req, res) => {
     try {

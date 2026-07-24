@@ -65,7 +65,6 @@ const {
     fetchRevisionStationDetails,
     fetchRevisionLogByCentre,
     fetchCentreRevisionDetails,
-    fetchDayWiseUpdateSummary,
 
 
 } = require("../controllers/StationDataUpdates")
@@ -89,7 +88,6 @@ router.post("/fetchRevisionLog", fetchRevisionLog);
 router.post("/fetchRevisionStationDetails", fetchRevisionStationDetails);
 router.post("/fetchRevisionLogByCentre", fetchRevisionLogByCentre);
 router.post("/fetchCentreRevisionDetails", fetchCentreRevisionDetails);
-router.post("/fetchDayWiseUpdateSummary", fetchDayWiseUpdateSummary);
 router.get("/insertLatLongInStationDetails", upload.single('file'), insertLatLongInStationDetails);
 router.post("/EditMultipleStations", upload.single('file'), EditMultipleStations);
 

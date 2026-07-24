@@ -539,11 +539,20 @@ const REVISION_SOURCE_CTE = `
 `;
 
 // For each (update day, data day) pair, how many stations had a value saved —
-// used by the Data Entry "Revision Log".
+// used by the Data Entry "Revision Log". Accepts EITHER a rolling window
+// ({ days }, for the Range tab) OR one specific day ({ date }, for the Day
+// Wise tab) — date takes precedence if both are somehow sent.
 exports.fetchRevisionLog = async (req, res) => {
     try {
-        let { days } = req.body;
-        days = Number(days) > 0 ? Number(days) : 30;
+        const { days, date } = req.body;
+        let whereClause, param;
+        if (date) {
+            whereClause = 'c.updated_at::date = $1::date';
+            param = date;
+        } else {
+            param = Number(days) > 0 ? Number(days) : 30;
+            whereClause = "c.updated_at >= NOW() - ($1 || ' days')::interval";
+        }
 
         const query = `
             ${REVISION_SOURCE_CTE}
@@ -554,12 +563,12 @@ exports.fetchRevisionLog = async (req, res) => {
                 ARRAY_AGG(DISTINCT sd.station_name ORDER BY sd.station_name) AS station_names
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
-            WHERE c.updated_at >= NOW() - ($1 || ' days')::interval
+            WHERE ${whereClause}
             GROUP BY c.updated_at::date, c.collection_date
             ORDER BY c.updated_at::date DESC, c.collection_date DESC;
         `;
-        const result = await client.query(query, [days]);
-        res.status(200).json({ success: true, days, data: result.rows });
+        const result = await client.query(query, [param]);
+        res.status(200).json({ success: true, days, date, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchRevisionLog:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -601,11 +610,19 @@ exports.fetchRevisionStationDetails = async (req, res) => {
 
 // MC/RMC-wise update counts, in the same style as the Verification HQ page
 // (grouping key: centre_type + ' ' + centre_name) — top-left "MC-Wise
-// Reupdates" button on the Investigation page.
+// Reupdates" button on the Investigation page. Same days-vs-date dual mode
+// as fetchRevisionLog.
 exports.fetchRevisionLogByCentre = async (req, res) => {
     try {
-        let { days } = req.body;
-        days = Number(days) > 0 ? Number(days) : 30;
+        const { days, date } = req.body;
+        let whereClause, param;
+        if (date) {
+            whereClause = 'c.updated_at::date = $1::date';
+            param = date;
+        } else {
+            param = Number(days) > 0 ? Number(days) : 30;
+            whereClause = "c.updated_at >= NOW() - ($1 || ' days')::interval";
+        }
 
         const query = `
             ${REVISION_SOURCE_CTE}
@@ -617,12 +634,12 @@ exports.fetchRevisionLogByCentre = async (req, res) => {
                 COUNT(DISTINCT c.station_id)::int AS station_count
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
-            WHERE c.updated_at >= NOW() - ($1 || ' days')::interval
+            WHERE ${whereClause}
             GROUP BY sd.centre_type, sd.centre_name
             ORDER BY COUNT(*) DESC;
         `;
-        const result = await client.query(query, [days]);
-        res.status(200).json({ success: true, days, data: result.rows });
+        const result = await client.query(query, [param]);
+        res.status(200).json({ success: true, days, date, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchRevisionLogByCentre:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -630,11 +647,19 @@ exports.fetchRevisionLogByCentre = async (req, res) => {
 };
 
 // Per-station detail for a single MC/RMC — drilled into from the "MC-Wise
-// Reupdates" panel. Same row shape as fetchRevisionStationDetails.
+// Reupdates" panel. Same row shape as fetchRevisionStationDetails. Same
+// days-vs-date dual mode as fetchRevisionLog, applied to the 3rd param.
 exports.fetchCentreRevisionDetails = async (req, res) => {
     try {
-        const { centreType, centreName, days } = req.body;
-        const lookbackDays = Number(days) > 0 ? Number(days) : 30;
+        const { centreType, centreName, days, date } = req.body;
+        let extraClause, param3;
+        if (date) {
+            extraClause = 'c.updated_at::date = $3::date';
+            param3 = date;
+        } else {
+            param3 = Number(days) > 0 ? Number(days) : 30;
+            extraClause = "c.updated_at >= NOW() - ($3 || ' days')::interval";
+        }
 
         const query = `
             ${REVISION_SOURCE_CTE}
@@ -654,38 +679,13 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
             JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
             WHERE sd.centre_type = $1
               AND sd.centre_name = $2
-              AND c.updated_at >= NOW() - ($3 || ' days')::interval
+              AND ${extraClause}
             ORDER BY c.updated_at DESC;
         `;
-        const result = await client.query(query, [centreType, centreName, lookbackDays]);
+        const result = await client.query(query, [centreType, centreName, param3]);
         res.status(200).json({ success: true, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchCentreRevisionDetails:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
-};
-
-// Same-day / backdated / stations-affected counts collapsed to a single day —
-// used by the Data Entry Investigation page's top-right "Day Wise" panel.
-exports.fetchDayWiseUpdateSummary = async (req, res) => {
-    try {
-        const { date } = req.body;
-        const targetDate = date || new Date().toISOString().slice(0, 10);
-
-        const query = `
-            ${REVISION_SOURCE_CTE}
-            SELECT
-                COUNT(*) FILTER (WHERE c.collection_date = c.updated_at::date)::int AS same_day_count,
-                COUNT(*) FILTER (WHERE c.collection_date < c.updated_at::date)::int AS back_dated_count,
-                COUNT(DISTINCT c.station_id)::int AS station_count
-            FROM combined c
-            WHERE c.updated_at::date = $1::date;
-        `;
-        const result = await client.query(query, [targetDate]);
-        const row = result.rows[0] || { same_day_count: 0, back_dated_count: 0, station_count: 0 };
-        res.status(200).json({ success: true, date: targetDate, ...row });
-    } catch (error) {
-        console.error('[REVISION LOG] fetchDayWiseUpdateSummary:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

@@ -8,7 +8,7 @@ const { fetchDistrictDataWithAWS } = require("../controllers/AwsInclusiveControl
 const { fetchDistrictData, getAllDistrict, getLatestFiveYearDataOfDistrict, fetchDistrictDataforAPIexport, getDistrictAreaPercentages, fetchDistrictStationCount, getDistrictDisplayOrder, getNormalDistrictDetails, updateDistrictDisplayOrders, addDistrictDisplayOrderEntry, deleteDistrictDisplayOrderEntry, getDistrictNormals, downloadDistrictNormalTemplate, downloadDistrictNormalTemplateForDistrict } = require("../controllers/District")
 const { fetchDistrictDataFtp, fetchDistrictDataInBunchOfDatesFtp,getLatestFiveYearDataOfDistrictFtp} = require("../controllers/ftp/District")
 const { getnDistrictDataAndInsertInNormalDistrict } = require("../controllers/scripts/district/normalDistrict");
-const { addNewDistrictDetails, updateDistrictNormals, bulkReplaceDistrictNormals, addYearDistrictNormals, bulkAddYearDistrictNormals } = require("../controllers/scripts/district/addNormalDistrict");
+const { addNewDistrictDetails, updateDistrictNormals, bulkReplaceDistrictNormals, addYearDistrictNormals, bulkAddYearDistrictNormals, getMissingDistrictNormals } = require("../controllers/scripts/district/addNormalDistrict");
 const { inserNewDistrictAndNormalValues } = require("../controllers/scripts/AddDistrictAndNormals");
 
 
@@ -60,5 +60,7 @@ router.post("/fetchDistrictDataInBunchOfDatesFtp", fetchDistrictDataInBunchOfDat
 
 
 
+
+router.get("/getMissingDistrictNormals", getMissingDistrictNormals);
 
 module.exports = router;

@@ -18,7 +18,8 @@ const {
 } = require("../controllers/scripts/admin-panel/calculationExclusion");
 
 const {
-  getAllStations
+  getAllStations,
+  getAllAwsStations
 } = require("../controllers/scripts/admin-panel/stationListController");
 
 
@@ -40,7 +41,8 @@ router.post("/calculation-exclusion/bulk-toggle",    bulkExclusion);
 
 
 // ── Station List (for exclusion UI) ─────────────────────────
-router.get("/getStationsForExclusion", getAllStations);
+router.get("/getStationsForExclusion",    getAllStations);
+router.get("/getAwsStationsForExclusion", getAllAwsStations);
 
 
 module.exports = router;

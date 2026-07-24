@@ -282,3 +282,24 @@ exports.bulkAddStateYearNormals = async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 };
+
+// ── Get states missing normals for a given year ───────────────────────────────
+exports.getMissingStateNormals = async (req, res) => {
+    try {
+        const year = parseInt(req.query.year) || new Date().getFullYear();
+        const result = await client.query(
+            `SELECT DISTINCT state_code, state_name
+             FROM normal_state
+             WHERE state_code NOT IN (
+               SELECT DISTINCT state_code FROM normal_state
+               WHERE EXTRACT(YEAR FROM date) = $1
+             )
+             ORDER BY state_name`,
+            [year]
+        );
+        res.status(200).json({ success: true, data: result.rows, year });
+    } catch (err) {
+        console.error('getMissingStateNormals error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};

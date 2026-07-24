@@ -96,9 +96,10 @@ const query = `
                     END AS d_area,
                             MIN(ns.rainfall_value) AS normal_rainfall,
                             AVG(
-                                CASE 
-                                    WHEN sdd.data = '-999.9' THEN NULL 
-                                    ELSE sdd.data 
+                                CASE
+                                    WHEN sdd.data = '-999.9' THEN NULL
+                                    WHEN sdd.data::numeric < 0 THEN NULL
+                                    ELSE sdd.data
                                 END
                             ) AS actual_rainfall
                         FROM 
@@ -223,6 +224,8 @@ exports.fetchSubDivisionDataAforAPIexport = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "Subdivision data fetched successfully",
+            fromDate: fromDate,
+            toDate: toDate,
             data: data
         });
 

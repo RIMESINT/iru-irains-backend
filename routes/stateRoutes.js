@@ -15,6 +15,7 @@ const {
     addStateYearNormals,
     bulkReplaceStateNormals,
     bulkAddStateYearNormals,
+    getMissingStateNormals,
 } = require("../controllers/scripts/state/stateNormalsManagement");
 
 
@@ -63,5 +64,6 @@ router.put("/replaceStateNormals/:state_code",    upload.single('file'), replace
 router.post("/addStateYearNormals/:state_code",   upload.single('file'), addStateYearNormals);
 router.put("/bulkReplaceStateNormals",            upload.single('file'), bulkReplaceStateNormals);
 router.post("/bulkAddStateYearNormals",           upload.single('file'), bulkAddStateYearNormals);
+router.get("/getMissingStateNormals",             getMissingStateNormals);
 
 module.exports = router;

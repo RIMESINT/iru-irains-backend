@@ -397,6 +397,8 @@ exports.fetchDistrictDataforAPIexport = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "District data fetched successfully",
+            fromDate: fromDate,
+            toDate: toDate,
             data: data
         });
 

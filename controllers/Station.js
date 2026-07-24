@@ -1496,10 +1496,29 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
 
         let data = await fetchFilteredDataNWP(effectiveDate);
 
+        const [inactiveResult, totalResult] = await Promise.all([
+          client.query(
+            `SELECT COUNT(*) FROM public.station_details sd
+             JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+             WHERE sdd.collection_date = $1 AND sd.flag = 0`,
+            [effectiveDate]
+          ),
+          client.query(
+            `SELECT COUNT(*) FROM public.station_details sd
+             JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+             WHERE sdd.collection_date = $1`,
+            [effectiveDate]
+          )
+        ]);
+
         res.status(200).json({
             success: true,
             message: "Station data fetched Successfully",
+            note: "Only IMD stations having data",
             date:effectiveDate,
+            imd_total_stations: parseInt(totalResult.rows[0].count),
+            imd_stations_having_data: data.length,
+            imd_inactive_stations: parseInt(inactiveResult.rows[0].count),
             data: data
         });
     }
@@ -1522,6 +1541,263 @@ const fetchFilteredDataNWP = async (startDate, endDate = null) => {
 }
 
 
+
+// ── AWS-only NWP ──────────────────────────────────────────────────────────────
+const fetchFilteredDataNWP_AWS = async (startDate, endDate = null) => {
+  let query, values;
+
+  if (endDate) {
+    query = `
+      SELECT
+        min(ndd.region_name)    as region_name,
+        min(ndd.subdiv_name)    as subdiv_name,
+        min(ndd.state_name)     as state_name,
+        min(ndd.district_name)  as district_name,
+        asd.station_code        as station_code,
+        min(asd.station_name)   as station_name,
+        min(asd.station_type)   as station_type,
+        min(asd.centre_type)    as centre_type,
+        min(asd.centre_name)    as centre_name,
+        min(asd.latitude)       as latitude,
+        min(asd.longitude)      as longitude,
+        sum(asdd.data)          as rainfall_data_in_mm
+      FROM public.aws_station_details AS asd
+      JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
+      WHERE asdd.collection_date BETWEEN $1 AND $2
+        AND asdd.data != -999.9
+        AND asd.flag != 0
+      GROUP BY asd.station_code
+      ORDER BY asd.station_code
+    `;
+    values = [startDate, endDate];
+  } else {
+    query = `
+      SELECT
+        ndd.region_name,
+        ndd.subdiv_name,
+        ndd.state_name,
+        ndd.district_name,
+        asd.station_code,
+        asd.station_name,
+        asd.station_type,
+        asd.centre_type,
+        asd.centre_name,
+        asd.latitude,
+        asd.longitude,
+        asdd.data as rainfall_data_in_mm
+      FROM public.aws_station_details AS asd
+      JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
+      WHERE asdd.collection_date = $1
+        AND asdd.data != -999.9
+        AND asd.flag != 0
+      ORDER BY asd.station_code
+    `;
+    values = [startDate];
+  }
+
+  try {
+    const result = await client.query(query, values);
+    return result.rows;
+  } catch (error) {
+    console.error('Error executing fetchFilteredDataNWP_AWS:', error.stack);
+    throw error;
+  }
+};
+
+exports.fetchStationDataNWP_AWS = async (req, res) => {
+  try {
+    const { user, pass } = req.body;
+    if (user === 'IMD_NWP' && pass === '!Md@15O#nWp') {
+      const effectiveDate = moment().format('YYYY-MM-DD');
+      const data = await fetchFilteredDataNWP_AWS(effectiveDate);
+      const [inactiveResult, totalResult] = await Promise.all([
+        client.query(
+          `SELECT COUNT(*) FROM public.aws_station_details asd
+           JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+           WHERE asdd.collection_date = $1 AND asd.flag = 0`,
+          [effectiveDate]
+        ),
+        client.query(
+          `SELECT COUNT(*) FROM public.aws_station_details asd
+           JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+           WHERE asdd.collection_date = $1`,
+          [effectiveDate]
+        )
+      ]);
+
+      return res.status(200).json({
+        success: true,
+        message: 'AWS station data fetched successfully',
+        note: 'Only State AWS stations having data',
+        date: effectiveDate,
+        state_aws_total_stations: parseInt(totalResult.rows[0].count),
+        state_aws_stations_having_data: data.length,
+        state_aws_inactive_stations: parseInt(inactiveResult.rows[0].count),
+        data
+      });
+    }
+    res.status(401).json({ success: false, message: 'You are not authorized to use this API' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Failed to fetch AWS station data' });
+  }
+};
+
+// ── Combined (IMD + AWS) NWP ──────────────────────────────────────────────────
+const fetchFilteredDataNWP_Combined = async (startDate, endDate = null) => {
+  let imdQuery, awsQuery, values;
+
+  if (endDate) {
+    imdQuery = `
+      SELECT
+        min(ndd.region_name)   as region_name,
+        min(ndd.subdiv_name)   as subdiv_name,
+        min(ndd.state_name)    as state_name,
+        min(ndd.district_name) as district_name,
+        sd.station_code        as station_code,
+        min(sd.station_name)   as station_name,
+        min(sd.station_type)   as station_type,
+        min(sd.centre_type)    as centre_type,
+        min(sd.centre_name)    as centre_name,
+        min(sd.latitude)       as latitude,
+        min(sd.longitude)      as longitude,
+        sum(sdd.data)          as rainfall_data_in_mm,
+        'IMD'                  as source
+      FROM public.station_details AS sd
+      JOIN public.station_daily_data_updates AS sdd ON sdd.station_id = sd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = sdd.district_code
+      WHERE sdd.collection_date BETWEEN $1 AND $2 AND sdd.data != -999.9 AND sd.flag != 0
+      GROUP BY sd.station_code
+    `;
+    awsQuery = `
+      SELECT
+        min(ndd.region_name)   as region_name,
+        min(ndd.subdiv_name)   as subdiv_name,
+        min(ndd.state_name)    as state_name,
+        min(ndd.district_name) as district_name,
+        asd.station_code       as station_code,
+        min(asd.station_name)  as station_name,
+        min(asd.station_type)  as station_type,
+        min(asd.centre_type)   as centre_type,
+        min(asd.centre_name)   as centre_name,
+        min(asd.latitude)      as latitude,
+        min(asd.longitude)     as longitude,
+        sum(asdd.data)         as rainfall_data_in_mm,
+        'State AWS'            as source
+      FROM public.aws_station_details AS asd
+      JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
+      WHERE asdd.collection_date BETWEEN $1 AND $2
+        AND asd.flag != 0
+      GROUP BY asd.station_code
+    `;
+    values = [startDate, endDate];
+  } else {
+    imdQuery = `
+      SELECT
+        ndd.region_name, ndd.subdiv_name, ndd.state_name, ndd.district_name,
+        sd.station_code, sd.station_name, sd.station_type, sd.centre_type, sd.centre_name,
+        sd.latitude, sd.longitude,
+        sdd.data as rainfall_data_in_mm,
+        'IMD'    as source
+      FROM public.station_details AS sd
+      JOIN public.station_daily_data_updates AS sdd ON sdd.station_id = sd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = sdd.district_code
+      WHERE sdd.collection_date = $1 AND sd.flag != 0
+    `;
+    awsQuery = `
+      SELECT
+        ndd.region_name, ndd.subdiv_name, ndd.state_name, ndd.district_name,
+        asd.station_code, asd.station_name,
+        asd.station_type, asd.centre_type, asd.centre_name,
+        asd.latitude, asd.longitude,
+        asdd.data as rainfall_data_in_mm,
+        'State AWS' as source
+      FROM public.aws_station_details AS asd
+      JOIN public.aws_station_daily_data AS asdd ON asdd.station_id = asd.station_code
+      JOIN public.normal_district_details AS ndd ON ndd.district_code = asd.district_code
+      WHERE asdd.collection_date = $1
+        AND asd.flag != 0
+    `;
+    values = [startDate];
+  }
+
+  try {
+    const [imdResult, awsResult] = await Promise.all([
+      client.query(imdQuery, values),
+      client.query(awsQuery, values)
+    ]);
+    return [...imdResult.rows, ...awsResult.rows];
+  } catch (error) {
+    console.error('Error executing fetchFilteredDataNWP_Combined:', error.stack);
+    throw error;
+  }
+};
+
+exports.fetchStationDataNWP_Combined = async (req, res) => {
+  try {
+    const { user, pass } = req.body;
+    if (user === 'IMD_NWP' && pass === '!Md@15O#nWp') {
+      const effectiveDate = moment().format('YYYY-MM-DD');
+      const data = await fetchFilteredDataNWP_Combined(effectiveDate);
+      const imd_count = data.filter(r => r.source === 'IMD').length;
+      const aws_count = data.filter(r => r.source === 'State AWS').length;
+
+      const [imdInactive, awsInactive, imdTotal, awsTotal] = await Promise.all([
+        client.query(
+          `SELECT COUNT(*) FROM public.station_details sd
+           JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+           WHERE sdd.collection_date = $1 AND sd.flag = 0`,
+          [effectiveDate]
+        ),
+        client.query(
+          `SELECT COUNT(*) FROM public.aws_station_details asd
+           JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+           WHERE asdd.collection_date = $1 AND asd.flag = 0`,
+          [effectiveDate]
+        ),
+        client.query(
+          `SELECT COUNT(*) FROM public.station_details sd
+           JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
+           WHERE sdd.collection_date = $1`,
+          [effectiveDate]
+        ),
+        client.query(
+          `SELECT COUNT(*) FROM public.aws_station_details asd
+           JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
+           WHERE asdd.collection_date = $1`,
+          [effectiveDate]
+        )
+      ]);
+
+      const imd_total = parseInt(imdTotal.rows[0].count);
+      const aws_total = parseInt(awsTotal.rows[0].count);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Combined IMD + AWS station data fetched successfully',
+        note: 'All stations of IMD + State AWS including having no data',
+        date: effectiveDate,
+        total_stations: imd_total + aws_total,
+        imd_total_stations: imd_total,
+        state_aws_total_stations: aws_total,
+        total_stations_having_data: data.length,
+        imd_stations_having_data: imd_count,
+        state_aws_stations_having_data: aws_count,
+        total_inactive_stations: parseInt(imdInactive.rows[0].count) + parseInt(awsInactive.rows[0].count),
+        imd_inactive_stations: parseInt(imdInactive.rows[0].count),
+        state_aws_inactive_stations: parseInt(awsInactive.rows[0].count),
+        data
+      });
+    }
+    res.status(401).json({ success: false, message: 'You are not authorized to use this API' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Failed to fetch combined station data' });
+  }
+};
 
 exports.fetchCentreStationSummary = async (req, res) => {
   try {
@@ -1647,6 +1923,7 @@ exports.fetchCalcModeStations = async (req, res) => {
         sd.station_name,
         sd.block_code,
         sd.block_name,
+        sd.district_code,
         ndd.state_name,
         ndd.district_name,
         sdd.data
@@ -1665,6 +1942,7 @@ exports.fetchCalcModeStations = async (req, res) => {
         asd.station_name,
         asd.block_code,
         asd.block_name,
+        asd.district_code,
         ndd.state_name,
         ndd.district_name,
         asdd.data
@@ -1674,6 +1952,12 @@ exports.fetchCalcModeStations = async (req, res) => {
       WHERE asdd.collection_date = $1
         AND asdd.data >= 0
       ORDER BY asd.station_code
+    `;
+
+    const exclusionsQuery = `
+      SELECT entity_type, entity_code
+      FROM public.calculation_exclusions
+      WHERE from_date <= $1 AND to_date >= $1
     `;
 
     const imdTotalQuery = `SELECT COUNT(*) AS total FROM public.station_details WHERE flag = 1`;
@@ -1686,11 +1970,42 @@ exports.fetchCalcModeStations = async (req, res) => {
       client.query(awsTotalQuery),
     ]);
 
+    // Fetch exclusions separately — if this fails, still return station data
+    let exclusions = [];
+    try {
+      const exclResult = await client.query(exclusionsQuery, [today]);
+      exclusions = exclResult.rows;
+    } catch (e) {
+      console.warn('fetchCalcModeStations: exclusions query failed (table may not exist)', e.message);
+    }
+
+    // Build sets for fast lookup
+    const imdExcludedStations  = new Set(exclusions.filter(e => e.entity_type === 'station').map(e => e.entity_code));
+    const imdExcludedBlocks    = new Set(exclusions.filter(e => e.entity_type === 'block').map(e => e.entity_code));
+    const imdExcludedDistricts = new Set(exclusions.filter(e => e.entity_type === 'district').map(e => String(e.entity_code)));
+    const awsExcludedStations  = new Set(exclusions.filter(e => e.entity_type === 'aws_station').map(e => e.entity_code));
+    const awsExcludedBlocks    = new Set(exclusions.filter(e => e.entity_type === 'aws_block').map(e => e.entity_code));
+    const awsExcludedDistricts = new Set(exclusions.filter(e => e.entity_type === 'aws_district').map(e => String(e.entity_code)));
+
+    const imdRows = imdResult.rows.map(r => ({
+      ...r,
+      is_excluded: imdExcludedStations.has(r.station_code)
+        || imdExcludedBlocks.has(String(r.block_code))
+        || imdExcludedDistricts.has(String(r.district_code)),
+    }));
+
+    const awsRows = awsResult.rows.map(r => ({
+      ...r,
+      is_excluded: awsExcludedStations.has(r.station_code)
+        || awsExcludedBlocks.has(String(r.block_code))
+        || awsExcludedDistricts.has(String(r.district_code)),
+    }));
+
     res.status(200).json({
       success: true,
       date: today,
-      imd: imdResult.rows,
-      aws: awsResult.rows,
+      imd: imdRows,
+      aws: awsRows,
       imdTotal: parseInt(imdTotalResult.rows[0].total, 10),
       awsTotal: parseInt(awsTotalResult.rows[0].total, 10),
     });

@@ -1,15 +1,26 @@
 const client = require("../connection");
 const moment = require('moment');
 
-// ─── SHARED EXCLUSION SUBQUERY ────────────────────────────────────────────────
+// ─── SHARED EXCLUSION SUBQUERY (IMD stations) ────────────────────────────────
 const EXCLUSION_SQL = `
     SELECT sd2.station_code
     FROM public.station_details sd2
     JOIN public.normal_district_details ndd2 ON ndd2.district_code = sd2.district_code
     WHERE
-        sd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'station')
-        OR sd2.block_code  IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'block')
-        OR ndd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'district')
+        sd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'station' AND from_date <= $2 AND to_date >= $1)
+        OR sd2.block_code  IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'block' AND from_date <= $2 AND to_date >= $1)
+        OR ndd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'district' AND from_date <= $2 AND to_date >= $1)
+`;
+
+// ─── SHARED EXCLUSION SUBQUERY (AWS stations) ────────────────────────────────
+const AWS_EXCLUSION_SQL = `
+    SELECT asd2.station_code
+    FROM public.aws_station_details asd2
+    WHERE
+        asd2.flag = 0
+        OR asd2.station_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_station' AND from_date <= $2 AND to_date >= $1)
+        OR asd2.block_code    IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_block' AND from_date <= $2 AND to_date >= $1)
+        OR asd2.district_code IN (SELECT entity_code FROM public.calculation_exclusions WHERE entity_type = 'aws_district' AND from_date <= $2 AND to_date >= $1)
 `;
 
 // ─── DATE VALIDATION HELPER ───────────────────────────────────────────────────
@@ -85,6 +96,34 @@ const fetchBlockWithAWS = async (startDate, endDate) => {
             subdiv_code, centre_name, centre_type
         FROM combined
         ORDER BY block_code
+    ),
+    imd_stats AS (
+        SELECT
+            sd.block_code,
+            COUNT(DISTINCT sdd.station_id)       AS station_details_count,
+            COALESCE(SUM(sdd.data::numeric), 0)  AS station_details_rainfall_sum
+        FROM station_details sd
+        JOIN station_daily_data sdd
+            ON sd.station_code = sdd.station_id
+            AND sdd.collection_date BETWEEN $1 AND $2
+            AND sdd.data::numeric >= 0
+            AND sdd.data != '-999.9'
+        WHERE sd.block_code IS NOT NULL
+          AND sd.station_code NOT IN (${EXCLUSION_SQL})
+        GROUP BY sd.block_code
+    ),
+    aws_stats AS (
+        SELECT
+            asd.block_code,
+            COUNT(DISTINCT asdd.station_id)  AS aws_station_count,
+            COALESCE(SUM(asdd.data), 0)      AS aws_station_rainfall_sum
+        FROM aws_station_details asd
+        JOIN aws_station_daily_data asdd
+            ON asd.station_code = asdd.station_id
+            AND asdd.collection_date BETWEEN $1 AND $2
+            AND asdd.data >= 0
+        WHERE asd.block_code IS NOT NULL
+        GROUP BY asd.block_code
     )
     SELECT
         bm.block_code,
@@ -104,9 +143,17 @@ const fetchBlockWithAWS = async (startDate, endDate) => {
             WHEN SUM(bd.avg_normal) IS NULL THEN NULL
             ELSE ((SUM(bd.avg_actual) - SUM(CASE WHEN bd.avg_normal = 0 THEN 0.01 ELSE bd.avg_normal END))
                 / SUM(CASE WHEN bd.avg_normal = 0 THEN 0.01 ELSE bd.avg_normal END)) * 100
-        END AS departure
+        END AS departure,
+        COALESCE(MIN(imd_s.station_details_count), 0)        AS station_details_count,
+        COALESCE(MIN(aws_s.aws_station_count), 0)            AS aws_station_count,
+        COALESCE(MIN(imd_s.station_details_count), 0)
+            + COALESCE(MIN(aws_s.aws_station_count), 0)      AS total_station_count,
+        COALESCE(MIN(imd_s.station_details_rainfall_sum), 0) AS station_details_rainfall_sum,
+        COALESCE(MIN(aws_s.aws_station_rainfall_sum), 0)     AS aws_station_rainfall_sum
     FROM block_meta bm
-    LEFT JOIN block_daily bd ON bd.block_code = bm.block_code
+    LEFT JOIN block_daily  bd    ON bd.block_code    = bm.block_code
+    LEFT JOIN imd_stats    imd_s ON imd_s.block_code = bm.block_code
+    LEFT JOIN aws_stats    aws_s ON aws_s.block_code = bm.block_code
     GROUP BY bm.block_code
     ORDER BY bm.block_code;
     `;
@@ -145,7 +192,9 @@ const fetchDistrictWithAWS = async (startDate, endDate) => {
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
     ),
     daily_actuals AS (
         SELECT district_code, date, AVG(rainfall) AS raw_rainfall
@@ -201,20 +250,29 @@ const fetchStateWithAWS = async (startDate, endDate) => {
     WITH
     combined_raw AS (
         SELECT sdd.district_code::bigint AS district_code, sdd.collection_date AS date,
-               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data END AS rainfall
+               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data::numeric END AS rainfall
         FROM station_daily_data sdd
         WHERE sdd.collection_date BETWEEN $1 AND $2
+          AND sdd.data::numeric >= 0
           AND sdd.station_id NOT IN (${EXCLUSION_SQL})
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
+    ),
+    state_normals AS (
+        SELECT state_code, SUM(rainfall_value) AS rainfall_normal_value
+        FROM normal_state
+        WHERE date BETWEEN $1 AND $2
+        GROUP BY state_code
     )
     SELECT
         state_name, result.state_code, r_code AS region_code,
-        rainfall_normal_value, actual_state_rainfall,
-        ((actual_state_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END))
-         / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 AS departure
+        sn.rainfall_normal_value, actual_state_rainfall,
+        ((actual_state_rainfall - (CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END))
+         / (CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END)) * 100 AS departure
     FROM (
         SELECT MIN(state_name) AS state_name, state_code, MIN(r_code) AS r_code,
                MIN(rainfall_value) AS rainfall_normal_value,
@@ -240,7 +298,8 @@ const fetchStateWithAWS = async (startDate, endDate) => {
             GROUP BY d_code, d_area
         ) AS sub2
         GROUP BY state_code
-    ) AS result;
+    ) AS result
+    JOIN state_normals sn ON sn.state_code = result.state_code;
     `;
     const result = await client.query(query, [startDate, endDate]);
     return result.rows;
@@ -269,20 +328,29 @@ const fetchSubDivisionWithAWS = async (startDate, endDate) => {
     WITH
     combined_raw AS (
         SELECT sdd.district_code::bigint AS district_code, sdd.collection_date AS date,
-               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data END AS rainfall
+               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data::numeric END AS rainfall
         FROM station_daily_data sdd
         WHERE sdd.collection_date BETWEEN $1 AND $2
+          AND sdd.data::numeric >= 0
           AND sdd.station_id NOT IN (${EXCLUSION_SQL})
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
+    ),
+    subdiv_normals AS (
+        SELECT sub_division_id AS s_code, SUM(rainfall_value) AS rainfall_normal_value
+        FROM normal_sub_division
+        WHERE date BETWEEN $1 AND $2
+        GROUP BY sub_division_id
     )
     SELECT
         result.name AS subdiv_name, result.s_code,
-        result.r_code AS region_code, result.rainfall_normal_value, result.actual_subdiv_rainfall,
-        ((result.actual_subdiv_rainfall - (CASE WHEN result.rainfall_normal_value = 0 THEN 0.01 ELSE result.rainfall_normal_value END))
-         / (CASE WHEN result.rainfall_normal_value = 0 THEN 0.01 ELSE result.rainfall_normal_value END)) * 100 AS departure
+        result.r_code AS region_code, sn.rainfall_normal_value, result.actual_subdiv_rainfall,
+        ((result.actual_subdiv_rainfall - (CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END))
+         / (CASE WHEN sn.rainfall_normal_value = 0 THEN 0.01 ELSE sn.rainfall_normal_value END)) * 100 AS departure
     FROM (
         SELECT MIN(name) AS name, s_code, MIN(r_code) AS r_code,
                MIN(rainfall_value) AS rainfall_normal_value,
@@ -308,7 +376,8 @@ const fetchSubDivisionWithAWS = async (startDate, endDate) => {
             GROUP BY d_code, d_area
         ) AS sub2
         GROUP BY s_code
-    ) AS result;
+    ) AS result
+    JOIN subdiv_normals sn ON sn.s_code = result.s_code;
     `;
     const result = await client.query(query, [startDate, endDate]);
     return result.rows;
@@ -337,18 +406,31 @@ const fetchRegionWithAWS = async (startDate, endDate) => {
     WITH
     combined_raw AS (
         SELECT sdd.district_code::bigint AS district_code, sdd.collection_date AS date,
-               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data END AS rainfall
+               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data::numeric END AS rainfall
         FROM station_daily_data sdd
         WHERE sdd.collection_date BETWEEN $1 AND $2
+          AND sdd.data::numeric >= 0
           AND sdd.station_id NOT IN (${EXCLUSION_SQL})
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
+    ),
+    region_normals AS (
+        SELECT region_id AS r_code, SUM(rainfall_value) AS rainfall_normal_value
+        FROM normal_region
+        WHERE date BETWEEN $1 AND $2
+        GROUP BY region_id
     )
-    SELECT *,
-        ((actual_rainfall - (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END))
-         / (CASE WHEN rainfall_normal_value = 0 THEN 0.01 ELSE rainfall_normal_value END)) * 100 AS departure
+    SELECT
+        final_subquery.name,
+        final_subquery.r_code,
+        final_subquery.actual_rainfall,
+        rn.rainfall_normal_value,
+        ((final_subquery.actual_rainfall - (CASE WHEN rn.rainfall_normal_value = 0 THEN 0.01 ELSE rn.rainfall_normal_value END))
+         / (CASE WHEN rn.rainfall_normal_value = 0 THEN 0.01 ELSE rn.rainfall_normal_value END)) * 100 AS departure
     FROM (
         SELECT MIN(name) AS name, MIN(r_code) AS r_code,
                (SUM(CASE WHEN actual_reg_num IS NOT NULL THEN actual_reg_num ELSE 0 END) /
@@ -385,7 +467,8 @@ const fetchRegionWithAWS = async (startDate, endDate) => {
             ) AS result
         ) AS subquery
         GROUP BY r_code
-    ) AS final_subquery;
+    ) AS final_subquery
+    JOIN region_normals rn ON rn.r_code = final_subquery.r_code;
     `;
     const result = await client.query(query, [startDate, endDate]);
     return result.rows;
@@ -419,14 +502,17 @@ const fetchCountryWithAWS = async (startDate, endDate) => {
     ),
     combined_raw AS (
         SELECT sdd.district_code::bigint AS district_code, sdd.collection_date AS date,
-               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data END AS rainfall
+               CASE WHEN sdd.data = '-999.9' THEN NULL ELSE sdd.data::numeric END AS rainfall
         FROM station_daily_data sdd
         WHERE sdd.collection_date BETWEEN $1 AND $2
+          AND sdd.data::numeric >= 0
           AND sdd.station_id NOT IN (${EXCLUSION_SQL})
         UNION ALL
         SELECT asdd.district_code::bigint, asdd.collection_date, asdd.data
         FROM aws_station_daily_data asdd
-        WHERE asdd.collection_date BETWEEN $1 AND $2 AND asdd.data >= 0
+        WHERE asdd.collection_date BETWEEN $1 AND $2
+          AND asdd.data >= 0
+          AND asdd.station_id NOT IN (${AWS_EXCLUSION_SQL})
     )
     SELECT
         'INDIA' AS name,

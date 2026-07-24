@@ -1,9 +1,11 @@
 const express = require("express");
 const router  = express.Router();
 const { getMode, setMode, recordOfficerAccess } = require("../controllers/CalculationsModeController");
+const { fetchCalcModeStationsPivot } = require("../controllers/CalcModeStationsPivot");
 
 router.get("/calculations-mode",  getMode);
 router.post("/calculations-mode/officer-access", recordOfficerAccess);
 router.post("/calculations-mode", setMode);
+router.post("/fetchCalcModeStationsPivot", fetchCalcModeStationsPivot);
 
 module.exports = router;

@@ -91,6 +91,48 @@ const fetchFilteredData = async (startDate, endDate = null) => {
 };
 
 
+// One row per station per date (no aggregation) for the data-entry range view
+const fetchRangeDataForEntry = async (fromDate, toDate) => {
+    const query = `
+        SELECT ndd.region_code,
+               ndd.region_name,
+               ndd.new_state_code as state_code,
+               ndd.state_name,
+               ndd.district_code,
+               ndd.district_name,
+               sd.station_code,
+               sd.station_name,
+               sd.station_type,
+               sd.centre_type,
+               sd.centre_name,
+               sd.is_new_station,
+               sd.latitude,
+               sd.longitude,
+               sd.activationdate,
+               TO_CHAR(sdd.collection_date, 'YYYY-MM-DD') AS collection_date,
+               sdd.data,
+               sdd.is_verified,
+               sdd.verified_at
+        FROM public.station_details AS sd
+        JOIN public.station_daily_data_updates AS sdd
+          ON sdd.station_id = sd.station_code
+        JOIN normal_district_details AS ndd
+          ON ndd.district_code = sdd.district_code
+        WHERE sdd.collection_date BETWEEN $1 AND $2
+          AND sd.flag != 0
+        ORDER BY sd.station_code, sdd.collection_date;
+    `;
+
+    try {
+        const result = await client.query(query, [fromDate, toDate]);
+        return result.rows;
+    } catch (error) {
+        console.error('Error executing query', error.stack);
+        throw error;
+    }
+};
+
+
 const fetchFilteredDataIncludingVerification = async (startDate) => {
   const query = `
     WITH station_pairs AS (
@@ -367,6 +409,37 @@ exports.fetchInRangeStationdataNew = async(req, res) => {
         }
 
         let data = await fetchFilteredData(fromDate, toDate);
+
+        res.status(200).json({
+            success: true,
+            message: "Station data fetched Successfully",
+            data: data
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch Station data",
+            error: error.message,
+        });
+    }
+}
+
+
+// One row per station per date for the data-entry range view (view + edit)
+exports.fetchStationDataEntryRange = async (req, res) => {
+    try {
+        let { fromDate, toDate } = req.body;
+
+        if (!fromDate || !toDate) {
+            return res.status(400).json({
+                success: false,
+                message: "fromDate and toDate are required"
+            });
+        }
+
+        let data = await fetchRangeDataForEntry(fromDate, toDate);
 
         res.status(200).json({
             success: true,

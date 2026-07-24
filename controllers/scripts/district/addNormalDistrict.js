@@ -377,3 +377,25 @@ exports.addNewDistrictDetails = async (req, res) => {
         res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 }
+
+// ── Get districts missing normals for a given year ────────────────────────────
+exports.getMissingDistrictNormals = async (req, res) => {
+    try {
+        const year = parseInt(req.query.year) || new Date().getFullYear();
+        const result = await client.query(
+            `SELECT DISTINCT nd.district_code, nd.district_name
+             FROM normal_district_details nd
+             WHERE NOT EXISTS (
+               SELECT 1 FROM normal_district ndr
+               WHERE ndr.normal_district_details_id = nd.id
+               AND EXTRACT(YEAR FROM ndr.date) = $1
+             )
+             ORDER BY nd.district_name`,
+            [year]
+        );
+        res.status(200).json({ success: true, data: result.rows, year });
+    } catch (err) {
+        console.error('getMissingDistrictNormals error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};

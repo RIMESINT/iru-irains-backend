@@ -5,7 +5,7 @@ const {
     logExclusionActivity,
 } = require("../../../utils/activityLogger");
 
-const VALID_TYPES = ['station', 'block', 'district', 'state', 'subdivision', 'region'];
+const VALID_TYPES = ['station', 'aws_station', 'block', 'aws_block', 'district', 'aws_district', 'state', 'subdivision', 'region'];
 
 const requireRemark = (req, res, { required = false } = {}) => {
     const remark = req.body?.remark?.trim() || null;

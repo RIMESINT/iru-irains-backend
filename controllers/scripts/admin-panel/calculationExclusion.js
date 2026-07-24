@@ -1,8 +1,20 @@
 const client = require("../../../connection");
-
-// controllers/scripts/admin-panel/calculationExclusion.js
+const {
+    buildExclusionLog,
+    buildBulkExclusionLog,
+    logExclusionActivity,
+} = require("../../../utils/activityLogger");
 
 const VALID_TYPES = ['station', 'block', 'district', 'state', 'subdivision', 'region'];
+
+const requireRemark = (req, res, { required = false } = {}) => {
+    const remark = req.body?.remark?.trim() || null;
+    if (required && !remark) {
+        res.status(400).json({ success: false, message: "remark is required" });
+        return null;
+    }
+    return remark;
+};
 
 function validateInput(entity_type, entity_code, from_date, to_date) {
     if (!entity_type || !entity_code || !from_date) {
@@ -36,6 +48,8 @@ exports.toggleExclusion = async (req, res) => {
         const err = validateInput(entity_type, entity_code, from_date, to_date);
         if (err) return res.status(400).json({ success: false, message: err });
 
+        const remark = requireRemark(req, res);
+
         const existing = await client.query(
             `SELECT id FROM calculation_exclusions
              WHERE entity_type = $1
@@ -46,48 +60,67 @@ exports.toggleExclusion = async (req, res) => {
         );
 
         let newState;
+        let isUpdated;
 
         if (existing.rows.length > 0) {
-            await client.query(
+            const result = await client.query(
                 `DELETE FROM calculation_exclusions
                  WHERE entity_type = $1
                    AND entity_code = $2
                    AND from_date   = $3
-                   AND to_date     = $4`,
+                   AND to_date     = $4
+                 RETURNING id`,
                 [entity_type, entity_code, from_date, to_date]
             );
-            newState = 'included';
+            newState = "included";
+            isUpdated = result.rows.length > 0;
         } else {
-            await client.query(
+            const result = await client.query(
                 `INSERT INTO calculation_exclusions
                     (entity_type, entity_code, entity_name, from_date, to_date)
                  VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT (entity_type, entity_code, from_date, to_date) DO NOTHING`,
+                 ON CONFLICT (entity_type, entity_code, from_date, to_date) DO NOTHING
+                 RETURNING id`,
                 [entity_type, entity_code, entity_name || null, from_date, to_date]
             );
-            newState = 'excluded';
+            newState = "excluded";
+            isUpdated = result.rows.length > 0;
         }
+
+        await logExclusionActivity(buildExclusionLog({
+            req,
+            remark,
+            entity_type,
+            entity_name,
+            entity_code,
+            from_date,
+            to_date,
+            action_type: newState === "excluded" ? "EXCLUDE" : "INCLUDE",
+            oldState: newState === "excluded" ? "included" : "excluded",
+            newState,
+            isUpdated,
+        }));
 
         res.json({
             success:        true,
-            message:        `${entity_name || entity_type + ' ' + entity_code} is now ${newState} from calculation`,
+            message:        `${entity_name || `${entity_type} ${entity_code}`} is now ${newState} from calculation`,
             state:          newState,
             entity_type,
             entity_code,
             from_date,
             to_date,
-            is_single_date: from_date === to_date
+            is_single_date: from_date === to_date,
         });
 
     } catch (error) {
-        console.error('toggleExclusion error:', error);
+        console.error("toggleExclusion error:", error);
         res.status(500).json({ success: false, message: "Server error" });
     }
 };
 
 
 // ─────────────────────────────────────────────────────────────
-// POST /api/v1/calculation-exclusion/exclude
+// POST /api/v1/calculation-exclusion/exclude  (checkbox unchecked)
 // ─────────────────────────────────────────────────────────────
 exports.excludeEntity = async (req, res) => {
     try {
@@ -99,6 +132,9 @@ exports.excludeEntity = async (req, res) => {
         const err = validateInput(entity_type, entity_code, from_date, to_date);
         if (err) return res.status(400).json({ success: false, message: err });
 
+        const remark = requireRemark(req, res, { required: true });
+        if (!remark) return;
+
         const result = await client.query(
             `INSERT INTO calculation_exclusions
                 (entity_type, entity_code, entity_name, from_date, to_date)
@@ -109,6 +145,20 @@ exports.excludeEntity = async (req, res) => {
         );
 
         const alreadyExcluded = result.rows.length === 0;
+
+        await logExclusionActivity(buildExclusionLog({
+            req,
+            remark,
+            entity_type,
+            entity_name,
+            entity_code,
+            from_date,
+            to_date,
+            action_type: "EXCLUDE",
+            oldState: "included",
+            newState: "excluded",
+            isUpdated: !alreadyExcluded,
+        }));
 
         res.json({
             success:         true,
@@ -127,17 +177,20 @@ exports.excludeEntity = async (req, res) => {
 
 
 // ─────────────────────────────────────────────────────────────
-// POST /api/v1/calculation-exclusion/include
+// POST /api/v1/calculation-exclusion/include  (checkbox checked)
 // ─────────────────────────────────────────────────────────────
 exports.includeEntity = async (req, res) => {
     try {
-        let { entity_type, entity_code, from_date, to_date } = req.body;
+        let { entity_type, entity_code, entity_name, from_date, to_date } = req.body;
 
         entity_type = entity_type?.trim().toLowerCase();
         to_date     = to_date || from_date;
 
         const err = validateInput(entity_type, entity_code, from_date, to_date);
         if (err) return res.status(400).json({ success: false, message: err });
+
+        const remark = requireRemark(req, res, { required: true });
+        if (!remark) return;
 
         const result = await client.query(
             `DELETE FROM calculation_exclusions
@@ -150,6 +203,20 @@ exports.includeEntity = async (req, res) => {
         );
 
         const wasAlreadyIncluded = result.rows.length === 0;
+
+        await logExclusionActivity(buildExclusionLog({
+            req,
+            remark,
+            entity_type,
+            entity_name,
+            entity_code,
+            from_date,
+            to_date,
+            action_type: "INCLUDE",
+            oldState: "excluded",
+            newState: "included",
+            isUpdated: !wasAlreadyIncluded,
+        }));
 
         res.json({
             success:              true,
@@ -274,9 +341,9 @@ exports.checkStatus = async (req, res) => {
 
 
 // ─────────────────────────────────────────────────────────────
-// POST /api/v1/calculation-exclusion/bulk-toggle
+// POST /api/v1/calculation-exclusion/bulk  (Include All / Exclude All)
 // ─────────────────────────────────────────────────────────────
-exports.bulkToggle = async (req, res) => {
+exports.bulkExclusion = async (req, res) => {
     try {
         let { action, from_date, to_date, entities } = req.body;
 
@@ -297,6 +364,9 @@ exports.bulkToggle = async (req, res) => {
                 message: 'entities array is required and must not be empty'
             });
         }
+
+        const remark = requireRemark(req, res, { required: true });
+        if (!remark) return;
 
         for (const e of entities) {
             if (!VALID_TYPES.includes(e.entity_type?.trim().toLowerCase())) {
@@ -350,6 +420,23 @@ exports.bulkToggle = async (req, res) => {
             affected = result.rowCount;
         }
 
+        const entityType = entities[0].entity_type?.trim().toLowerCase();
+        const allSameType = entities.every(
+            (e) => e.entity_type?.trim().toLowerCase() === entityType
+        );
+
+        await logExclusionActivity(buildBulkExclusionLog({
+            req,
+            remark,
+            action,
+            entities,
+            entityType,
+            allSameType,
+            affected,
+            from_date,
+            to_date,
+        }));
+
         res.json({
             success:        true,
             message:        `${action === 'exclude' ? 'Excluded' : 'Included'} ${affected} of ${entities.length} entities`,
@@ -361,7 +448,7 @@ exports.bulkToggle = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('bulkToggle error:', error);
+        console.error('bulkExclusion error:', error);
         res.status(500).json({ success: false, message: "Server error" });
     }
 };

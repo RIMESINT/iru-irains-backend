@@ -65,6 +65,19 @@ const buildLogQueryFilters = (query) => {
     addFilter("entity_type", query.entity_type);
     addFilter("login_id", query.login_id);
 
+    // HQ / MC / SP shared login role — all officers under that role are returned
+    if (query.mcorhq_type != null && query.mcorhq_type !== "") {
+        conditions.push(`LOWER(TRIM(mcorhq_type)) = $${idx}`);
+        params.push(String(query.mcorhq_type).trim().toLowerCase());
+        idx += 1;
+    }
+    // Optional officer name (partial match) within the selected login type
+    if (query.emp_name) {
+        conditions.push(`emp_name ILIKE $${idx}`);
+        params.push(`%${String(query.emp_name).trim()}%`);
+        idx += 1;
+    }
+
     if (query.from_date) {
         conditions.push(`action_date >= $${idx}`);
         params.push(query.from_date);

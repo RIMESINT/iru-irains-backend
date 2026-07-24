@@ -221,7 +221,9 @@ const extractUserFromRequest = (req) => {
             body.emp_phone_number ?? body.phone_number ?? body.phone
         ),
         emp_email: body.emp_email ?? body.email ?? body.username ?? null,
-        mcorhq_type: body.mcorhq_type ?? null,
+        mcorhq_type: body.mcorhq_type
+            ? String(body.mcorhq_type).trim().toLowerCase()
+            : null,
         remark: body.remark?.trim() || null,
     };
 };
@@ -373,7 +375,9 @@ const logActivity = async ({
             mergedUser.emp_designation ?? null,
             mergedUser.emp_phone_number ?? null,
             mergedUser.emp_email ?? null,
-            mergedUser.mcorhq_type ?? null,
+            mergedUser.mcorhq_type
+                ? String(mergedUser.mcorhq_type).trim().toLowerCase()
+                : null,
             page.module_name,
             page.category_name ?? null,
             page.page_name,

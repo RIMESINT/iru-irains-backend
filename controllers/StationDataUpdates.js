@@ -690,6 +690,31 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
     }
 };
 
+// Every individual revision event for a single day — just the timestamp and
+// whether it was back-dated, nothing else — used to plot dots along the Day
+// Wise timeline bar (one dot per event, positioned at its time of day).
+exports.fetchRevisionEventsForDate = async (req, res) => {
+    try {
+        const { date } = req.body;
+        const targetDate = date || new Date().toISOString().slice(0, 10);
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                c.updated_at,
+                (c.collection_date < c.updated_at::date) AS back_dated
+            FROM combined c
+            WHERE c.updated_at::date = $1::date
+            ORDER BY c.updated_at;
+        `;
+        const result = await client.query(query, [targetDate]);
+        res.status(200).json({ success: true, date: targetDate, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionEventsForDate:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 
 exports.verifyStationData = async (req, res) => {
     try {

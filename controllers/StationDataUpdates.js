@@ -690,9 +690,10 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
     }
 };
 
-// Every individual revision event for a single day — just the timestamp and
-// whether it was back-dated, nothing else — used to plot dots along the Day
-// Wise timeline bar (one dot per event, positioned at its time of day).
+// Every individual revision event for a single day — timestamp, whether it
+// was back-dated, and the MC/RMC the station belongs to (for the timeline
+// pin tooltip) — used to plot dots along the Day Wise timeline bar (one dot
+// per event, positioned at its time of day).
 exports.fetchRevisionEventsForDate = async (req, res) => {
     try {
         const { date } = req.body;
@@ -702,8 +703,11 @@ exports.fetchRevisionEventsForDate = async (req, res) => {
             ${REVISION_SOURCE_CTE}
             SELECT
                 c.updated_at,
-                (c.collection_date < c.updated_at::date) AS back_dated
+                (c.collection_date < c.updated_at::date) AS back_dated,
+                sd.centre_type,
+                sd.centre_name
             FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
             WHERE c.updated_at::date = $1::date
             ORDER BY c.updated_at;
         `;

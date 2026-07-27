@@ -69,11 +69,13 @@ const fetchFilteredData = async (startDate, endDate = null) => {
                sd.activationdate,
                sdd.data,
                sdd.is_verified,
-               sdd.verified_at
+               sdd.verified_at,
+               sdd.created_at,
+               sdd.updated_at
         FROM public.station_details AS sd
-        JOIN public.station_daily_data_updates AS sdd 
+        JOIN public.station_daily_data_updates AS sdd
           ON sdd.station_id = sd.station_code
-        JOIN normal_district_details AS ndd 
+        JOIN normal_district_details AS ndd
           ON ndd.district_code = sdd.district_code
         WHERE sdd.collection_date = $1
         AND sd.flag != 0;
@@ -112,7 +114,9 @@ const fetchRangeDataForEntry = async (fromDate, toDate) => {
                TO_CHAR(sdd.collection_date, 'YYYY-MM-DD') AS collection_date,
                sdd.data,
                sdd.is_verified,
-               sdd.verified_at
+               sdd.verified_at,
+               sdd.created_at,
+               sdd.updated_at
         FROM public.station_details AS sd
         JOIN public.station_daily_data_updates AS sdd
           ON sdd.station_id = sd.station_code
@@ -225,10 +229,13 @@ const fetchFilteredDataIncludingVerification = async (startDate) => {
 };
 
 const updateStationDataQuery = async (station_code, date, value ) => {
+    // Only bump updated_at when the value actually changes — otherwise
+    // re-saving an unchanged cell falsely counts as a "revision".
     const query = `
                 Update public.station_daily_data_updates set data =$1, updated_at =now()
                 WHERE collection_date = $2 and station_id = $3
-                RETURNING station_id, collection_date, data;`;  
+                AND data IS DISTINCT FROM $1
+                RETURNING station_id, collection_date, data;`;
 
     try {
         const result = await client.query(query, [value, date,station_code ]);
@@ -524,11 +531,16 @@ exports.insertRainfallFile = async (req, res) => {
             }));
         });
 
+        // WHERE guard: only touch updated_at when the incoming value actually
+        // differs from what's stored — otherwise re-uploading a wide sheet
+        // that overlaps existing dates falsely flags every unchanged cell
+        // as a "revision" in the Revision Log.
         const upsertQuery = `
             INSERT INTO public.station_daily_data_updates (station_id, district_code, collection_date, data)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (station_id, collection_date)
-            DO UPDATE SET data = EXCLUDED.data;
+            DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+            WHERE public.station_daily_data_updates.data IS DISTINCT FROM EXCLUDED.data;
         `;
 
         const values = formattedData.map(data => [
@@ -563,6 +575,213 @@ exports.insertRainfallFile = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 }
+
+// station_daily_data_updates only retains ~60 days (older rows get migrated
+// into station_daily_data and deleted here — see removePrevData()). To support
+// lookbacks beyond that (e.g. 90/130 days), every query below reads from this
+// combined view: recent rows from _updates, older rows from the archive. The
+// archive side is restricted to collection_date older than 60 days because
+// station_daily_data is re-synced with the recent 60-day window daily —
+// including it unrestricted would double-count everything recent.
+//
+// NOTE: created_at is deliberately NOT used anywhere below to detect "was this
+// revised" — it turned out to be a bulk-seed/migration timestamp shared by
+// hundreds of thousands of rows (e.g. a mass historical import), not each
+// row's real first-entry time, so comparing updated_at to it was meaningless.
+// The only reliable signal available is comparing updated_at (when the value
+// was actually saved) to collection_date (the date it's for): same-day = saved
+// promptly, backdated = saved after that date had already passed.
+const REVISION_SOURCE_CTE = `
+    WITH combined AS (
+        SELECT station_id, district_code, collection_date, data, updated_at
+        FROM public.station_daily_data_updates
+        UNION ALL
+        SELECT station_id, district_code, collection_date, data, updated_at
+        FROM public.station_daily_data
+        WHERE collection_date < CURRENT_DATE - INTERVAL '60 days'
+    )
+`;
+
+// For each (update day, data day) pair, how many stations had a value saved —
+// used by the Data Entry "Revision Log". Accepts EITHER a rolling window
+// ({ days }, for the Range tab) OR one specific day ({ date }, for the Day
+// Wise tab) — date takes precedence if both are somehow sent.
+exports.fetchRevisionLog = async (req, res) => {
+    try {
+        const { days, date } = req.body;
+        let whereClause, param;
+        if (date) {
+            whereClause = 'c.updated_at::date = $1::date';
+            param = date;
+        } else {
+            param = Number(days) > 0 ? Number(days) : 30;
+            whereClause = "c.updated_at >= NOW() - ($1 || ' days')::interval";
+        }
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                c.updated_at::date::text AS revision_date,
+                c.collection_date::text AS data_date,
+                COUNT(DISTINCT c.station_id)::int AS station_count,
+                ARRAY_AGG(DISTINCT sd.station_name ORDER BY sd.station_name) AS station_names
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            WHERE ${whereClause}
+            GROUP BY c.updated_at::date, c.collection_date
+            ORDER BY c.updated_at::date DESC, c.collection_date DESC;
+        `;
+        const result = await client.query(query, [param]);
+        res.status(200).json({ success: true, days, date, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionLog:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Per-station detail for a single (update day, data day) group — drilled into
+// from the "Stations" column on the Data Entry Investigation page. Current
+// value + station metadata only, no old/new value history.
+exports.fetchRevisionStationDetails = async (req, res) => {
+    try {
+        const { revisionDate, dataDate } = req.body;
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                sd.station_code,
+                sd.station_name,
+                sd.centre_type,
+                sd.centre_name,
+                ndd.state_name,
+                ndd.district_name,
+                c.data AS station_value,
+                c.collection_date::text AS data_date,
+                c.updated_at
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            WHERE c.updated_at::date = $1
+              AND c.collection_date = $2
+            ORDER BY sd.station_name;
+        `;
+        const result = await client.query(query, [revisionDate, dataDate]);
+        res.status(200).json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionStationDetails:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// MC/RMC-wise update counts, in the same style as the Verification HQ page
+// (grouping key: centre_type + ' ' + centre_name) — top-left "MC-Wise
+// Reupdates" button on the Investigation page. Same days-vs-date dual mode
+// as fetchRevisionLog.
+exports.fetchRevisionLogByCentre = async (req, res) => {
+    try {
+        const { days, date } = req.body;
+        let whereClause, param;
+        if (date) {
+            whereClause = 'c.updated_at::date = $1::date';
+            param = date;
+        } else {
+            param = Number(days) > 0 ? Number(days) : 30;
+            whereClause = "c.updated_at >= NOW() - ($1 || ' days')::interval";
+        }
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                sd.centre_type,
+                sd.centre_name,
+                COUNT(*) FILTER (WHERE c.collection_date = c.updated_at::date)::int AS same_day_count,
+                COUNT(*) FILTER (WHERE c.collection_date < c.updated_at::date)::int AS back_dated_count,
+                COUNT(DISTINCT c.station_id)::int AS station_count
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            WHERE ${whereClause}
+            GROUP BY sd.centre_type, sd.centre_name
+            ORDER BY COUNT(*) DESC;
+        `;
+        const result = await client.query(query, [param]);
+        res.status(200).json({ success: true, days, date, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionLogByCentre:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Per-station detail for a single MC/RMC — drilled into from the "MC-Wise
+// Reupdates" panel. Same row shape as fetchRevisionStationDetails. Same
+// days-vs-date dual mode as fetchRevisionLog, applied to the 3rd param.
+exports.fetchCentreRevisionDetails = async (req, res) => {
+    try {
+        const { centreType, centreName, days, date } = req.body;
+        let extraClause, param3;
+        if (date) {
+            extraClause = 'c.updated_at::date = $3::date';
+            param3 = date;
+        } else {
+            param3 = Number(days) > 0 ? Number(days) : 30;
+            extraClause = "c.updated_at >= NOW() - ($3 || ' days')::interval";
+        }
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                sd.station_code,
+                sd.station_name,
+                sd.centre_type,
+                sd.centre_name,
+                ndd.state_name,
+                ndd.district_name,
+                c.data AS station_value,
+                c.collection_date::text AS data_date,
+                c.updated_at,
+                (c.collection_date < c.updated_at::date) AS back_dated
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            WHERE sd.centre_type = $1
+              AND sd.centre_name = $2
+              AND ${extraClause}
+            ORDER BY c.updated_at DESC;
+        `;
+        const result = await client.query(query, [centreType, centreName, param3]);
+        res.status(200).json({ success: true, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchCentreRevisionDetails:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Every individual revision event for a single day — timestamp, whether it
+// was back-dated, and the MC/RMC the station belongs to (for the timeline
+// pin tooltip) — used to plot dots along the Day Wise timeline bar (one dot
+// per event, positioned at its time of day).
+exports.fetchRevisionEventsForDate = async (req, res) => {
+    try {
+        const { date } = req.body;
+        const targetDate = date || new Date().toISOString().slice(0, 10);
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                c.updated_at,
+                (c.collection_date < c.updated_at::date) AS back_dated,
+                sd.centre_type,
+                sd.centre_name
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            WHERE c.updated_at::date = $1::date
+            ORDER BY c.updated_at;
+        `;
+        const result = await client.query(query, [targetDate]);
+        res.status(200).json({ success: true, date: targetDate, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionEventsForDate:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
 
 
 exports.verifyStationData = async (req, res) => {

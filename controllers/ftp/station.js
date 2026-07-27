@@ -3,8 +3,9 @@ const router = express.Router();
 const app = express();
 const moment = require('moment');
 const xlsx = require('xlsx');
-const client = require("../../connection"); 
+const client = require("../../connection");
 const axios = require('axios'); // Add axios for API calls
+const { getExclusionWindows, applyExclusions } = require("../utils/exclusionSql");
 
 exports.fetchStationUnifiedFileFtp = async (req, res) => {
     try {
@@ -75,6 +76,11 @@ const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes
 
         // Disconnect the client after query execution
         // await client.end();
+
+        // Flag dates covered by a station/district/block exclusion window
+        // with the -999.9 "no data" sentinel instead of the real value
+        const windows = await getExclusionWindows(startDate, endDate);
+        applyExclusions(result.rows, windows);
 
         // Return the fetched data
         return result.rows;

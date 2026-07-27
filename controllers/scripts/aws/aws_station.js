@@ -1,6 +1,7 @@
 const client  = require("../../../connection");
 const moment   = require("moment-timezone");
 const { IST, getAwsToday } = require("./awsConfig");
+const { getExclusionWindows, applyExclusions } = require("../../utils/exclusionSql");
 
 const upCtrl          = require("./upAwsController");
 const tamilnaduCtrl   = require("./tamilnaduAwsController");
@@ -243,6 +244,12 @@ const fetchFilteredGovtAwsUnifiedFile = async (startDate, endDate, districtCodes
     `;
 
     const result = await client.query(query, [districtCodes, startDate, endDate]);
+
+    // Flag dates covered by an aws_station/aws_district/aws_block exclusion
+    // window with the -999.9 "no data" sentinel instead of the real value
+    const windows = await getExclusionWindows(startDate, endDate, 'aws_');
+    applyExclusions(result.rows, windows);
+
     return result.rows;
 };
 

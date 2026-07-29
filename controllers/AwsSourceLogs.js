@@ -26,10 +26,12 @@ const SOURCES = [
 // (there's no master registry to compare against, unlike the mapped sources).
 // Table names below are a fixed, hardcoded list — never user input — so
 // interpolating them into the FROM clause is safe.
+// hasBlock: only Karnataka's table has a `block` column (see awsFetcher.js's
+// INSERT statements) — NHP and Zomato have no block-level field at all.
 const EXCLUDED_SOURCES = [
-    { key: 'nhp',       label: 'NHP AWS',       table: 'observations_aws_nhp',       url: 'https://city.imd.gov.in/api/v1/getNHPAWS' },
-    { key: 'zomato',    label: 'Zomato AWS',    table: 'observations_aws_zomato',    url: 'https://city.imd.gov.in/api/v1/getZomatoAWS' },
-    { key: 'karnataka', label: 'Karnataka AWS', table: 'observations_aws_karnataka', url: 'https://city.imd.gov.in/api/v1/getKarnatakaAWS' },
+    { key: 'nhp',       label: 'NHP AWS',       table: 'observations_aws_nhp',       url: 'https://city.imd.gov.in/api/v1/getNHPAWS',       hasBlock: false },
+    { key: 'zomato',    label: 'Zomato AWS',    table: 'observations_aws_zomato',    url: 'https://city.imd.gov.in/api/v1/getZomatoAWS',    hasBlock: false },
+    { key: 'karnataka', label: 'Karnataka AWS', table: 'observations_aws_karnataka', url: 'https://city.imd.gov.in/api/v1/getKarnatakaAWS', hasBlock: true },
 ];
 
 // Per source: total stations mapped to it, distinct blocks covered, and how
@@ -96,7 +98,7 @@ exports.fetchAwsSourceLogs = async (req, res) => {
         }));
 
         const excludedSources = await Promise.all(EXCLUDED_SOURCES.map(async (src) => {
-            const [totalsResult, dailyResult] = await Promise.all([
+            const [totalsResult, dailyResult, blocksResult] = await Promise.all([
                 client.query(`SELECT COUNT(DISTINCT id)::int AS total_stations FROM ${src.table}`),
                 client.query(`
                     SELECT TO_CHAR(dat::date, 'YYYY-MM-DD') AS date,
@@ -106,6 +108,9 @@ exports.fetchAwsSourceLogs = async (req, res) => {
                       AND rainfall IS NOT NULL
                     GROUP BY dat::date
                 `, [fromDate, toDate]),
+                src.hasBlock
+                    ? client.query(`SELECT COUNT(DISTINCT block)::int AS total_blocks FROM ${src.table} WHERE block IS NOT NULL`)
+                    : Promise.resolve({ rows: [{ total_blocks: null }] }),
             ]);
 
             const totals = totalsResult.rows[0] || { total_stations: 0 };
@@ -118,6 +123,7 @@ exports.fetchAwsSourceLogs = async (req, res) => {
                 label: src.label,
                 url: src.url,
                 totalStations: totals.total_stations,
+                totalBlocks: src.hasBlock ? (blocksResult.rows[0]?.total_blocks ?? 0) : null,
                 daily,
             };
         }));

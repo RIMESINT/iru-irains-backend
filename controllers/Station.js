@@ -12,6 +12,7 @@ const xlsx = require('xlsx');
 // than modifying Country.js to export its internals.
 const { fetchCountryData } = require('./Country');
 const { fetchCountryWithAWS } = require('./AwsInclusiveControllers');
+const { fetchStationDataNew } = require('./StationDataUpdates');
 
 
 // const fetchFilteredData = async (Date) => {
@@ -2046,6 +2047,58 @@ exports.fetchCalcModeCountryRange = async (req, res) => {
     res.status(200).json({ success: true, fromDate, toDate, data });
   } catch (error) {
     console.error('[CALC MODE] fetchCalcModeCountryRange:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Data-entry "Station Logs" tab: same Updated/Not Updated/Verified/Not
+// Verified categorization Verification HQ uses (data !== -999.9 = updated,
+// is_verified === 1 = verified — see verification-page-hq.component.ts),
+// computed per date in [fromDate, toDate] by calling the same existing
+// fetchStationDataNew (StationDataUpdates.js) Verification HQ itself calls,
+// once per day. Numbers only — no verify actions here.
+exports.fetchDataEntryLogsRange = async (req, res) => {
+  try {
+    let { fromDate, toDate } = req.body;
+    const today = moment().format('YYYY-MM-DD');
+    fromDate = fromDate || today;
+    toDate = toDate || fromDate;
+
+    if (moment(fromDate).isAfter(toDate)) {
+      return res.status(400).json({ success: false, message: "fromDate should be less than or equal to toDate" });
+    }
+    const spanDays = moment(toDate).diff(moment(fromDate), 'days') + 1;
+    if (spanDays > 31) {
+      return res.status(400).json({ success: false, message: "Date range cannot exceed 31 days" });
+    }
+
+    const data = [];
+    let cursor = moment(fromDate);
+    const last = moment(toDate);
+    while (cursor.isSameOrBefore(last)) {
+      const d = cursor.format('YYYY-MM-DD');
+
+      const { payload } = await callExpressHandler(fetchStationDataNew, { Date: d });
+      const rows = (payload && payload.data) || [];
+
+      const total = rows.length;
+      const updated = rows.filter(r => Number(r.data) !== -999.9).length;
+      const verified = rows.filter(r => Number(r.data) !== -999.9 && Number(r.is_verified) === 1).length;
+
+      data.push({
+        date: d,
+        total,
+        updated,
+        notUpdated: total - updated,
+        verified,
+        notVerified: updated - verified,
+      });
+      cursor.add(1, 'day');
+    }
+
+    res.status(200).json({ success: true, fromDate, toDate, data });
+  } catch (error) {
+    console.error('[DATA ENTRY LOGS] fetchDataEntryLogsRange:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

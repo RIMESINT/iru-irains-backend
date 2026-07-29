@@ -15,6 +15,23 @@ const SOURCES = [
     { key: 'iitmMumbai',  label: 'IITM Mumbai AWS', source_table: 'observations_iitm_mumbai',    url: 'https://city.imd.gov.in/api/v1/getIITMRainfallData' },
 ];
 
+// City IMD AWS sources that ARE fetched (controllers/scripts/aws/awsFetcher.js)
+// but have no aws_mapping_id entry, so their data lands only in their own raw
+// observation table and never reaches aws_station_daily_data — not part of
+// any calculation. These tables have no station_code/aws_station_details link
+// (station identity is only the source's own `id`), and no shared schema
+// across the three (NHP/Zomato have no `block` column), so "reporting" here
+// means "rows exist that day" rather than the -999.9-sentinel check used for
+// the mapped sources, and "Total Stations" is an all-time distinct count
+// (there's no master registry to compare against, unlike the mapped sources).
+// Table names below are a fixed, hardcoded list — never user input — so
+// interpolating them into the FROM clause is safe.
+const EXCLUDED_SOURCES = [
+    { key: 'nhp',       label: 'NHP AWS',       table: 'observations_aws_nhp',       url: 'https://city.imd.gov.in/api/v1/getNHPAWS' },
+    { key: 'zomato',    label: 'Zomato AWS',    table: 'observations_aws_zomato',    url: 'https://city.imd.gov.in/api/v1/getZomatoAWS' },
+    { key: 'karnataka', label: 'Karnataka AWS', table: 'observations_aws_karnataka', url: 'https://city.imd.gov.in/api/v1/getKarnatakaAWS' },
+];
+
 // Per source: total stations mapped to it, distinct blocks covered, and how
 // many of its stations reported real data (not the -999.9 sentinel) on each
 // date in [fromDate, toDate]. Station-to-source linkage is via aws_mapping_id
@@ -78,7 +95,34 @@ exports.fetchAwsSourceLogs = async (req, res) => {
             };
         }));
 
-        res.status(200).json({ success: true, fromDate, toDate, dates, sources });
+        const excludedSources = await Promise.all(EXCLUDED_SOURCES.map(async (src) => {
+            const [totalsResult, dailyResult] = await Promise.all([
+                client.query(`SELECT COUNT(DISTINCT id)::int AS total_stations FROM ${src.table}`),
+                client.query(`
+                    SELECT TO_CHAR(dat::date, 'YYYY-MM-DD') AS date,
+                           COUNT(DISTINCT id)::int AS reporting_count
+                    FROM ${src.table}
+                    WHERE dat::date BETWEEN $1::date AND $2::date
+                      AND rainfall IS NOT NULL
+                    GROUP BY dat::date
+                `, [fromDate, toDate]),
+            ]);
+
+            const totals = totalsResult.rows[0] || { total_stations: 0 };
+            const dailyMap = {};
+            dailyResult.rows.forEach(r => { dailyMap[r.date] = r.reporting_count; });
+            const daily = dates.map(d => ({ date: d, count: dailyMap[d] ?? 0 }));
+
+            return {
+                key: src.key,
+                label: src.label,
+                url: src.url,
+                totalStations: totals.total_stations,
+                daily,
+            };
+        }));
+
+        res.status(200).json({ success: true, fromDate, toDate, dates, sources, excludedSources });
     } catch (error) {
         console.error('[AWS SOURCE LOGS] fetchAwsSourceLogs:', error);
         res.status(500).json({ success: false, message: error.message });

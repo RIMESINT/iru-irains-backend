@@ -1905,7 +1905,6 @@ exports.fetchCalcModeStations = async (req, res) => {
       JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
       JOIN public.normal_district_details ndd ON ndd.district_code = sdd.district_code
       WHERE sdd.collection_date BETWEEN $1 AND $2
-        AND sdd.data != -999.9
         AND sd.flag != 0
       ORDER BY sdd.collection_date, sd.station_code
     `;
@@ -1925,7 +1924,6 @@ exports.fetchCalcModeStations = async (req, res) => {
       JOIN public.normal_district_details ndd ON ndd.district_code = asd.district_code
       JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
       WHERE asdd.collection_date BETWEEN $1 AND $2
-        AND asdd.data >= 0
       ORDER BY asdd.collection_date, asd.station_code
     `;
 

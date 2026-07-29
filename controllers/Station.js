@@ -5,6 +5,13 @@ const app = express();
 const client = require("../connection");
 const moment = require('moment');
 const xlsx = require('xlsx');
+// Reused as-is for the Calculation Mode date-range panel — no calculation
+// logic here, just calling the existing exported country-total functions
+// once per day. fetchCountryData is an Express route handler (not a plain
+// function), so it's invoked through a tiny synthetic req/res below rather
+// than modifying Country.js to export its internals.
+const { fetchCountryData } = require('./Country');
+const { fetchCountryWithAWS } = require('./AwsInclusiveControllers');
 
 
 // const fetchFilteredData = async (Date) => {
@@ -1876,8 +1883,12 @@ exports.getAllStations = async (req, res) => {
 };
 
 exports.fetchCalcModeStations = async (req, res) => {
-  const { date } = req.body;
-  const today = date || moment().format('YYYY-MM-DD');
+  // Backward compatible: { date } behaves exactly as before (rangeStart ===
+  // rangeEnd). New: { fromDate, toDate } for the Calculation Mode range panel.
+  const { date, fromDate, toDate } = req.body;
+  const today = moment().format('YYYY-MM-DD');
+  const rangeStart = fromDate || date || today;
+  const rangeEnd = toDate || date || today;
   try {
     const imdQuery = `
       SELECT
@@ -1888,14 +1899,15 @@ exports.fetchCalcModeStations = async (req, res) => {
         sd.district_code,
         ndd.state_name,
         ndd.district_name,
-        sdd.data
+        sdd.data,
+        TO_CHAR(sdd.collection_date, 'YYYY-MM-DD') AS collection_date
       FROM public.station_details sd
       JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
       JOIN public.normal_district_details ndd ON ndd.district_code = sdd.district_code
-      WHERE sdd.collection_date = $1
+      WHERE sdd.collection_date BETWEEN $1 AND $2
         AND sdd.data != -999.9
         AND sd.flag != 0
-      ORDER BY sd.station_code
+      ORDER BY sdd.collection_date, sd.station_code
     `;
 
     const awsQuery = `
@@ -1907,27 +1919,30 @@ exports.fetchCalcModeStations = async (req, res) => {
         asd.district_code,
         ndd.state_name,
         ndd.district_name,
-        asdd.data
+        asdd.data,
+        TO_CHAR(asdd.collection_date, 'YYYY-MM-DD') AS collection_date
       FROM public.aws_station_details asd
       JOIN public.normal_district_details ndd ON ndd.district_code = asd.district_code
       JOIN public.aws_station_daily_data asdd ON asdd.station_id = asd.station_code
-      WHERE asdd.collection_date = $1
+      WHERE asdd.collection_date BETWEEN $1 AND $2
         AND asdd.data >= 0
-      ORDER BY asd.station_code
+      ORDER BY asdd.collection_date, asd.station_code
     `;
 
     const exclusionsQuery = `
-      SELECT entity_type, entity_code
+      SELECT entity_type, entity_code,
+             TO_CHAR(from_date, 'YYYY-MM-DD') AS from_date,
+             TO_CHAR(to_date, 'YYYY-MM-DD') AS to_date
       FROM public.calculation_exclusions
-      WHERE from_date <= $1 AND to_date >= $1
+      WHERE from_date <= $2 AND to_date >= $1
     `;
 
     const imdTotalQuery = `SELECT COUNT(*) AS total FROM public.station_details WHERE flag = 1`;
     const awsTotalQuery = `SELECT COUNT(*) AS total FROM public.aws_station_details`;
 
     const [imdResult, awsResult, imdTotalResult, awsTotalResult] = await Promise.all([
-      client.query(imdQuery, [today]),
-      client.query(awsQuery, [today]),
+      client.query(imdQuery, [rangeStart, rangeEnd]),
+      client.query(awsQuery, [rangeStart, rangeEnd]),
       client.query(imdTotalQuery),
       client.query(awsTotalQuery),
     ]);
@@ -1935,37 +1950,39 @@ exports.fetchCalcModeStations = async (req, res) => {
     // Fetch exclusions separately — if this fails, still return station data
     let exclusions = [];
     try {
-      const exclResult = await client.query(exclusionsQuery, [today]);
+      const exclResult = await client.query(exclusionsQuery, [rangeStart, rangeEnd]);
       exclusions = exclResult.rows;
     } catch (e) {
       console.warn('fetchCalcModeStations: exclusions query failed (table may not exist)', e.message);
     }
 
-    // Build sets for fast lookup
-    const imdExcludedStations  = new Set(exclusions.filter(e => e.entity_type === 'station').map(e => e.entity_code));
-    const imdExcludedBlocks    = new Set(exclusions.filter(e => e.entity_type === 'block').map(e => e.entity_code));
-    const imdExcludedDistricts = new Set(exclusions.filter(e => e.entity_type === 'district').map(e => String(e.entity_code)));
-    const awsExcludedStations  = new Set(exclusions.filter(e => e.entity_type === 'aws_station').map(e => e.entity_code));
-    const awsExcludedBlocks    = new Set(exclusions.filter(e => e.entity_type === 'aws_block').map(e => e.entity_code));
-    const awsExcludedDistricts = new Set(exclusions.filter(e => e.entity_type === 'aws_district').map(e => String(e.entity_code)));
+    // Exclusions are date-bound, and a row now belongs to a specific date (not
+    // just "today"), so check each row's own collection_date against the
+    // exclusion's [from_date, to_date] window rather than a single today-only flag.
+    const isExcludedOn = (collectionDate, stationCode, blockCode, districtCode, stationType, blockType, districtType) =>
+      exclusions.some(e =>
+        e.from_date <= collectionDate && e.to_date >= collectionDate && (
+          (e.entity_type === stationType && String(e.entity_code) === String(stationCode)) ||
+          (e.entity_type === blockType && String(e.entity_code) === String(blockCode)) ||
+          (e.entity_type === districtType && String(e.entity_code) === String(districtCode))
+        )
+      );
 
     const imdRows = imdResult.rows.map(r => ({
       ...r,
-      is_excluded: imdExcludedStations.has(r.station_code)
-        || imdExcludedBlocks.has(String(r.block_code))
-        || imdExcludedDistricts.has(String(r.district_code)),
+      is_excluded: isExcludedOn(r.collection_date, r.station_code, r.block_code, r.district_code, 'station', 'block', 'district'),
     }));
 
     const awsRows = awsResult.rows.map(r => ({
       ...r,
-      is_excluded: awsExcludedStations.has(r.station_code)
-        || awsExcludedBlocks.has(String(r.block_code))
-        || awsExcludedDistricts.has(String(r.district_code)),
+      is_excluded: isExcludedOn(r.collection_date, r.station_code, r.block_code, r.district_code, 'aws_station', 'aws_block', 'aws_district'),
     }));
 
     res.status(200).json({
       success: true,
-      date: today,
+      date: rangeStart === rangeEnd ? rangeStart : undefined,
+      fromDate: rangeStart,
+      toDate: rangeEnd,
       imd: imdRows,
       aws: awsRows,
       imdTotal: parseInt(imdTotalResult.rows[0].total, 10),
@@ -1974,6 +1991,62 @@ exports.fetchCalcModeStations = async (req, res) => {
   } catch (err) {
     console.error('fetchCalcModeStations error', err);
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// Synthetic req/res so we can call the existing Express route handler
+// fetchCountryData (Country.js) as a plain function, without touching that
+// file — it isn't exported as a reusable helper, only as a route handler.
+const callExpressHandler = (handler, body) => new Promise((resolve, reject) => {
+  const fakeReq = { body };
+  const fakeRes = {
+    _statusCode: 200,
+    status(code) { this._statusCode = code; return this; },
+    json(payload) { resolve({ statusCode: this._statusCode, payload }); },
+  };
+  Promise.resolve(handler(fakeReq, fakeRes)).catch(reject);
+});
+
+// Calculation Mode's date-range panel: one IMD + AWS country total per date in
+// [fromDate, toDate]. No calculation logic lives here — this just calls the
+// existing, unmodified fetchCountryData (Country.js) and fetchCountryWithAWS
+// (AwsInclusiveControllers.js) once per day, since both already collapse
+// whatever range they're given into a single aggregate row.
+exports.fetchCalcModeCountryRange = async (req, res) => {
+  try {
+    let { fromDate, toDate } = req.body;
+    const today = moment().format('YYYY-MM-DD');
+    fromDate = fromDate || today;
+    toDate = toDate || fromDate;
+
+    if (moment(fromDate).isAfter(toDate)) {
+      return res.status(400).json({ success: false, message: "fromDate should be less than or equal to toDate" });
+    }
+    const spanDays = moment(toDate).diff(moment(fromDate), 'days') + 1;
+    if (spanDays > 31) {
+      return res.status(400).json({ success: false, message: "Date range cannot exceed 31 days" });
+    }
+
+    const data = [];
+    let cursor = moment(fromDate);
+    const last = moment(toDate);
+    while (cursor.isSameOrBefore(last)) {
+      const d = cursor.format('YYYY-MM-DD');
+
+      const { payload: imdPayload } = await callExpressHandler(fetchCountryData, { startDate: d, endDate: d });
+      const imdRow = (imdPayload && imdPayload.data && imdPayload.data[0]) || null;
+
+      const awsRows = await fetchCountryWithAWS(d, d);
+      const awsRow = (awsRows && awsRows[0]) || null;
+
+      data.push({ date: d, imd: imdRow, aws: awsRow });
+      cursor.add(1, 'day');
+    }
+
+    res.status(200).json({ success: true, fromDate, toDate, data });
+  } catch (error) {
+    console.error('[CALC MODE] fetchCalcModeCountryRange:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 

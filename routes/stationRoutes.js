@@ -37,6 +37,7 @@ const { fetchStationData,
         fetchCentreStationSummary,
         getAllStations,
         fetchCalcModeStations,
+        fetchCalcModeCountryRange,
     } = require("../controllers/Station")
 const { insertStationDataFtp} = require("../controllers/scripts/station/stationDailyDataFtp")
 const { aggregateRainfallData } = require("../controllers/scripts/all/calculateAndIncludeAllDatesData")
@@ -175,5 +176,6 @@ router.post("/monsoon-activity-district-last7", getMonsoonActivityDistrictLast7)
 router.post("/monsoon-activity-district-last30",getMonsoonActivityDistrictLast30);
 
 router.post("/fetchCalcModeStations", fetchCalcModeStations);
+router.post("/fetchCalcModeCountryRange", fetchCalcModeCountryRange);
 
 module.exports = router;

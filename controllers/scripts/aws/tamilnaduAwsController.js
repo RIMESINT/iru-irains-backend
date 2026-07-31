@@ -295,7 +295,7 @@ exports.fetchStationSlots = async (req, res) => {
             WITH aws AS (
                 SELECT *,
                     ${AWS_DAY} AS aws_day,
-                    (dat::date + time::time + INTERVAL '5 hours 30 minutes')::time AS ist_time
+                    (dat::date + time::time + INTERVAL '5 hours 30 minutes')::time AS recorded_time
                 FROM observations_aws_tamilnadu
                 WHERE dat BETWEEN ($1::date - INTERVAL '1 day') AND $1::date
                   AND ${AWS_DAY} = $1::date
@@ -303,7 +303,7 @@ exports.fetchStationSlots = async (req, res) => {
             slots AS (
                 SELECT
                     id, station, type, state, district, tehsil, firka, block, lat, lon,
-                    ist_time, rainfall, temp, feel_like, rh, winds, windd,
+                    recorded_time, rainfall, temp, feel_like, rh, winds, windd,
                     slp, solar_radiation, soil_temp, soil_moist,
                     'slot'::text AS row_type, 0 AS sort_order
                 FROM aws
@@ -311,7 +311,7 @@ exports.fetchStationSlots = async (req, res) => {
             totals AS (
                 SELECT
                     id, station, type, state, district, tehsil, firka, block, lat, lon,
-                    NULL::time AS ist_time, MAX(rainfall) AS rainfall,
+                    NULL::time AS recorded_time, MAX(rainfall) AS rainfall,
                     NULL::numeric AS temp, NULL::numeric AS feel_like, NULL::numeric AS rh,
                     NULL::numeric AS winds, NULL::numeric AS windd, NULL::numeric AS slp,
                     NULL::numeric AS solar_radiation, NULL::numeric AS soil_temp, NULL::numeric AS soil_moist,
@@ -320,17 +320,17 @@ exports.fetchStationSlots = async (req, res) => {
                 GROUP BY id, station, type, state, district, tehsil, firka, block, lat, lon
             )
             SELECT id, station, type, state, district, tehsil, firka, block, lat, lon,
-                   ist_time, rainfall, temp, feel_like, rh, winds, windd,
+                   recorded_time, rainfall, temp, feel_like, rh, winds, windd,
                    slp, solar_radiation, soil_temp, soil_moist,
                    row_type
             FROM slots
             UNION ALL
             SELECT id, station, type, state, district, tehsil, firka, block, lat, lon,
-                   ist_time, rainfall, temp, feel_like, rh, winds, windd,
+                   recorded_time, rainfall, temp, feel_like, rh, winds, windd,
                    slp, solar_radiation, soil_temp, soil_moist,
                    row_type
             FROM totals
-            ORDER BY id, row_type, ist_time NULLS LAST
+            ORDER BY id, row_type, recorded_time NULLS LAST
         `;
 
         const result = await client.query(query, [date]);

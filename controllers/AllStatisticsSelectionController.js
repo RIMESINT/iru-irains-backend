@@ -4,7 +4,7 @@ const client = require("../connection");
 // Table: all_statistics_default_selection
 //        (migrations/create_all_statistics_default_selection.sql)
 
-const SCOPES = ["DRMS", "BRMS", "STATE"];
+const SCOPES = ["DRMS", "REGIONAL", "BRMS", "STATE", "MC"];
 const MAX_ITEMS = 500; // 5 DRMS + 1 BRMS + 36 states today, with room to grow
 
 function parseUsername(value) {

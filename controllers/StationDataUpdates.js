@@ -237,7 +237,6 @@ const updateStationDataQuery = async (station_code, date, value, userid = null )
             SELECT data AS old_value
             FROM public.station_daily_data_updates
             WHERE collection_date = $2 AND station_id = $3
-            LIMIT 1
         ),
         upd AS (
             UPDATE public.station_daily_data_updates
@@ -509,7 +508,6 @@ exports.insertRainfallFile = async (req, res) => {
                 SELECT data AS old_value
                 FROM public.station_daily_data_updates
                 WHERE station_id = $1 AND collection_date = $3
-                LIMIT 1
             ),
             ups AS (
                 INSERT INTO public.station_daily_data_updates (station_id, district_code, collection_date, data)
@@ -616,8 +614,29 @@ exports.fetchRevisionLog = async (req, res) => {
 };
 
 // Per-station detail for a single (update day, data day) group — drilled into
-// from the "Stations" column on the Data Entry Investigation page. Current
-// value + station metadata only, no old/new value history.
+// from the "Stations" column on the Data Entry Investigation page.
+//
+// The LATERAL pulls that station/date's edit history for the day out of
+// rainfalldataedits: the value it STARTED the day at (first edit's old_value)
+// and where it ENDED UP (last edit's new_value), so a -999.9 -> 5.0 -> 12.0
+// chain reads as "-999.9 -> 12.0, 2 edits". Aggregates over zero rows still
+// return one all-NULL row, so edit_count = 0 means "no log entry" — i.e. an
+// edit made before rainfalldataedits existed. Those show a blank change column
+// rather than disappearing.
+const EDIT_HISTORY_LATERAL = (editWindowClause) => `
+    LEFT JOIN LATERAL (
+        SELECT
+            (ARRAY_AGG(e.old_value ORDER BY e.edited_at ASC))[1]  AS old_value,
+            (ARRAY_AGG(e.new_value ORDER BY e.edited_at DESC))[1] AS new_value,
+            (ARRAY_AGG(e.edit_type ORDER BY e.edited_at DESC))[1] AS edit_type,
+            COUNT(*)::int                                         AS edit_count
+        FROM public.rainfalldataedits e
+        WHERE e.station_id = c.station_id
+          AND e.collection_date = c.collection_date
+          AND ${editWindowClause}
+    ) ed ON TRUE
+`;
+
 exports.fetchRevisionStationDetails = async (req, res) => {
     try {
         const { revisionDate, dataDate } = req.body;
@@ -632,10 +651,15 @@ exports.fetchRevisionStationDetails = async (req, res) => {
                 ndd.district_name,
                 c.data AS station_value,
                 c.collection_date::text AS data_date,
-                c.updated_at
+                c.updated_at,
+                ed.old_value,
+                ed.new_value,
+                ed.edit_type,
+                ed.edit_count
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            ${EDIT_HISTORY_LATERAL('e.edited_at::date = $1::date')}
             WHERE c.updated_at::date = $1
               AND c.collection_date = $2
             ORDER BY sd.station_name;
@@ -692,13 +716,15 @@ exports.fetchRevisionLogByCentre = async (req, res) => {
 exports.fetchCentreRevisionDetails = async (req, res) => {
     try {
         const { centreType, centreName, days, date } = req.body;
-        let extraClause, param3;
+        let extraClause, editWindowClause, param3;
         if (date) {
             extraClause = 'c.updated_at::date = $3::date';
+            editWindowClause = 'e.edited_at::date = $3::date';
             param3 = date;
         } else {
             param3 = Number(days) > 0 ? Number(days) : 30;
             extraClause = "c.updated_at >= NOW() - ($3 || ' days')::interval";
+            editWindowClause = "e.edited_at >= NOW() - ($3 || ' days')::interval";
         }
 
         const query = `
@@ -713,10 +739,15 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
                 c.data AS station_value,
                 c.collection_date::text AS data_date,
                 c.updated_at,
-                (c.collection_date < c.updated_at::date) AS back_dated
+                (c.collection_date < c.updated_at::date) AS back_dated,
+                ed.old_value,
+                ed.new_value,
+                ed.edit_type,
+                ed.edit_count
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            ${EDIT_HISTORY_LATERAL(editWindowClause)}
             WHERE sd.centre_type = $1
               AND sd.centre_name = $2
               AND ${extraClause}

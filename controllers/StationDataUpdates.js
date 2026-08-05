@@ -761,6 +761,62 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
     }
 };
 
+// Flat, un-grouped station-level rows for the whole current window — backs the
+// "Download" buttons on the Data Entry Investigation page. The on-screen tables
+// load their inner rows lazily, one group at a time; an export needs every inner
+// row at once, so this returns them all in a single query rather than making the
+// browser fan out one request per expanded group.
+//
+// Both downloads (Revision Log and MC-Wise) are built from this one response —
+// the rows are the same, only the grouping differs, and the frontend does that
+// grouping. Same days-vs-date dual mode as fetchRevisionLog.
+exports.fetchRevisionLogExport = async (req, res) => {
+    try {
+        const { days, date } = req.body;
+        let whereClause, editWindowClause, param;
+        if (date) {
+            whereClause = 'c.updated_at::date = $1::date';
+            editWindowClause = 'e.edited_at::date = $1::date';
+            param = date;
+        } else {
+            param = Number(days) > 0 ? Number(days) : 30;
+            whereClause = "c.updated_at >= NOW() - ($1 || ' days')::interval";
+            editWindowClause = "e.edited_at >= NOW() - ($1 || ' days')::interval";
+        }
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                c.updated_at::date::text AS revision_date,
+                c.collection_date::text AS data_date,
+                (c.collection_date < c.updated_at::date) AS back_dated,
+                sd.station_code,
+                sd.station_name,
+                sd.centre_type,
+                sd.centre_name,
+                ndd.state_name,
+                ndd.district_name,
+                c.data AS station_value,
+                c.updated_at,
+                ed.old_value,
+                ed.new_value,
+                ed.edit_type,
+                ed.edit_count
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            ${EDIT_HISTORY_LATERAL(editWindowClause)}
+            WHERE ${whereClause}
+            ORDER BY c.updated_at::date DESC, c.collection_date DESC, sd.centre_name, sd.station_name;
+        `;
+        const result = await client.query(query, [param]);
+        res.status(200).json({ success: true, days, date, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionLogExport:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 // Every individual revision event for a single day — timestamp, whether it
 // was back-dated, and the MC/RMC the station belongs to (for the timeline
 // pin tooltip) — used to plot dots along the Day Wise timeline bar (one dot

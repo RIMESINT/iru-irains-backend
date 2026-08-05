@@ -223,16 +223,36 @@ const fetchFilteredDataIncludingVerification = async (startDate) => {
   }
 };
 
-const updateStationDataQuery = async (station_code, date, value ) => {
+const updateStationDataQuery = async (station_code, date, value, userid = null ) => {
     // Only bump updated_at when the value actually changes — otherwise
     // re-saving an unchanged cell falsely counts as a "revision".
+    //
+    // The `prev` CTE reads the row from the statement's pre-update snapshot, so
+    // it still sees the OLD value while `upd` overwrites it — that's how the
+    // before/after pair gets into rainfalldataedits without adding any column to
+    // station_daily_data_updates itself. If the guard blocks the update (value
+    // unchanged) `upd` returns nothing and no edit is logged.
     const query = `
-                Update public.station_daily_data_updates set data =$1, updated_at =now()
-                WHERE collection_date = $2 and station_id = $3
-                AND data IS DISTINCT FROM $1;`;
+        WITH prev AS (
+            SELECT data AS old_value
+            FROM public.station_daily_data_updates
+            WHERE collection_date = $2 AND station_id = $3
+            LIMIT 1
+        ),
+        upd AS (
+            UPDATE public.station_daily_data_updates
+            SET data = $1, updated_at = now()
+            WHERE collection_date = $2 AND station_id = $3
+              AND data IS DISTINCT FROM $1
+            RETURNING station_id, district_code, collection_date, data
+        )
+        INSERT INTO public.rainfalldataedits
+            (station_id, district_code, collection_date, old_value, new_value, edit_source, edited_by)
+        SELECT u.station_id, u.district_code, u.collection_date, p.old_value, u.data, 'manual', $4::int
+        FROM upd u JOIN prev p ON TRUE;`;
 
     try {
-        const result = await client.query(query, [value, date,station_code ]);
+        const result = await client.query(query, [value, date, station_code, userid]);
         return result.rows;
     } catch (error) {
         console.error('Error executing query', error.stack);
@@ -421,10 +441,12 @@ exports.fetchStationDataEntryRange = async (req, res) => {
 
 exports.updateStationData = async (req, res) => {
     try {
-        let { station_code, date, value } = req.body;
-        
+        let { station_code, date, value, userid } = req.body;
+
         if(station_code && date && (value||value==0) ){
-            let data = await updateStationDataQuery(station_code, date, value );
+            // userid is optional — the Data Entry page doesn't send one yet, so
+            // rainfalldataedits.edited_by stays null until it does.
+            let data = await updateStationDataQuery(station_code, date, value, userid ?? null );
 
             res.status(200).json({
                 success: true,
@@ -477,12 +499,30 @@ exports.insertRainfallFile = async (req, res) => {
         // differs from what's stored — otherwise re-uploading a wide sheet
         // that overlaps existing dates falsely flags every unchanged cell
         // as a "revision" in the Revision Log.
+        //
+        // Same prev/upsert CTE shape as updateStationDataQuery: `prev` sees the
+        // pre-statement value so the before/after pair can be logged to
+        // rainfalldataedits. The JOIN means a brand-new row (no `prev`) logs
+        // nothing — a first-time upload is an entry, not an edit.
         const upsertQuery = `
-            INSERT INTO public.station_daily_data_updates (station_id, district_code, collection_date, data)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (station_id, collection_date)
-            DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-            WHERE public.station_daily_data_updates.data IS DISTINCT FROM EXCLUDED.data;
+            WITH prev AS (
+                SELECT data AS old_value
+                FROM public.station_daily_data_updates
+                WHERE station_id = $1 AND collection_date = $3
+                LIMIT 1
+            ),
+            ups AS (
+                INSERT INTO public.station_daily_data_updates (station_id, district_code, collection_date, data)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (station_id, collection_date)
+                DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+                WHERE public.station_daily_data_updates.data IS DISTINCT FROM EXCLUDED.data
+                RETURNING station_id, district_code, collection_date, data
+            )
+            INSERT INTO public.rainfalldataedits
+                (station_id, district_code, collection_date, old_value, new_value, edit_source)
+            SELECT u.station_id, u.district_code, u.collection_date, p.old_value, u.data, 'excel'
+            FROM ups u JOIN prev p ON TRUE;
         `;
 
         const values = formattedData.map(data => [

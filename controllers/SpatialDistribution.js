@@ -49,7 +49,8 @@ exports.getSpatialDistributionData = async (req, res) => {
           SELECT generate_series($1::date, $2::date, interval '1 day')::date AS collection_date
         ),
         total_stations AS (
-          SELECT n.subdiv_name, MIN(n.id) AS id, COUNT(s.station_code) AS total_stations
+          SELECT n.subdiv_name, MIN(n.id) AS id, MIN(n.subdiv_code) AS subdiv_code,
+                 COUNT(s.station_code) AS total_stations
           FROM normal_district_details n
           LEFT JOIN station_details s ON n.district_code = s.district_code AND s.flag != 0
           GROUP BY n.subdiv_name
@@ -70,6 +71,7 @@ exports.getSpatialDistributionData = async (req, res) => {
         SELECT
           sd.collection_date,
           t.id,
+          t.subdiv_code AS subdivision_code,
           t.subdiv_name AS subdivision_name,
           t.total_stations,
           sd.valid_stations,
@@ -108,6 +110,7 @@ exports.getSpatialDistributionData = async (req, res) => {
         if (!grouped[d]) grouped[d] = [];
         grouped[d].push({
           id: r.id,
+          subdivision_code: r.subdivision_code,
           subdivision_name: r.subdivision_name,
           total_stations: Number(r.total_stations),
           valid_stations: Number(r.valid_stations),
@@ -159,7 +162,13 @@ exports.getSpatialDistributionData = async (req, res) => {
     const queryParams = [startDate, endDate];
     const periodAggQuery = `
       WITH total_stations AS (
-        SELECT n.subdiv_name, MIN(n.id) AS id, COUNT(s.station_code) AS total_stations
+        -- subdiv_code is returned so the frontend map can join on a stable code
+        -- instead of on subdiv_name. The GeoJSON and this table spell some
+        -- subdivisions differently ("DELHI, HARYANA AND CHANDIGARH" vs
+        -- "DELHI AND HARYANA AND CHANDIGARH", RAYALSEEMA vs RAYALASEEMA), so a
+        -- name join silently dropped those regions and drew them as "No Data".
+        SELECT n.subdiv_name, MIN(n.id) AS id, MIN(n.subdiv_code) AS subdiv_code,
+               COUNT(s.station_code) AS total_stations
         FROM normal_district_details n
         LEFT JOIN station_details s ON n.district_code = s.district_code
         GROUP BY n.subdiv_name
@@ -180,6 +189,7 @@ exports.getSpatialDistributionData = async (req, res) => {
       )
       SELECT
         t.id,
+        t.subdiv_code AS subdivision_code,
         t.subdiv_name AS subdivision_name,
         t.total_stations,
         COALESCE(v.valid_stations,0) AS valid_stations,

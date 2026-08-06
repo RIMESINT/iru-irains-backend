@@ -228,17 +228,35 @@ const fetchFilteredDataIncludingVerification = async (startDate) => {
   }
 };
 
-const updateStationDataQuery = async (station_code, date, value ) => {
+const updateStationDataQuery = async (station_code, date, value, userid = null ) => {
     // Only bump updated_at when the value actually changes — otherwise
     // re-saving an unchanged cell falsely counts as a "revision".
+    //
+    // The `prev` CTE reads the row from the statement's pre-update snapshot, so
+    // it still sees the OLD value while `upd` overwrites it — that's how the
+    // before/after pair gets into rainfalldataedits without adding any column to
+    // station_daily_data_updates itself. If the guard blocks the update (value
+    // unchanged) `upd` returns nothing and no edit is logged.
     const query = `
-                Update public.station_daily_data_updates set data =$1, updated_at =now()
-                WHERE collection_date = $2 and station_id = $3
-                AND data IS DISTINCT FROM $1
-                RETURNING station_id, collection_date, data;`;
+        WITH prev AS (
+            SELECT data AS old_value
+            FROM public.station_daily_data_updates
+            WHERE collection_date = $2 AND station_id = $3
+        ),
+        upd AS (
+            UPDATE public.station_daily_data_updates
+            SET data = $1, updated_at = now()
+            WHERE collection_date = $2 AND station_id = $3
+              AND data IS DISTINCT FROM $1
+            RETURNING station_id, district_code, collection_date, data
+        )
+        INSERT INTO public.rainfalldataedits
+            (station_id, district_code, collection_date, old_value, new_value, edit_source, edited_by)
+        SELECT u.station_id, u.district_code, u.collection_date, p.old_value, u.data, 'manual', $4::int
+        FROM upd u JOIN prev p ON TRUE;`;
 
     try {
-        const result = await client.query(query, [value, date,station_code ]);
+        const result = await client.query(query, [value, date, station_code, userid]);
         return result.rows;
     } catch (error) {
         console.error('Error executing query', error.stack);
@@ -467,8 +485,8 @@ exports.fetchStationDataEntryRange = async (req, res) => {
 
 exports.updateStationData = async (req, res) => {
     try {
-        let { station_code, date, value } = req.body;
-        
+        let { station_code, date, value, userid } = req.body;
+
         if(station_code && date && (value||value==0) ){
             const previous = await fetchStationRainfallBeforeUpdate(station_code, date);
             if (!previous) {
@@ -478,7 +496,9 @@ exports.updateStationData = async (req, res) => {
                 });
             }
 
-            await updateStationDataQuery(station_code, date, value);
+            // userid is optional — the Data Entry page doesn't send one yet, so
+            // rainfalldataedits.edited_by stays null until it does.
+            await updateStationDataQuery(station_code, date, value, userid ?? null);
 
             await logReviewPublishActivity("UPDATE", req, {
                 station_code,
@@ -535,12 +555,29 @@ exports.insertRainfallFile = async (req, res) => {
         // differs from what's stored — otherwise re-uploading a wide sheet
         // that overlaps existing dates falsely flags every unchanged cell
         // as a "revision" in the Revision Log.
+        //
+        // Same prev/upsert CTE shape as updateStationDataQuery: `prev` sees the
+        // pre-statement value so the before/after pair can be logged to
+        // rainfalldataedits. The JOIN means a brand-new row (no `prev`) logs
+        // nothing — a first-time upload is an entry, not an edit.
         const upsertQuery = `
-            INSERT INTO public.station_daily_data_updates (station_id, district_code, collection_date, data)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (station_id, collection_date)
-            DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-            WHERE public.station_daily_data_updates.data IS DISTINCT FROM EXCLUDED.data;
+            WITH prev AS (
+                SELECT data AS old_value
+                FROM public.station_daily_data_updates
+                WHERE station_id = $1 AND collection_date = $3
+            ),
+            ups AS (
+                INSERT INTO public.station_daily_data_updates (station_id, district_code, collection_date, data)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (station_id, collection_date)
+                DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+                WHERE public.station_daily_data_updates.data IS DISTINCT FROM EXCLUDED.data
+                RETURNING station_id, district_code, collection_date, data
+            )
+            INSERT INTO public.rainfalldataedits
+                (station_id, district_code, collection_date, old_value, new_value, edit_source)
+            SELECT u.station_id, u.district_code, u.collection_date, p.old_value, u.data, 'excel'
+            FROM ups u JOIN prev p ON TRUE;
         `;
 
         const values = formattedData.map(data => [
@@ -640,8 +677,29 @@ exports.fetchRevisionLog = async (req, res) => {
 };
 
 // Per-station detail for a single (update day, data day) group — drilled into
-// from the "Stations" column on the Data Entry Investigation page. Current
-// value + station metadata only, no old/new value history.
+// from the "Stations" column on the Data Entry Investigation page.
+//
+// The LATERAL pulls that station/date's edit history for the day out of
+// rainfalldataedits: the value it STARTED the day at (first edit's old_value)
+// and where it ENDED UP (last edit's new_value), so a -999.9 -> 5.0 -> 12.0
+// chain reads as "-999.9 -> 12.0, 2 edits". Aggregates over zero rows still
+// return one all-NULL row, so edit_count = 0 means "no log entry" — i.e. an
+// edit made before rainfalldataedits existed. Those show a blank change column
+// rather than disappearing.
+const EDIT_HISTORY_LATERAL = (editWindowClause) => `
+    LEFT JOIN LATERAL (
+        SELECT
+            (ARRAY_AGG(e.old_value ORDER BY e.edited_at ASC))[1]  AS old_value,
+            (ARRAY_AGG(e.new_value ORDER BY e.edited_at DESC))[1] AS new_value,
+            (ARRAY_AGG(e.edit_type ORDER BY e.edited_at DESC))[1] AS edit_type,
+            COUNT(*)::int                                         AS edit_count
+        FROM public.rainfalldataedits e
+        WHERE e.station_id = c.station_id
+          AND e.collection_date = c.collection_date
+          AND ${editWindowClause}
+    ) ed ON TRUE
+`;
+
 exports.fetchRevisionStationDetails = async (req, res) => {
     try {
         const { revisionDate, dataDate } = req.body;
@@ -656,10 +714,15 @@ exports.fetchRevisionStationDetails = async (req, res) => {
                 ndd.district_name,
                 c.data AS station_value,
                 c.collection_date::text AS data_date,
-                c.updated_at
+                c.updated_at,
+                ed.old_value,
+                ed.new_value,
+                ed.edit_type,
+                ed.edit_count
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            ${EDIT_HISTORY_LATERAL('e.edited_at::date = $1::date')}
             WHERE c.updated_at::date = $1
               AND c.collection_date = $2
             ORDER BY sd.station_name;
@@ -716,13 +779,15 @@ exports.fetchRevisionLogByCentre = async (req, res) => {
 exports.fetchCentreRevisionDetails = async (req, res) => {
     try {
         const { centreType, centreName, days, date } = req.body;
-        let extraClause, param3;
+        let extraClause, editWindowClause, param3;
         if (date) {
             extraClause = 'c.updated_at::date = $3::date';
+            editWindowClause = 'e.edited_at::date = $3::date';
             param3 = date;
         } else {
             param3 = Number(days) > 0 ? Number(days) : 30;
             extraClause = "c.updated_at >= NOW() - ($3 || ' days')::interval";
+            editWindowClause = "e.edited_at >= NOW() - ($3 || ' days')::interval";
         }
 
         const query = `
@@ -737,10 +802,15 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
                 c.data AS station_value,
                 c.collection_date::text AS data_date,
                 c.updated_at,
-                (c.collection_date < c.updated_at::date) AS back_dated
+                (c.collection_date < c.updated_at::date) AS back_dated,
+                ed.old_value,
+                ed.new_value,
+                ed.edit_type,
+                ed.edit_count
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            ${EDIT_HISTORY_LATERAL(editWindowClause)}
             WHERE sd.centre_type = $1
               AND sd.centre_name = $2
               AND ${extraClause}
@@ -750,6 +820,62 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
         res.status(200).json({ success: true, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchCentreRevisionDetails:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Flat, un-grouped station-level rows for the whole current window — backs the
+// "Download" buttons on the Data Entry Investigation page. The on-screen tables
+// load their inner rows lazily, one group at a time; an export needs every inner
+// row at once, so this returns them all in a single query rather than making the
+// browser fan out one request per expanded group.
+//
+// Both downloads (Revision Log and MC-Wise) are built from this one response —
+// the rows are the same, only the grouping differs, and the frontend does that
+// grouping. Same days-vs-date dual mode as fetchRevisionLog.
+exports.fetchRevisionLogExport = async (req, res) => {
+    try {
+        const { days, date } = req.body;
+        let whereClause, editWindowClause, param;
+        if (date) {
+            whereClause = 'c.updated_at::date = $1::date';
+            editWindowClause = 'e.edited_at::date = $1::date';
+            param = date;
+        } else {
+            param = Number(days) > 0 ? Number(days) : 30;
+            whereClause = "c.updated_at >= NOW() - ($1 || ' days')::interval";
+            editWindowClause = "e.edited_at >= NOW() - ($1 || ' days')::interval";
+        }
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                c.updated_at::date::text AS revision_date,
+                c.collection_date::text AS data_date,
+                (c.collection_date < c.updated_at::date) AS back_dated,
+                sd.station_code,
+                sd.station_name,
+                sd.centre_type,
+                sd.centre_name,
+                ndd.state_name,
+                ndd.district_name,
+                c.data AS station_value,
+                c.updated_at,
+                ed.old_value,
+                ed.new_value,
+                ed.edit_type,
+                ed.edit_count
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            ${EDIT_HISTORY_LATERAL(editWindowClause)}
+            WHERE ${whereClause}
+            ORDER BY c.updated_at::date DESC, c.collection_date DESC, sd.centre_name, sd.station_name;
+        `;
+        const result = await client.query(query, [param]);
+        res.status(200).json({ success: true, days, date, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionLogExport:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

@@ -155,6 +155,22 @@ const num = (v) => (v === null || v === undefined ? null : Number(v));
 const int = (v) => (v === null || v === undefined ? 0 : parseInt(v, 10));
 
 /**
+ * Days of 15-minute history a feed probe may scan.
+ *
+ * Defaults to 1 and is capped hard. Each extra day is another ~6000 stations ×
+ * 96 slots per table across ten tables, all of it behind COUNT(DISTINCT), and
+ * the app shares a single pg Client — so a wide window here does not just make
+ * this request slow, it blocks every other request in the backend behind it.
+ * A one-day probe costs about the same as the timeline query, which is known
+ * to return comfortably.
+ */
+const clampLookback = (value) => {
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n)) return 1;
+    return Math.min(Math.max(n, 1), 31);
+};
+
+/**
  * Slot index of a row within AWS day $-N. The AWS day runs 03:00 IST → 03:00
  * IST, so the offset is measured from `<date> 03:00 IST`, not from midnight.
  */
@@ -183,7 +199,7 @@ const fail = (res, tag, error) => {
 exports.fetchSourceHealth = async (req, res) => {
     try {
         const date = req.body.date || getAwsToday();
-        const lookbackDays = Math.min(Math.max(parseInt(req.body.lookbackDays, 10) || 7, 1), 90);
+        const lookbackDays = clampLookback(req.body.lookbackDays);
         const fromDate = moment.tz(date, IST).subtract(lookbackDays - 1, "days").format("YYYY-MM-DD");
 
         // $1 = window start, $2 = target AWS day
@@ -339,7 +355,7 @@ exports.fetchSourceHealth = async (req, res) => {
 exports.fetchUnmapped = async (req, res) => {
     try {
         const date = req.body.date || getAwsToday();
-        const lookbackDays = Math.min(Math.max(parseInt(req.body.lookbackDays, 10) || 7, 1), 90);
+        const lookbackDays = clampLookback(req.body.lookbackDays);
         const limit = Math.min(Math.max(parseInt(req.body.limit, 10) || 500, 1), 5000);
         const fromDate = moment.tz(date, IST).subtract(lookbackDays - 1, "days").format("YYYY-MM-DD");
         const srcs = resolveSources(req.body.sources);

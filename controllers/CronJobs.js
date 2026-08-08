@@ -102,7 +102,11 @@ const awsJobs = ['0 * * * *', '15 * * * *', '30 * * * *', '45 * * * *'].map((pat
 );
 
 // ─── AWS Station Daily Store — every day at 10:30 AM IST ─────────────────────
-schedule.scheduleJob('30 10 * * *', async () => {
+// The timezone is pinned rather than left to the server's locale. The AWS day
+// now closes at 08:30 IST, so this runs on a two-hour margin — if the process
+// were ever started under a non-IST TZ, an unpinned '30 10' would drift off
+// that margin and store a window that had not finished.
+schedule.scheduleJob({ rule: '30 10 * * *', tz: 'Asia/Kolkata' }, async () => {
     const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     console.log(`[AWS STATION] Daily store triggered at ${ts} IST`);
     try {

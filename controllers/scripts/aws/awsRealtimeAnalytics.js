@@ -26,10 +26,10 @@ const { IST, getAwsToday, resolveDates } = require("./awsConfig");
  * awsConfig's AWS_DAY_EXPR leaves `dat`/`time` unqualified. Every query here
  * joins the observation table to aws_mapping_id and aws_station_details, so the
  * columns are alias-qualified to keep resolution unambiguous if those tables
- * ever grow a same-named column. Semantics are identical: day D spans
- * (D-1) 21:30 UTC → D 21:30 UTC and is labelled by the end date.
+ * ever grow a same-named column. Semantics must stay identical to awsConfig —
+ * keep the interval in step with it: day D spans (D-1) 08:30 IST → D 08:30 IST.
  */
-const AWS_DAY = `(t.dat::date + t.time::time + INTERVAL '2 hours 30 minutes')::date`;
+const AWS_DAY = `(t.dat::date + t.time::time + INTERVAL '21 hours')::date`;
 
 // ─── SOURCE REGISTRY ──────────────────────────────────────────────────────────
 // The ten real-time tables, normalised. Every table names its columns slightly
@@ -114,8 +114,12 @@ const RAIN_THRESHOLD = 0.1;
 
 /** 15-minute slots in one AWS day. */
 const SLOT_COUNT = 96;
-/** The AWS day boundary is 21:30 UTC, i.e. 03:00 IST — slot 0 starts there. */
-const DAY_START_IST_HOURS = 3;
+/**
+ * The day boundary is 08:30 IST (03:00 UTC) — the manual data-entry window.
+ * Slot 0 sits there on the day BEFORE the label, since a rainfall day is named
+ * for the date it ends on. Held in minutes because the offset is not whole hours.
+ */
+const DAY_START_IST_MINUTES = 8 * 60 + 30;
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -135,21 +139,47 @@ const resolveSources = (keys) => {
     return picked.length ? picked : SOURCES;
 };
 
-/** IST clock label for slot `i`, e.g. slot 0 -> "03:00", slot 95 -> "02:45". */
-const slotLabel = (i) => {
-    const minutes = DAY_START_IST_HOURS * 60 + i * 15;
-    const h = Math.floor(minutes / 60) % 24;
-    const m = minutes % 60;
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+/**
+ * The 96 slots of an AWS day, each carrying its absolute start time in BOTH
+ * zones.
+ *
+ * The page can be read in IST or UTC, and a bare "08:30" is ambiguous between
+ * them — worse, the day spans two calendar dates, so a clock alone cannot say
+ * which. Sending the full stamp for both zones lets the client switch without
+ * re-fetching and lets it name the actual date instead of "prev day".
+ *
+ * Day D opens at (D-1) 03:00 UTC, which is (D-1) 08:30 IST.
+ */
+const buildSlots = (date) => {
+    const startUtc = moment.utc(date).subtract(1, "day").add(3, "hours");
+    return Array.from({ length: SLOT_COUNT }, (_, i) => {
+        const utc = startUtc.clone().add(i * 15, "minutes");
+        const ist = utc.clone().add(5, "hours").add(30, "minutes");
+        return {
+            index: i,
+            /** IST clock only — kept for callers that just want a short label. */
+            label: ist.format("HH:mm"),
+            ist: ist.format("YYYY-MM-DD HH:mm"),
+            utc: utc.format("YYYY-MM-DD HH:mm"),
+            /** True once the slot falls on the day's own label date, in IST. */
+            onLabelDate: ist.format("YYYY-MM-DD") === date,
+        };
+    });
 };
 
-/** Slot labels plus the day-rollover flag the UI needs to caption "next day". */
-const buildSlots = () =>
-    Array.from({ length: SLOT_COUNT }, (_, i) => ({
-        index: i,
-        label: slotLabel(i),
-        nextDay: DAY_START_IST_HOURS * 60 + i * 15 >= 24 * 60,
-    }));
+/**
+ * aws_mapping_id deduplicated to one row per (source_table, id).
+ *
+ * 42 ids currently map to more than one station_code. Joined raw, each of those
+ * fans every observation row out, which silently doubles any COUNT(*) built on
+ * top — slots_reported read 138 of 96 before this. DISTINCT ON keeps the lowest
+ * code so the choice is at least deterministic; the duplicates themselves are a
+ * data fault worth clearing separately.
+ */
+const MAPPING = `(
+    SELECT DISTINCT ON (source_table, id) source_table, id, station_code
+    FROM aws_mapping_id ORDER BY source_table, id, station_code
+)`;
 
 const num = (v) => (v === null || v === undefined ? null : Number(v));
 const int = (v) => (v === null || v === undefined ? 0 : parseInt(v, 10));
@@ -171,13 +201,15 @@ const clampLookback = (value) => {
 };
 
 /**
- * Slot index of a row within AWS day $-N. The AWS day runs 03:00 IST → 03:00
- * IST, so the offset is measured from `<date> 03:00 IST`, not from midnight.
+ * Slot index of a row within an AWS day.
+ *
+ * The day runs 08:30 IST → 08:30 IST and is named for the date it ends on, so
+ * slot 0 is at 08:30 IST on the PREVIOUS calendar day — hence the minus one.
  */
 const slotExpr = (dateParam) =>
     `FLOOR(EXTRACT(EPOCH FROM (
         (t.dat::timestamp + t.time::time + INTERVAL '5 hours 30 minutes')
-        - (${dateParam}::date + INTERVAL '${DAY_START_IST_HOURS} hours')
+        - (${dateParam}::date - INTERVAL '1 day' + INTERVAL '8 hours 30 minutes')
      )) / 900)::int`;
 
 const fail = (res, tag, error) => {
@@ -219,7 +251,7 @@ exports.fetchSourceHealth = async (req, res) => {
                     WHERE ${AWS_DAY} = $2::date AND t.${s.rain} >= ${RAIN_THRESHOLD}
                 )                                                        AS raining_today
             FROM ${s.table} t
-            LEFT JOIN aws_mapping_id m
+            LEFT JOIN ${MAPPING} m
                    ON m.source_table = '${s.table}' AND m.id = t.id
             WHERE t.dat BETWEEN ($1::date - INTERVAL '1 day') AND $2::date
         `);
@@ -488,13 +520,13 @@ exports.fetchTimeline = async (req, res) => {
                 MAX(asd.longitude)                                     AS mapped_lon,
                 MAX(asd.station_name)                                  AS mapped_name,
                 MAX(t.${s.rain})                                       AS day_total,
-                COUNT(*)                                               AS slots_reported,
+                COUNT(DISTINCT t.time)                                 AS slots_reported,
                 MAX(${s.temp ? `t.${s.temp}` : "NULL::numeric"})       AS max_temp,
                 MIN(${s.temp ? `t.${s.temp}` : "NULL::numeric"})       AS min_temp,
                 AVG(${s.rh ? `t.${s.rh}` : "NULL::numeric"})           AS avg_rh,
                 MAX(${s.winds ? `t.${s.winds}` : "NULL::numeric"})     AS max_wind
             FROM ${s.table} t
-            LEFT JOIN aws_mapping_id m
+            LEFT JOIN ${MAPPING} m
                    ON m.source_table = '${s.table}' AND m.id = t.id
             LEFT JOIN aws_station_details asd
                    ON asd.station_code = m.station_code
@@ -541,7 +573,9 @@ exports.fetchTimeline = async (req, res) => {
                     : num(r.mapped_lat) !== null ? "mapped" : null,
                 station_code: r.station_code ? String(r.station_code) : null,
                 mapped: Boolean(r.station_code),
-                day_total: num(r.day_total),
+                // Rounded to match the slot values: the raw MAX carries more
+                // decimals than cum[95], and the two are the same reading.
+                day_total: r.day_total === null ? null : Number(Number(r.day_total).toFixed(1)),
                 slots_reported: int(r.slots_reported),
                 slot_completeness_pct: Number(((int(r.slots_reported) / SLOT_COUNT) * 100).toFixed(1)),
                 max_temp: num(r.max_temp),
@@ -603,9 +637,11 @@ exports.fetchTimeline = async (req, res) => {
             message: "AWS 24-hour timeline fetched",
             data: {
                 date,
-                day_start_ist: `${date} 03:00`,
+                day_start_ist: moment.tz(date, IST)
+                    .subtract(1, "day")
+                    .format("YYYY-MM-DD 08:30"),
                 slot_minutes: 15,
-                slots: buildSlots(),
+                slots: buildSlots(date),
                 stations: list,
                 per_slot: perSlot,
                 meta: {
@@ -1024,7 +1060,7 @@ exports.fetchStationSeries = async (req, res) => {
                     source_key: src.key,
                     source_label: src.label,
                     source_id: mapped.id,
-                    slots: buildSlots(),
+                    slots: buildSlots(endDate),
                     cum,
                 };
             }

@@ -40,6 +40,8 @@ const reviewPublishRoutes = require("./routes/reviewPublishRoutes");
 const adminActivityLogRoutes = require("./routes/adminActivityLogRoutes");
 const { initAdminRealtime } = require("./utils/adminRealtime");
 const tapiBasinRoutes = require("./routes/tapiBasinRoutes");
+const ollamaChatRoutes = require("./routes/ollamaChatRoutes");
+const rainfallChatRoutes = require("./routes/rainfallChatRoutes");
 
 const SSL_KEY_PATH = process.env.SSL_KEY_PATH || "/etc/apache2/private.key";
 const SSL_CERT_PATH = process.env.SSL_CERT_PATH || "/etc/apache2/*.imd.gov.in.crt";
@@ -169,6 +171,8 @@ app.use("/api/v1/", topRainfallStationsRoutes);
 app.use("/api/v1/", reviewPublishRoutes);
 app.use("/api/v1/", adminActivityLogRoutes);
 app.use("/api/v1/", tapiBasinRoutes);
+app.use("/api/v1/", rainfallChatRoutes);
+app.use("/api/v1/", ollamaChatRoutes);
 
 const useHttps = process.env.USE_HTTPS === "true" || (process.env.USE_HTTPS !== "false" && sslFilesExist());
 

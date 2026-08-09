@@ -854,10 +854,14 @@ exports.fetchRevisionEventsForDate = async (req, res) => {
 };
 
 
-// One row per station for the Investigation page's map: where it is, how many
-// times it was touched in the window, the same-day / back-dated split, and when
-// it was last edited. Stations with no coordinates are dropped — they can't be
-// plotted, and they still appear in both tables.
+// One row per station PER REVISION DAY for the Investigation page's map: where
+// the station is, how many times it was touched that day, the same-day /
+// back-dated split, and when it was last edited. Stations with no coordinates
+// are dropped — they can't be plotted, and they still appear in both tables.
+//
+// The per-day grain is what lets the Range tab's timeline scrub through the
+// window without refetching: the page aggregates these rows across all days for
+// the default view, and filters them to one day while you drag.
 //
 // There is deliberately no "edited by" column: rainfalldataedits.edited_by is
 // null on every row because the Data Entry page doesn't send a user id yet (see
@@ -871,6 +875,7 @@ exports.fetchRevisionStationMap = async (req, res) => {
         const query = `
             ${REVISION_SOURCE_CTE}
             SELECT
+                c.updated_at::date::text AS revision_date,
                 sd.station_code,
                 sd.station_name,
                 sd.latitude::float8  AS latitude,
@@ -892,9 +897,9 @@ exports.fetchRevisionStationMap = async (req, res) => {
             WHERE ${win.clause('c.updated_at')}
               AND sd.latitude IS NOT NULL
               AND sd.longitude IS NOT NULL
-            GROUP BY sd.station_code, sd.station_name, sd.latitude, sd.longitude,
+            GROUP BY c.updated_at::date, sd.station_code, sd.station_name, sd.latitude, sd.longitude,
                      sd.centre_type, sd.centre_name, ndd.state_name, ndd.district_name
-            ORDER BY COUNT(*) DESC;
+            ORDER BY c.updated_at::date, COUNT(*) DESC;
         `;
         const result = await client.query(query, win.params);
         res.status(200).json({ success: true, date, fromDate, toDate, data: result.rows });

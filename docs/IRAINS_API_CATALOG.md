@@ -3,7 +3,8 @@
 This file is the **source of truth** for mapping user questions → API calls.
 
 - Use **ONLY** APIs listed here.
-- Never invent endpoints, fields, or rainfall numbers.
+- Never invent endpoints, `api_id` values, fields, or rainfall numbers.
+- Valid `api_id` examples: `fetch_district_data`, `fetch_state_data`, `fetch_country_data`, `resolve_product_route` — never invent names like `fetch_catalog_data`.
 - If a question is outside listed APIs, ask the user to rephrase.
 - Base URL (local): `http://localhost:3000/api/v1`
 
@@ -92,6 +93,8 @@ When the user asks **where a product / map / menu is** (navigation), respond wit
 - If user gives one date → `startDate = endDate = that date`
 - If user gives a range → use `startDate` and `endDate`
 - Parse natural dates like `20th June`, `10 May 2026`, `01-Jul`, `15-Jul`
+- **Whole month (CRITICAL):** phrases like `month of June`, `during June`, `in June`, `for June`, `throughout June` (no day number) → `startDate` = 1st of that month, `endDate` = last day of that month. Example: June → `2026-06-01` to `2026-06-30`. **Never** use only the 1st for a whole-month question.
+- Month name without year → use current server year
 
 ### Entity resolution
 
@@ -134,7 +137,7 @@ Use these after district/state/subdivision departure is available:
 | 9 | Actual, normal, % departure for a district range | `fetch_district_data` | filter district + dates |
 | 10 | Compare state A vs state B | `fetch_state_data` | `state_names` array |
 
-For deficient/excess, set:
+For deficient/excess / large excess, set **`post_process` only** (not `post_filter`):
 
 ```json
 "post_process": {
@@ -142,6 +145,9 @@ For deficient/excess, set:
   "categories": ["Deficient", "Large Deficient"]
 }
 ```
+
+Wrong (returns empty): `"post_filter": { "departure_category": "Large Excess" }`  
+Correct: empty `post_filter` + `post_process` as above.
 
 ---
 
@@ -277,9 +283,9 @@ For deficient/excess, set:
 - **Path:** `/api/v1/getAllSubDivisions`
 - **Body:** none
 
-### 11) get_latest_five_year_district
+### 11) get_latest_five_year_district *(not yet enabled in chat allowlist — do not use)*
 - **Purpose:** Latest five-year monthly rainfall/departure for one district.
-- **When to use:** Multi-year district trend questions.
+- **When to use:** Multi-year district trend questions (planned).
 - **Method:** `POST`
 - **Path:** `/api/v1/getLatestFiveYearDataOfDistrict`
 - **Body:** includes district identifier (as required by API) + date context if needed.
@@ -380,6 +386,32 @@ User: `Which districts are deficient / large deficient today?`
 ### Q5 — Excess / Large Excess districts
 User: `Which districts are in excess / large excess today?`  
 → same as Q4 with categories `["Excess", "Large Excess"]`.
+
+### Q5b — Large Excess for a whole month (IMPORTANT)
+User: `can u give me the districts which has large excess during the month of June`  
+→ Use **`post_process`** (never put category in `post_filter`):
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_district_data",
+  "method": "POST",
+  "path": "/api/v1/fetchDistrictData",
+  "body": { "startDate": "2026-06-01", "endDate": "2026-06-30" },
+  "query": {},
+  "post_filter": {},
+  "post_process": {
+    "type": "filter_by_departure_category",
+    "categories": ["Large Excess"]
+  },
+  "reason": "Month-of-June district departures filtered to Large Excess only"
+}
+```
+
+Rules:
+- Month name without year → use current server year (`June` → `YYYY-06-01` to `YYYY-06-30`).
+- Category filters MUST use `post_process.filter_by_departure_category`.
+- Do **not** use `post_filter.departure_category` (that field does not exist on API rows).
 
 ### Q6 — Country / all-India
 User: `What is country / all-India rainfall today?`  
@@ -495,6 +527,26 @@ User: `What is the rainfall of Kerela on 20th june?`
 
 Use when the user asks **where** a product/map/report/menu is, or to **open** a screen.  
 Do **not** call rainfall APIs. Return `product_name` + `route_path` exactly from this table.
+
+**Ambiguous map (CRITICAL):** If the user only says `map`, `maps`, `show map`, `open map`, `which map` (no specific product name), do **not** pick a default map. Return:
+
+```json
+{
+  "module": "navigation",
+  "api_id": "resolve_product_route",
+  "method": "NAV",
+  "path": null,
+  "body": {},
+  "query": {},
+  "post_filter": {},
+  "post_process": null,
+  "product_name": null,
+  "route_path": null,
+  "reason": "ambiguous_map"
+}
+```
+
+The backend will ask which map they want and list options.
 
 | # | User question (patterns) | product_name | route_path |
 |---|--------------------------|--------------|------------|

@@ -1,7 +1,7 @@
 const axios = require("axios");
 const moment = require("moment");
 const client = require("../../connection");
-const { ALLOWED_APIS } = require("./catalogLoader");
+const { resolveAllowedApi } = require("./catalogLoader");
 
 function today() {
   return moment().format("YYYY-MM-DD");
@@ -46,6 +46,91 @@ function normalizeBody(body = {}) {
     out.endDate = out.startDate;
   }
   return out;
+}
+
+const MONTH_NAMES = {
+  january: 1,
+  jan: 1,
+  february: 2,
+  feb: 2,
+  march: 3,
+  mar: 3,
+  april: 4,
+  apr: 4,
+  may: 5,
+  june: 6,
+  jun: 6,
+  july: 7,
+  jul: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sep: 9,
+  sept: 9,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  december: 12,
+  dec: 12,
+};
+
+/**
+ * Detect whole-month intent in the user question and force start/end to
+ * that month's first and last day. Prevents LLM collapsing "month of June"
+ * into only 2026-06-01.
+ */
+function applyMonthRangeFromQuestion(action, question) {
+  if (!action || typeof action !== "object") return action;
+  const q = String(question || "");
+  if (!q.trim()) return action;
+
+  // Specific calendar day → do not expand (e.g. "20th June", "June 20", "01-Jun")
+  const hasSpecificDay =
+    /\b\d{1,2}(st|nd|rd|th)?\s+(of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(
+      q
+    ) ||
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(st|nd|rd|th)?\b/i.test(
+      q
+    ) ||
+    /\b\d{1,2}[-/]\d{1,2}([-/]\d{2,4})?\b/.test(q) ||
+    /\b\d{4}-\d{2}-\d{2}\b/.test(q);
+
+  if (hasSpecificDay) return action;
+
+  const monthMatch = q.match(
+    /\b(?:during\s+(?:the\s+)?(?:month\s+of\s+)?|throughout\s+(?:the\s+)?(?:month\s+of\s+)?|(?:for|in|of)\s+(?:the\s+)?(?:month\s+of\s+)?|month\s+of\s+|whole\s+(?:of\s+)?(?:the\s+)?month\s+of\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)(?:\s+(\d{4}))?\b/i
+  );
+
+  if (!monthMatch) return action;
+
+  const monthWord = monthMatch[1].toLowerCase();
+  const monthNum = MONTH_NAMES[monthWord];
+  if (!monthNum) return action;
+
+  // Require clear month intent: "month of …", "during …", bare month name, etc.
+  const wholeMonthIntent =
+    /\b(month\s+of|during|throughout|whole\s+month|for\s+the\s+month|in\s+the\s+month)\b/i.test(
+      q
+    ) ||
+    new RegExp(
+      `\\b(in|for|during|throughout)\\s+${monthWord}\\b`,
+      "i"
+    ).test(q) ||
+    new RegExp(`\\b${monthWord}\\s+\\d{4}\\b`, "i").test(q);
+
+  if (!wholeMonthIntent) return action;
+
+  const year = monthMatch[2]
+    ? Number(monthMatch[2])
+    : moment().year();
+  const start = moment({ year, month: monthNum - 1, day: 1 });
+  const end = start.clone().endOf("month");
+
+  if (!action.body || typeof action.body !== "object") action.body = {};
+  action.body.startDate = start.format("YYYY-MM-DD");
+  action.body.endDate = end.format("YYYY-MM-DD");
+  return action;
 }
 
 function getDepartureCategory(departure) {
@@ -116,10 +201,26 @@ function applyPostFilter(rows, postFilter = {}) {
   );
 }
 
+function normalizeCategoryName(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
+  const map = {
+    "large excess": "Large Excess",
+    "excess": "Excess",
+    "normal": "Normal",
+    "deficient": "Deficient",
+    "large deficient": "Large Deficient",
+    "no rain": "No Rain",
+    "no data": "No Data",
+  };
+  return map[raw] || value;
+}
+
 function applyPostProcess(rows, postProcess) {
   if (!postProcess || !Array.isArray(rows)) return rows;
   if (postProcess.type === "filter_by_departure_category") {
-    const wanted = postProcess.categories || [];
+    const wanted = (postProcess.categories || [])
+      .map(normalizeCategoryName)
+      .filter(Boolean);
     return rows
       .map((r) => ({
         ...r,
@@ -128,6 +229,60 @@ function applyPostProcess(rows, postProcess) {
       .filter((r) => wanted.includes(r.category));
   }
   return rows;
+}
+
+/**
+ * Heal common LLM mistakes so category filters still work.
+ * e.g. post_filter.departure_category = "Large Excess"
+ *   → post_process.filter_by_departure_category
+ */
+function sanitizeRainfallAction(action) {
+  if (!action || typeof action !== "object") return action;
+
+  const filter = { ...(action.post_filter || {}) };
+  let postProcess = action.post_process || null;
+  const collected = [];
+
+  const pullCategories = (value) => {
+    if (value == null || value === "") return;
+    if (Array.isArray(value)) {
+      value.forEach(pullCategories);
+      return;
+    }
+    const normalized = normalizeCategoryName(value);
+    if (normalized && !collected.includes(normalized)) collected.push(normalized);
+  };
+
+  for (const key of [
+    "departure_category",
+    "category",
+    "categories",
+    "departure_categories",
+  ]) {
+    if (filter[key] != null) {
+      pullCategories(filter[key]);
+      delete filter[key];
+    }
+  }
+
+  if (
+    postProcess &&
+    postProcess.type === "filter_by_departure_category" &&
+    Array.isArray(postProcess.categories)
+  ) {
+    postProcess.categories.forEach(pullCategories);
+  }
+
+  if (collected.length) {
+    postProcess = {
+      type: "filter_by_departure_category",
+      categories: collected,
+    };
+  }
+
+  action.post_filter = filter;
+  action.post_process = postProcess;
+  return action;
 }
 
 function roundNum(value, digits = 1) {
@@ -218,10 +373,10 @@ async function fallbackStateFromDistrictCache(stateName, startDate, endDate) {
 }
 
 async function fallbackDistrictsFromCache(startDate, endDate, postFilter, postProcess) {
-  let usedDate = startDate;
+  let usedDate = startDate === endDate ? startDate : `${startDate} to ${endDate}`;
   let note = null;
 
-  const fetchForDate = async (date) => {
+  const fetchForRange = async (from, to) => {
     const result = await client.query(
       `
       SELECT
@@ -235,12 +390,12 @@ async function fallbackDistrictsFromCache(startDate, endDate, postFilter, postPr
       LEFT JOIN public.normal_district_details ndd
         ON ndd.district_code = dd.district_id
       WHERE dd.from_date = $1
-        AND dd.to_date = $1
+        AND dd.to_date = $2
         AND dd.district_id IS NOT NULL
       GROUP BY dd.district_id, dd.actual, dd.departure
       ORDER BY MIN(ndd.district_name)
       `,
-      [date]
+      [from, to]
     );
     return result.rows.map((r) => ({
       ...r,
@@ -250,9 +405,10 @@ async function fallbackDistrictsFromCache(startDate, endDate, postFilter, postPr
     }));
   };
 
-  let rows = await fetchForDate(startDate);
+  let rows = await fetchForRange(startDate, endDate);
   const usable = rows.some((r) => r.departure != null);
 
+  // Only fall back to latest single day when the request was for one day
   if (!usable && startDate === endDate) {
     const latest = await client.query(`
       SELECT TO_CHAR(MAX(from_date), 'YYYY-MM-DD') AS d
@@ -261,7 +417,7 @@ async function fallbackDistrictsFromCache(startDate, endDate, postFilter, postPr
     `);
     const latestDate = latest.rows[0]?.d;
     if (latestDate && latestDate !== startDate) {
-      rows = await fetchForDate(latestDate);
+      rows = await fetchForRange(latestDate, latestDate);
       usedDate = latestDate;
       note = `No usable district API data for ${startDate}; used district_data cache for ${latestDate}.`;
     }
@@ -300,13 +456,17 @@ function executeNavigationAction(action) {
  * Execute one allowlisted API action decided by the LLM.
  */
 async function executeApiAction(action) {
-  const apiId = action.api_id;
-  const allowed = ALLOWED_APIS[apiId];
-  if (!allowed) {
-    const err = new Error(`API not allowed: ${apiId}`);
+  const resolved = resolveAllowedApi(action);
+  if (!resolved) {
+    const err = new Error(`API not allowed: ${action?.api_id || "(missing)"}`);
     err.statusCode = 400;
     throw err;
   }
+
+  const apiId = resolved.apiId;
+  const allowed = resolved.allowed;
+  // Heal hallucinated api_id when path/method already matched.
+  action.api_id = apiId;
 
   const method = String(action.method || allowed.method).toUpperCase();
   if (method === "NAV" || apiId === "resolve_product_route") {
@@ -342,7 +502,10 @@ async function executeApiAction(action) {
 
   let data = response.data?.data ?? response.data;
   let note = null;
-  let usedDate = body?.startDate || null;
+  let usedDate =
+    body?.startDate && body?.endDate && body.startDate !== body.endDate
+      ? `${body.startDate} to ${body.endDate}`
+      : body?.startDate || null;
 
   if (Array.isArray(data)) {
     data = applyPostFilter(data, action.post_filter || {});
@@ -406,4 +569,6 @@ module.exports = {
   replaceDateTokens,
   getDepartureCategory,
   normalizeBody,
+  sanitizeRainfallAction,
+  applyMonthRangeFromQuestion,
 };

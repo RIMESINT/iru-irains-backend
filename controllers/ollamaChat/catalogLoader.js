@@ -181,9 +181,39 @@ const PRODUCT_ROUTES = [
   },
 ];
 
+/** Sorted list of allowlisted api_id values for planner prompts. */
+const ALLOWED_API_IDS = Object.keys(ALLOWED_APIS);
+
+/**
+ * Resolve an action to an allowlisted API using api_id, then path+method.
+ * Returns { apiId, allowed } or null if nothing matches.
+ */
+function resolveAllowedApi(action = {}) {
+  const apiId = action.api_id;
+  if (apiId && ALLOWED_APIS[apiId]) {
+    return { apiId, allowed: ALLOWED_APIS[apiId] };
+  }
+
+  const method = String(action.method || "").toUpperCase();
+  const path = action.path || null;
+  if (path && method) {
+    const match = Object.entries(ALLOWED_APIS).find(
+      ([, spec]) =>
+        spec.path === path && String(spec.method).toUpperCase() === method
+    );
+    if (match) {
+      return { apiId: match[0], allowed: match[1] };
+    }
+  }
+
+  return null;
+}
+
 module.exports = {
   loadApiCatalog,
   ALLOWED_APIS,
+  ALLOWED_API_IDS,
+  resolveAllowedApi,
   CATALOG_PATH,
   SAMPLE_QUESTIONS,
   PRODUCT_ROUTES,

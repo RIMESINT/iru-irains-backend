@@ -623,7 +623,10 @@ exports.fetchRevisionLog = async (req, res) => {
                 c.updated_at::date::text AS revision_date,
                 c.collection_date::text AS data_date,
                 COUNT(DISTINCT c.station_id)::int AS station_count,
-                ARRAY_AGG(DISTINCT sd.station_name ORDER BY sd.station_name) AS station_names
+                ARRAY_AGG(DISTINCT sd.station_name ORDER BY sd.station_name) AS station_names,
+                -- Lets the page's search match a group by centre too, not only
+                -- by the stations inside it.
+                ARRAY_AGG(DISTINCT sd.centre_type || ' ' || sd.centre_name) AS centre_names
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             WHERE ${win.clause('c.updated_at')}
@@ -713,7 +716,10 @@ exports.fetchRevisionLogByCentre = async (req, res) => {
                 sd.centre_name,
                 COUNT(*) FILTER (WHERE c.collection_date = c.updated_at::date)::int AS same_day_count,
                 COUNT(*) FILTER (WHERE c.collection_date < c.updated_at::date)::int AS back_dated_count,
-                COUNT(DISTINCT c.station_id)::int AS station_count
+                COUNT(DISTINCT c.station_id)::int AS station_count,
+                -- Mirror of centre_names in fetchRevisionLog: lets the page's
+                -- search match a centre by the stations under it.
+                ARRAY_AGG(DISTINCT sd.station_name) AS station_names
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             WHERE ${win.clause('c.updated_at')}

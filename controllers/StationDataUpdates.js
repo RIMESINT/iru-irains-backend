@@ -889,7 +889,15 @@ exports.fetchRevisionStationMap = async (req, res) => {
                 COUNT(*) FILTER (WHERE c.collection_date =  c.updated_at::date)::int AS same_day_count,
                 COALESCE(SUM(ed.edit_count), 0)::int AS edit_count,
                 MAX(c.updated_at) AS last_updated,
-                MAX(c.collection_date)::text AS last_data_date
+                MAX(c.collection_date)::text AS last_data_date,
+                -- The dates behind those two counts, not just their maximum.
+                -- MAX(collection_date) always lands on the same-day edit when a
+                -- station has one (a back-dated edit is older by definition), so
+                -- last_data_date alone hid the back-dated date the map is red for.
+                ARRAY_AGG(DISTINCT c.collection_date::text ORDER BY c.collection_date::text)
+                    FILTER (WHERE c.collection_date <  c.updated_at::date) AS back_dated_dates,
+                ARRAY_AGG(DISTINCT c.collection_date::text ORDER BY c.collection_date::text)
+                    FILTER (WHERE c.collection_date =  c.updated_at::date) AS same_day_dates
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code

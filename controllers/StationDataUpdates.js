@@ -917,6 +917,57 @@ exports.fetchRevisionEventsForDate = async (req, res) => {
 };
 
 
+// One row per station for the Investigation page's map: where it is, how many
+// times it was touched in the window, the same-day / back-dated split, and when
+// it was last edited. Stations with no coordinates are dropped — they can't be
+// plotted, and they still appear in both tables.
+//
+// There is deliberately no "edited by" column: rainfalldataedits.edited_by is
+// null on every row because the Data Entry page doesn't send a user id yet (see
+// updateStationData), so the only author the data actually records is the
+// owning MC/RMC, which is what the map attributes edits to.
+exports.fetchRevisionStationMap = async (req, res) => {
+    try {
+        const { date, fromDate, toDate } = req.body;
+        const win = buildRevisionWindow(req.body);
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                sd.station_code,
+                sd.station_name,
+                sd.latitude::float8  AS latitude,
+                sd.longitude::float8 AS longitude,
+                sd.centre_type,
+                sd.centre_name,
+                ndd.state_name,
+                ndd.district_name,
+                COUNT(*)::int AS revision_count,
+                COUNT(*) FILTER (WHERE c.collection_date <  c.updated_at::date)::int AS back_dated_count,
+                COUNT(*) FILTER (WHERE c.collection_date =  c.updated_at::date)::int AS same_day_count,
+                COALESCE(SUM(ed.edit_count), 0)::int AS edit_count,
+                MAX(c.updated_at) AS last_updated,
+                MAX(c.collection_date)::text AS last_data_date
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            ${EDIT_HISTORY_LATERAL(win.clause('e.edited_at'))}
+            WHERE ${win.clause('c.updated_at')}
+              AND sd.latitude IS NOT NULL
+              AND sd.longitude IS NOT NULL
+            GROUP BY sd.station_code, sd.station_name, sd.latitude, sd.longitude,
+                     sd.centre_type, sd.centre_name, ndd.state_name, ndd.district_name
+            ORDER BY COUNT(*) DESC;
+        `;
+        const result = await client.query(query, win.params);
+        res.status(200).json({ success: true, date, fromDate, toDate, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionStationMap:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
 exports.verifyStationData = async (req, res) => {
     try {
       const { userid, date, station_id } = req.body;

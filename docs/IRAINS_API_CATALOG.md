@@ -413,6 +413,36 @@ Rules:
 - Category filters MUST use `post_process.filter_by_departure_category`.
 - Do **not** use `post_filter.departure_category` (that field does not exist on API rows).
 
+### Q5c — Category for ONE place (IMPORTANT)
+User: `can u give me the large excess that happened on chenai` / `large excess in Chennai` / `was Chennai deficient yesterday?`
+
+Rules:
+- Correct typos in `post_filter` (`chenai` → `Chennai`).
+- Keep **both** place filter and category `post_process`.
+- Use **only** dates the user said (or `TODAY` / `YESTERDAY` / `LAST_7_START`). **Never** invent example ranges like `2026-07-01` to `2026-07-15`.
+- Same pattern for: Large Excess, Excess, Normal, Deficient, Large Deficient, No Rain.
+
+Example (user said today):
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_district_data",
+  "method": "POST",
+  "path": "/api/v1/fetchDistrictData",
+  "body": { "startDate": "TODAY", "endDate": "TODAY" },
+  "query": {},
+  "post_filter": { "district_name": "Chennai" },
+  "post_process": {
+    "type": "filter_by_departure_category",
+    "categories": ["Large Excess"]
+  },
+  "reason": "Check whether Chennai is Large Excess for the given date"
+}
+```
+
+If Chennai is not in that category, the backend returns no matching rows (do not answer with a different category as if it were Large Excess).
+
 ### Q6 — Country / all-India
 User: `What is country / all-India rainfall today?`  
 →

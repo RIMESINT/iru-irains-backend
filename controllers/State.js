@@ -2,6 +2,7 @@ const client = require("../connection");
 const moment = require('moment');
 const awsCtrl      = require('./AwsInclusiveControllers');
 const { isAwsEnabled } = require('../utils/calculationsMode');
+const { applyPublishGateToRange } = require('../utils/publishGate');
 // ✅ FIX 3: Removed unused `const router`, `const app`, `const express` — never used in this file
 
 
@@ -220,10 +221,17 @@ exports.fetchStateDataAforAPIexport = async (req, res) => {
         const specificTime = "07:50:15.744983+00";
         const specificDateTime = `${currentDate} ${specificTime}`;
 
+        // 🔒 Publish gate — today's data stays internal until every role has
+        // published it, so cap the range at yesterday while it is held back.
+        const gate = await applyPublishGateToRange(fromDate, toDate, currentDate);
+        toDate = gate.toDate;
+
         const useAws = await isAwsEnabled();
-        let data = useAws
-            ? await awsCtrl.fetchStateWithAWS(fromDate, toDate)
-            : await fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime);
+        let data = gate.emptyRange
+            ? []
+            : useAws
+                ? await awsCtrl.fetchStateWithAWS(fromDate, toDate)
+                : await fetchBetweenDates(fromDate, toDate, currentDate, specificDateTime);
 
         return res.status(200).json({
             success: true,

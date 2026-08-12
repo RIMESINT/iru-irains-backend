@@ -1,6 +1,7 @@
 const client = require("../../../connection");
 const moment = require("moment-timezone");
 const { IST, AWS_DAY_EXPR: AWS_DAY, resolveDates } = require("./awsConfig");
+const { applyPublishGateToRange } = require("../../../utils/publishGate");
 
 // 1. DAILY
 exports.fetchDailyData = async (req, res) => {
@@ -178,11 +179,11 @@ exports.fetchDistrictSummary = async (req, res) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 6. STATION SLOTS — all 15-min slots + total row per station for one AWS day
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// 6. STATION SLOTS â all 15-min slots + total row per station for one AWS day
 //    POST /api/v1/meghalaya-aws/station-slots
 //    Body: { date? }
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 exports.fetchStationSlots = async (req, res) => {
     try {
         const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
@@ -244,9 +245,9 @@ exports.fetchStationSlots = async (req, res) => {
 };
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DEPARTURE — shared helper (mirrors block.js fetchBetweenDates)
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// DEPARTURE â shared helper (mirrors block.js fetchBetweenDates)
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
         SELECT
@@ -421,8 +422,19 @@ exports.fetchDepartureForAPIexport = async (req, res) => {
         if (moment.tz(fromDate, IST).isAfter(moment.tz(toDate, IST))) {
             return res.status(400).json({ success: false, message: "fromDate must be <= toDate" });
         }
-        const data = await fetchBetweenDates(fromDate, toDate);
-        res.status(200).json({ success: true, message: "Meghalaya AWS departure data fetched", data });
+        // 🔒 Publish gate — today’s data stays internal until every role has
+        // published it, so cap the range at yesterday while it is held back.
+        const gate = await applyPublishGateToRange(fromDate, toDate, awsToday);
+        toDate = gate.toDate;
+
+        const data = gate.emptyRange ? [] : await fetchBetweenDates(fromDate, toDate);
+        res.status(200).json({
+            success: true,
+            message: "Meghalaya AWS departure data fetched",
+            fromDate,
+            toDate,
+            data
+        });
     } catch (error) {
         console.error("[MEG AWS] fetchDepartureForAPIexport:", error);
         res.status(500).json({ success: false, message: error.message });

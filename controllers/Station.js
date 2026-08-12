@@ -5,6 +5,7 @@ const app = express();
 const client = require("../connection");
 const moment = require('moment');
 const xlsx = require('xlsx');
+const { applyPublishGateToDate } = require('../utils/publishGate');
 // Reused as-is for the Calculation Mode date-range panel — no calculation
 // logic here, just calling the existing exported country-total functions
 // once per day. fetchCountryData is an Express route handler (not a plain
@@ -1461,7 +1462,11 @@ const fetchFilteredDataNWP = async (date) => {
 
         let { user, pass, date } = req.body;
         if(user=="IMD_NWP" && pass=="!Md@15O#nWp"){
-        const effectiveDate = date || moment().format('YYYY-MM-DD');
+        // Publish gate — today's data stays internal until every role has
+        // published it, so fall back to yesterday while it is held back.
+        const today = moment().format('YYYY-MM-DD');
+        const gate = await applyPublishGateToDate(date || today, today);
+        const effectiveDate = gate.date;
 
         let data = await fetchFilteredDataNWP(effectiveDate);
 
@@ -1579,7 +1584,11 @@ exports.fetchStationDataNWP_AWS = async (req, res) => {
   try {
     const { user, pass } = req.body;
     if (user === 'IMD_NWP' && pass === '!Md@15O#nWp') {
-      const effectiveDate = moment().format('YYYY-MM-DD');
+      // Publish gate — today's data stays internal until every role has
+      // published it, so fall back to yesterday while it is held back.
+      const today = moment().format('YYYY-MM-DD');
+      const gate = await applyPublishGateToDate(today, today);
+      const effectiveDate = gate.date;
       const data = await fetchFilteredDataNWP_AWS(effectiveDate);
       const [inactiveResult, totalResult] = await Promise.all([
         client.query(
@@ -1709,7 +1718,11 @@ exports.fetchStationDataNWP_Combined = async (req, res) => {
   try {
     const { user, pass } = req.body;
     if (user === 'IMD_NWP' && pass === '!Md@15O#nWp') {
-      const effectiveDate = moment().format('YYYY-MM-DD');
+      // Publish gate — today's data stays internal until every role has
+      // published it, so fall back to yesterday while it is held back.
+      const today = moment().format('YYYY-MM-DD');
+      const gate = await applyPublishGateToDate(today, today);
+      const effectiveDate = gate.date;
       const data = await fetchFilteredDataNWP_Combined(effectiveDate);
       const imd_count = data.filter(r => r.source === 'IMD').length;
       const aws_count = data.filter(r => r.source === 'State AWS').length;

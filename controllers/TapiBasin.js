@@ -1,5 +1,6 @@
 const moment = require("moment");
 const client = require("../connection");
+const { applyPublishGateToRange } = require("../utils/publishGate");
 
 const TAPI_BASIN_API_USER = "BASIN_DEP";
 const TAPI_BASIN_API_PASS = "!Bsn@26R#hyd";
@@ -34,7 +35,12 @@ exports.fetchTapiBasinRainfallDataAPIexport = async (req, res) => {
             });
         }
 
-        const data = await fetchBetweenDates(fromDate, toDate);
+        // 🔒 Publish gate — today's data stays internal until every role has
+        // published it, so cap the range at yesterday while it is held back.
+        const gate = await applyPublishGateToRange(fromDate, toDate, currentDate);
+        toDate = gate.toDate;
+
+        const data = gate.emptyRange ? [] : await fetchBetweenDates(fromDate, toDate);
 
         return res.status(200).json({
             success: true,

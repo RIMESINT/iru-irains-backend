@@ -1,6 +1,7 @@
 const client = require("../../../connection");
 const moment = require("moment-timezone");
 const { AWS_DAY_EXPR: AWS_DAY, resolveDates } = require("./awsConfig");
+const { applyPublishGateToRange } = require("../../../utils/publishGate");
 
 // 1. DAILY
 exports.fetchDailyData = async (req, res) => {
@@ -174,11 +175,11 @@ exports.fetchCitySummary = async (req, res) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 6. STATION SLOTS — all 15-min slots + total row per station for one AWS day
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// 6. STATION SLOTS â all 15-min slots + total row per station for one AWS day
 //    POST /api/v1/zomato-aws/station-slots
 //    Body: { date? }
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 exports.fetchStationSlots = async (req, res) => {
     try {
         const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
@@ -235,11 +236,11 @@ exports.fetchStationSlots = async (req, res) => {
 };
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DEPARTURE — city-level helper (mirrors block.js fetchBetweenDates)
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// DEPARTURE â city-level helper (mirrors block.js fetchBetweenDates)
 // Zomato has no block/district column; groups by city.
 // Normals match city names against normal_district_details.district_name.
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
         SELECT
@@ -411,8 +412,19 @@ exports.fetchDepartureForAPIexport = async (req, res) => {
         if (moment(fromDate).isAfter(toDate)) {
             return res.status(400).json({ success: false, message: "fromDate must be <= toDate" });
         }
-        const data = await fetchBetweenDates(fromDate, toDate);
-        res.status(200).json({ success: true, message: "Zomato AWS departure data fetched", data });
+        // 🔒 Publish gate — today’s data stays internal until every role has
+        // published it, so cap the range at yesterday while it is held back.
+        const gate = await applyPublishGateToRange(fromDate, toDate, awsToday);
+        toDate = gate.toDate;
+
+        const data = gate.emptyRange ? [] : await fetchBetweenDates(fromDate, toDate);
+        res.status(200).json({
+            success: true,
+            message: "Zomato AWS departure data fetched",
+            fromDate,
+            toDate,
+            data
+        });
     } catch (error) {
         console.error("[ZOMATO AWS] fetchDepartureForAPIexport:", error);
         res.status(500).json({ success: false, message: error.message });

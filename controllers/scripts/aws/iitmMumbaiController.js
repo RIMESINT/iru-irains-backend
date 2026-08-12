@@ -1,13 +1,14 @@
 const client = require("../../../connection");
 const moment = require("moment-timezone");
 const { IST, AWS_DAY_EXPR: AWS_DAY, resolveDates } = require("./awsConfig");
+const { applyPublishGateToRange } = require("../../../utils/publishGate");
 
 
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 // 1. DAILY
 //    POST /api/v1/iitm-mumbai/daily
 //    Body: { startDate?, endDate?, district? }
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 exports.fetchDailyData = async (req, res) => {
     try {
         let { startDate, endDate, district } = req.body;
@@ -49,11 +50,11 @@ exports.fetchDailyData = async (req, res) => {
 };
 
 
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 // 2. HOURLY
 //    POST /api/v1/iitm-mumbai/hourly
 //    Body: { date?, hour?(0-23), district? }
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 exports.fetchHourlyData = async (req, res) => {
     try {
         let { date, hour, district } = req.body;
@@ -96,11 +97,11 @@ exports.fetchHourlyData = async (req, res) => {
 };
 
 
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 // 3. SLOT
 //    POST /api/v1/iitm-mumbai/slot
 //    Body: { date?, time?, district? }
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 exports.fetchSlotData = async (req, res) => {
     try {
         let { date, time, district } = req.body;
@@ -131,11 +132,11 @@ exports.fetchSlotData = async (req, res) => {
 };
 
 
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 // 4. CUMULATIVE
 //    POST /api/v1/iitm-mumbai/cumulative
 //    Body: { startDate?, endDate?, district? }
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 exports.fetchCumulativeData = async (req, res) => {
     try {
         let { startDate, endDate, district } = req.body;
@@ -179,11 +180,11 @@ exports.fetchCumulativeData = async (req, res) => {
 };
 
 
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 // 5. DISTRICT SUMMARY
 //    POST /api/v1/iitm-mumbai/district-summary
 //    Body: { date? }
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 exports.fetchDistrictSummary = async (req, res) => {
     try {
         const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
@@ -217,11 +218,11 @@ exports.fetchDistrictSummary = async (req, res) => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 6. STATION SLOTS — all 15-min slots + total row per station for one AWS day
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// 6. STATION SLOTS â all 15-min slots + total row per station for one AWS day
 //    POST /api/v1/iitm-mumbai/station-slots
 //    Body: { date? }
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 exports.fetchStationSlots = async (req, res) => {
     try {
         const date = req.body.date || moment.utc().add(2, 'hours').add(30, 'minutes').format("YYYY-MM-DD");
@@ -274,10 +275,10 @@ exports.fetchStationSlots = async (req, res) => {
 };
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DEPARTURE — district-level helper (mirrors block.js fetchBetweenDates)
-// IITM Mumbai has no block column; normals aggregated from block→district.
-// ─────────────────────────────────────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// DEPARTURE â district-level helper (mirrors block.js fetchBetweenDates)
+// IITM Mumbai has no block column; normals aggregated from blockâdistrict.
+// âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 const fetchBetweenDates = async (startDate, endDate) => {
     const query = `
         SELECT
@@ -449,8 +450,19 @@ exports.fetchDepartureForAPIexport = async (req, res) => {
         if (moment.tz(fromDate, IST).isAfter(moment.tz(toDate, IST))) {
             return res.status(400).json({ success: false, message: "fromDate must be <= toDate" });
         }
-        const data = await fetchBetweenDates(fromDate, toDate);
-        res.status(200).json({ success: true, message: "IITM Mumbai departure data fetched", data });
+        // 🔒 Publish gate — today’s data stays internal until every role has
+        // published it, so cap the range at yesterday while it is held back.
+        const gate = await applyPublishGateToRange(fromDate, toDate, awsToday);
+        toDate = gate.toDate;
+
+        const data = gate.emptyRange ? [] : await fetchBetweenDates(fromDate, toDate);
+        res.status(200).json({
+            success: true,
+            message: "IITM Mumbai departure data fetched",
+            fromDate,
+            toDate,
+            data
+        });
     } catch (error) {
         console.error("[IITM MUM] fetchDepartureForAPIexport:", error);
         res.status(500).json({ success: false, message: error.message });

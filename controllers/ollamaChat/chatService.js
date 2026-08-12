@@ -12,8 +12,14 @@ const {
   today,
   replaceDateTokens,
   sanitizeRainfallAction,
+  sanitizeDatesFromQuestion,
   applyMonthRangeFromQuestion,
+  extractCategoriesFromQuestion,
 } = require("./apiExecutor");
+const {
+  runPreChatClarifications,
+  runPostPlanLocationClarifications,
+} = require("./clarification");
 
 function buildPlannerSystemPrompt(catalogMarkdown) {
   return `You are an API planner for IRAINS.
@@ -21,6 +27,8 @@ Read the API catalog and map the user question to ONE action.
 - Rainfall / data questions → module "rainfall" + an allowed api_id
 - "Where is…" / "Open…" product/menu questions → module "navigation" with product_name + route_path
 - CRITICAL: If the user only says "map" / "maps" / "show map" / "open map" without naming which product, do NOT pick a default map. Return module "navigation", api_id "resolve_product_route", product_name null, route_path null, and reason "ambiguous_map".
+- CRITICAL category rule: if the user asks Large Excess / Excess / Deficient / Large Deficient / No Rain for a place, use fetch_district_data (or fetch_state_data for a state), keep post_filter for the place name, and set post_process.filter_by_departure_category with that category. NEVER invent a date range from catalog examples (e.g. do not copy 2026-07-01 to 2026-07-15 unless the user said those dates).
+- If the user names no date for a category question, still use TODAY tokens (the backend may clarify).
 Return ONLY valid JSON matching the catalog contract.
 Use date tokens TODAY, YESTERDAY, LAST_7_START, SEASON_START when appropriate.
 CRITICAL date rule: if the user says "month of June", "during June", "in June", "for June", or any whole month name without a day number, set startDate to the 1st and endDate to the last day of that month (e.g. June → 2026-06-01 and 2026-06-30). NEVER use only the 1st for a whole-month question.
@@ -49,7 +57,10 @@ function normalizeApiAction(action) {
   return action;
 }
 
-function buildAnswerSystemPrompt() {
+function buildAnswerSystemPrompt({ didYouMean = null } = {}) {
+  const didYouMeanRule = didYouMean
+    ? `\nCRITICAL: Start the answer with exactly: "${didYouMean.prompt}" then give the rainfall data for ${didYouMean.to}. Never pretend the user typed ${didYouMean.to} correctly.`
+    : "";
   return `You are Varsha, IRAINS rainfall assistant.
 Answer using ONLY the provided API JSON data.
 Be concise.
@@ -57,8 +68,10 @@ Include actual mm, normal mm, and departure % when present.
 When startDate and endDate differ, say the full range (e.g. "from 2026-06-01 to 2026-06-30"), never a single day.
 For navigation results, reply with the product name and route path clearly (e.g. "Open: Product Name → /route").
 If comparing multiple areas, summarize each side-by-side.
-If data is empty, say data is not available.
-Do not invent numbers.`;
+If the user asked for a departure category (Large Excess, Excess, Deficient, Large Deficient, Normal, No Rain) and api_data_sample is empty, say that place/date was NOT in that category — do NOT say "data is not available".
+If category_miss is present, rainfall data EXISTS: say they asked for category_miss.wanted (or the asked category) but the place was category_miss.category with that departure %. Never claim data is missing when category_miss is present.
+Only say data is not available when api_data_sample is empty AND category_miss is null/absent.
+Do not invent numbers.${didYouMeanRule}`;
 }
 
 function formatNavigationAnswer(action, apiResult) {
@@ -80,26 +93,61 @@ function formatFallbackAnswer(question, action, apiResult) {
   if (!apiResult.ok) {
     return `API call failed (${apiResult.status}). Please try again.`;
   }
+
+  const notePrefix = apiResult.note ? `${apiResult.note} ` : "";
+  const used = apiResult.usedDate || null;
+  const start = action?.body?.startDate || today();
+  const end = action?.body?.endDate || start;
+  const dateText = used
+    ? used
+    : start === end
+      ? start
+      : `${start} to ${end}`;
+
+  if (action?.post_process?.type === "filter_by_departure_category") {
+    const cats = (action.post_process.categories || []).join(" / ");
+    if (!rows.length) {
+      const place =
+        action?.post_filter?.district_name ||
+        action?.post_filter?.state_name ||
+        (Array.isArray(action?.post_filter?.state_names)
+          ? action.post_filter.state_names.join(", ")
+          : null) ||
+        apiResult.category_miss?.name ||
+        "the selected area";
+      if (apiResult.category_miss) {
+        const miss = apiResult.category_miss;
+        const dep =
+          miss.departure != null
+            ? ` (departure ${miss.departure > 0 ? "+" : ""}${Number(
+                miss.departure
+              ).toFixed(1)}%)`
+            : "";
+        return (
+          `${notePrefix}${place} was not in ${cats} for ${dateText}. ` +
+          `It was ${miss.category}${dep}. ` +
+          `Rainfall data is available — it just was not ${cats}.`
+        );
+      }
+      return `${notePrefix}No ${cats} for ${place} on ${dateText}. Rainfall data for this place/date was not found.`;
+    }
+    const sample = rows
+      .slice(0, 8)
+      .map((r) => {
+        const name =
+          r.district_name || r.state_name || r.subdiv_name || r.name || "Area";
+        return `${name} (${Number(r.departure).toFixed(1)}%, ${r.category})`;
+      })
+      .join("; ");
+    return `${notePrefix}For ${dateText}, found ${rows.length} area(s) in ${cats}. Examples: ${sample}.`;
+  }
+
   if (!rows.length) {
     const date =
       action?.body?.startDate ||
       action?.body?.endDate ||
       today();
     return `No data available for this request on ${date}.`;
-  }
-
-  const notePrefix = apiResult.note ? `${apiResult.note} ` : "";
-  const start = action?.body?.startDate || apiResult.usedDate || today();
-  const end = action?.body?.endDate || start;
-  const dateText = start === end ? start : `${start} to ${end}`;
-
-  if (action?.post_process?.type === "filter_by_departure_category") {
-    const cats = (action.post_process.categories || []).join(" / ");
-    const sample = rows
-      .slice(0, 8)
-      .map((r) => `${r.district_name} (${Number(r.departure).toFixed(1)}%, ${r.category})`)
-      .join("; ");
-    return `${notePrefix}For ${dateText}, found ${rows.length} district(s) in ${cats}. Examples: ${sample}.`;
   }
 
   // Compare / multi-row summary (e.g. Tamil Nadu vs Kerala)
@@ -358,13 +406,44 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
     return buildAmbiguousMapResponse({ model: null });
   }
 
+  // Sample clarification layer: typos, invalid places, bad dates, mixed intent, ambiguity
+  const preClarify = await runPreChatClarifications(question);
+  let locationCorrection = null;
+  if (preClarify) {
+    if (preClarify.kind === "location_correction") {
+      locationCorrection = preClarify;
+    } else {
+      return preClarify;
+    }
+  }
+
   const catalog = loadApiCatalog();
 
-  // Step 1: plan API call
+  // If we soft-corrected a place name, plan with the corrected question text.
+  // Replace only whole-word place tokens so "chennai deficient" is not wiped.
+  const planQuestion = (() => {
+    let raw = String(question || "")
+      .replace(/\bconfirmed_rainfall_mm\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!locationCorrection?.to || !locationCorrection?.from) return raw;
+    const from = String(locationCorrection.from).trim();
+    if (!from || /\s/.test(from)) {
+      // Multi-word bogus span — replace first token only when it fuzzy-matches
+      const first = from.split(/\s+/)[0];
+      if (!first) return raw;
+      return raw.replace(new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "ig"), locationCorrection.to);
+    }
+    return raw.replace(
+      new RegExp(`\\b${from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "ig"),
+      locationCorrection.to
+    );
+  })();
+
   const plan = await askOllama(
     [
       { role: "system", content: buildPlannerSystemPrompt(catalog) },
-      { role: "user", content: String(question || "").trim() },
+      { role: "user", content: planQuestion },
     ],
     { temperature: 0, formatJson: true }
   );
@@ -379,8 +458,11 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
 
   action = enrichNavigationAction(action, question);
   action = resolveActionDateTokens(action);
-  action = sanitizeRainfallAction(action);
+  // Use original question for category heal so typo rewrites cannot drop "deficient"
+  action = sanitizeRainfallAction(action, question);
   action = applyMonthRangeFromQuestion(action, question);
+  action = sanitizeDatesFromQuestion(action, planQuestion);
+  action = resolveActionDateTokens(action);
   action = normalizeApiAction(action);
 
   // LLM still returned navigation without a concrete product
@@ -404,25 +486,85 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
     });
   }
 
+  // Post-plan location validation / fuzzy correction (do not invent places)
+  const postClarify = await runPostPlanLocationClarifications(question, action);
+  if (postClarify) {
+    if (postClarify.kind === "location_correction") {
+      locationCorrection = postClarify;
+    } else {
+      return {
+        ...postClarify,
+        model: plan.model,
+        llm_plan_raw: plan.content,
+      };
+    }
+  }
+
+  // Ensure place filter exists when we soft-corrected a location for a category/rainfall Q
+  if (locationCorrection?.to) {
+    if (!action.post_filter || typeof action.post_filter !== "object") {
+      action.post_filter = {};
+    }
+    const hasPlace =
+      action.post_filter.district_name ||
+      action.post_filter.state_name ||
+      (Array.isArray(action.post_filter.state_names) &&
+        action.post_filter.state_names.length);
+    if (!hasPlace) {
+      if (locationCorrection.type === "state") {
+        action.post_filter.state_name = locationCorrection.to;
+      } else {
+        action.post_filter.district_name = locationCorrection.to;
+        if (
+          !action.api_id ||
+          action.api_id === "fetch_state_data" ||
+          action.api_id === "fetch_country_data"
+        ) {
+          action.api_id = "fetch_district_data";
+          action.path = "/api/v1/fetchDistrictData";
+          action.method = "POST";
+          action = normalizeApiAction(action);
+        }
+      }
+    }
+  }
+
+  // Re-apply category heal after location fixes (original question keeps category words)
+  action = sanitizeRainfallAction(action, question);
+
   // Step 2: execute API / navigation
   const apiResult = await executeApiAction(action);
 
   // Step 3: answer
   let answer;
   let answerMode = "fallback";
+  const didYouMean =
+    locationCorrection?.did_you_mean ||
+    (locationCorrection?.to
+      ? {
+          from: locationCorrection.from || locationCorrection.corrections?.[0]?.from || null,
+          to: locationCorrection.to || locationCorrection.corrections?.[0]?.to || null,
+          prompt:
+            locationCorrection.prefixAnswer ||
+            `Did you mean ${locationCorrection.to}?`,
+        }
+      : null);
 
   if (!skipAnswerLlm) {
     try {
       const answerLlm = await askOllama(
         [
-          { role: "system", content: buildAnswerSystemPrompt() },
+          { role: "system", content: buildAnswerSystemPrompt({ didYouMean }) },
           {
             role: "user",
             content: JSON.stringify(
               {
-                question,
+                question: planQuestion,
+                original_question: String(question || "").trim(),
+                did_you_mean: didYouMean,
                 api_action: action,
                 api_note: apiResult.note || null,
+                category_miss: apiResult.category_miss || null,
                 used_date: apiResult.usedDate || null,
                 api_data_sample: Array.isArray(apiResult.data)
                   ? apiResult.data.slice(0, 25)
@@ -439,13 +581,40 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
         ],
         { temperature: 0.2, formatJson: false }
       );
-      answer = answerLlm.content?.trim() || formatFallbackAnswer(question, action, apiResult);
+      answer = answerLlm.content?.trim() || formatFallbackAnswer(planQuestion, action, apiResult);
       answerMode = "ollama";
     } catch (_) {
-      answer = formatFallbackAnswer(question, action, apiResult);
+      answer = formatFallbackAnswer(planQuestion, action, apiResult);
     }
   } else {
-    answer = formatFallbackAnswer(question, action, apiResult);
+    answer = formatFallbackAnswer(planQuestion, action, apiResult);
+  }
+
+  // Category miss / empty category filter: use deterministic copy so the LLM
+  // cannot contradict itself with "data is not available".
+  const emptyCategoryFilter =
+    action?.post_process?.type === "filter_by_departure_category" &&
+    (!Array.isArray(apiResult.data) || apiResult.data.length === 0);
+  if (emptyCategoryFilter) {
+    answer = formatFallbackAnswer(planQuestion, action, apiResult);
+    answerMode = "fallback";
+  }
+
+  // Always surface "Did you mean …?" for typos (frontend may also use did_you_mean)
+  if (didYouMean?.prompt) {
+    const prompt = didYouMean.prompt.trim();
+    const alreadyAsked = new RegExp(
+      `did you mean\\s+${didYouMean.to.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+      "i"
+    ).test(answer || "");
+    if (!alreadyAsked) {
+      answer = `${prompt}\n${answer || ""}`.trim();
+    } else if (!/^\s*did you mean/i.test(answer || "")) {
+      // LLM mentioned it later — move to the front
+      answer = `${prompt}\n${String(answer)
+        .replace(new RegExp(`\\s*did you mean\\s+${didYouMean.to.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\??\\s*`, "ig"), " ")
+        .trim()}`;
+    }
   }
 
   return {
@@ -455,6 +624,14 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
     answer,
     answer_mode: answerMode,
     action,
+    did_you_mean: didYouMean,
+    location_correction: locationCorrection
+      ? {
+          from: didYouMean?.from || null,
+          to: didYouMean?.to || null,
+          corrections: locationCorrection.corrections || null,
+        }
+      : null,
     navigation:
       action.module === "navigation"
         ? {
@@ -469,6 +646,7 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
       row_count: Array.isArray(apiResult.data) ? apiResult.data.length : null,
       note: apiResult.note || null,
       usedDate: apiResult.usedDate || null,
+      category_miss: apiResult.category_miss || null,
       data: Array.isArray(apiResult.data)
         ? apiResult.data.slice(0, 50)
         : apiResult.data,

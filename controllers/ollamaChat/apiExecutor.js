@@ -78,7 +78,7 @@ const MONTH_NAMES = {
 /**
  * Detect whole-month intent in the user question and force start/end to
  * that month's first and last day. Prevents LLM collapsing "month of June"
- * into only 2026-06-01.
+ * into only 2026-06-01, or inventing a wrong year (e.g. 2023) from catalog examples.
  */
 function applyMonthRangeFromQuestion(action, question) {
   if (!action || typeof action !== "object") return action;
@@ -99,7 +99,7 @@ function applyMonthRangeFromQuestion(action, question) {
   if (hasSpecificDay) return action;
 
   const monthMatch = q.match(
-    /\b(?:during\s+(?:the\s+)?(?:month\s+of\s+)?|throughout\s+(?:the\s+)?(?:month\s+of\s+)?|(?:for|in|of)\s+(?:the\s+)?(?:month\s+of\s+)?|month\s+of\s+|whole\s+(?:of\s+)?(?:the\s+)?month\s+of\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)(?:\s+(\d{4}))?\b/i
+    /\b(?:during\s+(?:the\s+)?(?:month\s+of\s+)?|throughout\s+(?:the\s+)?(?:month\s+of\s+)?|(?:for|in|of|on|at)\s+(?:the\s+)?(?:month\s+of\s+)?|month\s+of\s+|whole\s+(?:of\s+)?(?:the\s+)?month\s+of\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)(?:\s+(?:month|months))?(?:\s+(\d{4}))?\b/i
   );
 
   if (!monthMatch) return action;
@@ -108,22 +108,24 @@ function applyMonthRangeFromQuestion(action, question) {
   const monthNum = MONTH_NAMES[monthWord];
   if (!monthNum) return action;
 
-  // Require clear month intent: "month of …", "during …", bare month name, etc.
+  // Clear month intent: "month of …", "on june", "june month", "in june", "june 2026", …
   const wholeMonthIntent =
     /\b(month\s+of|during|throughout|whole\s+month|for\s+the\s+month|in\s+the\s+month)\b/i.test(
       q
     ) ||
     new RegExp(
-      `\\b(in|for|during|throughout)\\s+${monthWord}\\b`,
+      `\\b(in|for|during|throughout|on|at)\\s+(the\\s+)?(month\\s+of\\s+)?${monthWord}\\b`,
       "i"
     ).test(q) ||
+    new RegExp(`\\b${monthWord}\\s+(month|months)\\b`, "i").test(q) ||
+    new RegExp(`\\bmonth\\s+${monthWord}\\b`, "i").test(q) ||
     new RegExp(`\\b${monthWord}\\s+\\d{4}\\b`, "i").test(q);
 
   if (!wholeMonthIntent) return action;
 
-  const year = monthMatch[2]
-    ? Number(monthMatch[2])
-    : moment().year();
+  // Explicit year in the question wins; otherwise use the current server year
+  // (never keep a hallucinated catalog year like 2023).
+  const year = monthMatch[2] ? Number(monthMatch[2]) : moment().year();
   const start = moment({ year, month: monthNum - 1, day: 1 });
   const end = start.clone().endOf("month");
 
@@ -215,6 +217,37 @@ function normalizeCategoryName(value) {
   return map[raw] || value;
 }
 
+/**
+ * Detect departure categories mentioned in the user question.
+ * Longer phrases first so "large excess" ≠ "excess".
+ */
+function extractCategoriesFromQuestion(question) {
+  const q = String(question || "").toLowerCase();
+  if (!q.trim()) return [];
+  const cats = [];
+  const add = (name) => {
+    if (!cats.includes(name)) cats.push(name);
+  };
+
+  if (/\blarge\s+excesss?\b/.test(q)) add("Large Excess");
+  else if (/\bexcesss?\b/.test(q)) add("Excess");
+
+  if (/\blarge\s+def+icients?\b/.test(q)) add("Large Deficient");
+  else if (/\bdef+icients?\b/.test(q)) add("Deficient");
+
+  if (/\bno\s*rain\b/.test(q)) add("No Rain");
+
+  // "normal" alone is too ambiguous; require rainfall/category context
+  if (
+    /\bnormal\b/.test(q) &&
+    /\b(category|departure|districts?|states?|rainfall|rain)\b/.test(q)
+  ) {
+    add("Normal");
+  }
+
+  return cats;
+}
+
 function applyPostProcess(rows, postProcess) {
   if (!postProcess || !Array.isArray(rows)) return rows;
   if (postProcess.type === "filter_by_departure_category") {
@@ -231,12 +264,142 @@ function applyPostProcess(rows, postProcess) {
   return rows;
 }
 
+function questionHasExplicitDate(question) {
+  const q = String(question || "");
+  if (!q.trim()) return false;
+  return (
+    /\b(today|todays|yesterday|yesterdays|tomorrow|this\s+week|last\s+week|last\s+\d+\s+days?|past\s+\d+\s+days?|this\s+month|last\s+month|monthly|seasonal|season(\s+so\s+far)?|cumulative|historical|history|so\s+far|till\s+date|to\s+date)\b/i.test(
+      q
+    ) ||
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(
+      q
+    ) ||
+    /\b\d{4}-\d{2}-\d{2}\b/.test(q) ||
+    /\b\d{1,2}[-/]\d{1,2}([-/]\d{2,4})?\b/.test(q) ||
+    /\b\d{1,2}(st|nd|rd|th)?\s+(of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(
+      q
+    ) ||
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(st|nd|rd|th)?\b/i.test(
+      q
+    )
+  );
+}
+
+/**
+ * Clear enough period for category checks (Large Excess, Deficient, …).
+ * Bare "july" / "at july" is NOT enough — user should pick Today / month / etc.
+ */
+function hasClearCategoryPeriod(question) {
+  // Ignore the "specific_month" picker token when judging a real period
+  const q = String(question || "")
+    .replace(/\bspecific[_\s-]?month\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return false;
+
+  if (
+    /\b(today|todays|yesterday|yesterdays|this\s+week|last\s+week|last\s+\d+\s+days?|past\s+\d+\s+days?|this\s+month|last\s+month)\b/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  if (/\b\d{4}-\d{2}-\d{2}\b/.test(q)) return true;
+  if (/\b\d{1,2}[-/]\d{1,2}([-/]\d{2,4})?\b/.test(q)) return true;
+  if (
+    /\b\d{1,2}(st|nd|rd|th)?\s+(of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(st|nd|rd|th)?\b/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  // Explicit whole-month phrasing: "month of March 2024" or "March 2024"
+  if (
+    /\b(month\s+of|during|throughout)\s+(the\s+)?(month\s+of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s+\d{4}\b/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Detect a bare month mention like "at july" / "in june". */
+function extractBareMonthMention(question) {
+  const q = String(question || "");
+  const m = q.match(
+    /\b(?:at|in|for|during)?\s*(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)(?:\s+(\d{4}))?\b/i
+  );
+  if (!m) return null;
+  // Ignore if a day number is attached
+  if (
+    /\b\d{1,2}(st|nd|rd|th)?\s+(of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(
+      q
+    ) ||
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(st|nd|rd|th)?\b/i.test(
+      q
+    )
+  ) {
+    return null;
+  }
+  const raw = m[1];
+  const year = m[2] ? Number(m[2]) : moment().year();
+  const key = raw.toLowerCase();
+  const names = {
+    january: "January",
+    jan: "January",
+    february: "February",
+    feb: "February",
+    march: "March",
+    mar: "March",
+    april: "April",
+    apr: "April",
+    may: "May",
+    june: "June",
+    jun: "June",
+    july: "July",
+    jul: "July",
+    august: "August",
+    aug: "August",
+    september: "September",
+    sept: "September",
+    sep: "September",
+    october: "October",
+    oct: "October",
+    november: "November",
+    nov: "November",
+    december: "December",
+    dec: "December",
+  };
+  const label = names[key];
+  if (!label) return null;
+  return {
+    label: `${label} ${year}`,
+    value: `month of ${label} ${year}`,
+    month: label,
+    year,
+  };
+}
+
 /**
  * Heal common LLM mistakes so category filters still work.
- * e.g. post_filter.departure_category = "Large Excess"
- *   → post_process.filter_by_departure_category
+ * Also applies category intent parsed from the user question.
  */
-function sanitizeRainfallAction(action) {
+function sanitizeRainfallAction(action, question = "") {
   if (!action || typeof action !== "object") return action;
 
   const filter = { ...(action.post_filter || {}) };
@@ -250,7 +413,21 @@ function sanitizeRainfallAction(action) {
       return;
     }
     const normalized = normalizeCategoryName(value);
-    if (normalized && !collected.includes(normalized)) collected.push(normalized);
+    if (
+      normalized &&
+      [
+        "Large Excess",
+        "Excess",
+        "Normal",
+        "Deficient",
+        "Large Deficient",
+        "No Rain",
+        "No Data",
+      ].includes(normalized) &&
+      !collected.includes(normalized)
+    ) {
+      collected.push(normalized);
+    }
   };
 
   for (const key of [
@@ -273,15 +450,117 @@ function sanitizeRainfallAction(action) {
     postProcess.categories.forEach(pullCategories);
   }
 
-  if (collected.length) {
+  // Question text is source of truth for category intent (LLM often drops or invents it)
+  const fromQuestion = extractCategoriesFromQuestion(question);
+  if (fromQuestion.length) {
+    postProcess = {
+      type: "filter_by_departure_category",
+      categories: fromQuestion,
+    };
+  } else if (collected.length) {
     postProcess = {
       type: "filter_by_departure_category",
       categories: collected,
     };
   }
 
+  if (postProcess?.type === "filter_by_departure_category") {
+    // Place + category questions are district/state row filters, not country aggregates
+    if (
+      !action.api_id ||
+      action.api_id === "fetch_country_data" ||
+      action.api_id === "fetch_cumulative_country_data"
+    ) {
+      if (filter.district_name || filter.district_code) {
+        action.api_id = "fetch_district_data";
+        action.path = "/api/v1/fetchDistrictData";
+        action.method = "POST";
+      } else if (filter.state_name || filter.state_names) {
+        action.api_id = "fetch_state_data";
+        action.path = "/api/v1/fetchStateData";
+        action.method = "POST";
+      } else if (!action.api_id || String(action.api_id).includes("country")) {
+        action.api_id = "fetch_district_data";
+        action.path = "/api/v1/fetchDistrictData";
+        action.method = "POST";
+      }
+    }
+  }
+
   action.post_filter = filter;
   action.post_process = postProcess;
+  return action;
+}
+
+/**
+ * If the user did not mention any date, do not keep hallucinated catalog ranges
+ * (e.g. 2026-07-01..2026-07-15 copied from few-shot examples).
+ * Relative phrases (today / yesterday / last 7 days / this month) always win.
+ */
+function sanitizeDatesFromQuestion(action, question) {
+  if (!action || typeof action !== "object") return action;
+  if (!action.body || typeof action.body !== "object") action.body = {};
+
+  const q = String(question || "");
+  const hasAbsoluteCalendar =
+    /\b\d{4}-\d{2}-\d{2}\b/.test(q) ||
+    /\b\d{1,2}[-/]\d{1,2}([-/]\d{2,4})?\b/.test(q) ||
+    /\b\d{1,2}(st|nd|rd|th)?\s+(of\s+)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i.test(
+      q
+    ) ||
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(st|nd|rd|th)?\b/i.test(
+      q
+    ) ||
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{4}\b/i.test(
+      q
+    );
+
+  if (!questionHasExplicitDate(q)) {
+    action.body.startDate = today();
+    action.body.endDate = today();
+    return action;
+  }
+
+  if (!hasAbsoluteCalendar) {
+    if (/\byesterday\b/i.test(q)) {
+      action.body.startDate = yesterday();
+      action.body.endDate = yesterday();
+      return action;
+    }
+    if (/\b(last\s+7\s+days|past\s+7\s+days|this\s+week)\b/i.test(q)) {
+      action.body.startDate = last7Start();
+      action.body.endDate = today();
+      return action;
+    }
+    if (/\bthis\s+month\b/i.test(q) || /\bmonthly\b/i.test(q)) {
+      action.body.startDate = moment().startOf("month").format("YYYY-MM-DD");
+      action.body.endDate = today();
+      return action;
+    }
+    if (/\blast\s+month\b/i.test(q)) {
+      const start = moment().subtract(1, "month").startOf("month");
+      action.body.startDate = start.format("YYYY-MM-DD");
+      action.body.endDate = start.clone().endOf("month").format("YYYY-MM-DD");
+      return action;
+    }
+    // Historical / seasonal / monsoon-to-date → SW monsoon season start → today
+    if (
+      /\b(historical|history|seasonal|cumulative|season\s+so\s+far|monsoon\s+so\s+far|so\s+far)\b/i.test(
+        q
+      ) ||
+      /\bseason\b/i.test(q)
+    ) {
+      action.body.startDate = seasonStart();
+      action.body.endDate = today();
+      return action;
+    }
+    if (/\btoday\b/i.test(q)) {
+      action.body.startDate = today();
+      action.body.endDate = today();
+      return action;
+    }
+  }
+
   return action;
 }
 
@@ -502,6 +781,7 @@ async function executeApiAction(action) {
 
   let data = response.data?.data ?? response.data;
   let note = null;
+  let categoryMiss = null;
   let usedDate =
     body?.startDate && body?.endDate && body.startDate !== body.endDate
       ? `${body.startDate} to ${body.endDate}`
@@ -509,7 +789,29 @@ async function executeApiAction(action) {
 
   if (Array.isArray(data)) {
     data = applyPostFilter(data, action.post_filter || {});
+    const beforeCategory = data;
     data = applyPostProcess(data, action.post_process || null);
+    if (
+      Array.isArray(beforeCategory) &&
+      beforeCategory.length > 0 &&
+      Array.isArray(data) &&
+      data.length === 0 &&
+      action.post_process?.type === "filter_by_departure_category"
+    ) {
+      const row = beforeCategory[0];
+      const departure = row.departure;
+      categoryMiss = {
+        name:
+          row.district_name ||
+          row.state_name ||
+          row.subdiv_name ||
+          row.name ||
+          null,
+        departure: departure != null ? Number(departure) : null,
+        category: getDepartureCategory(departure),
+        wanted: action.post_process.categories || [],
+      };
+    }
   }
 
   // Fallbacks for empty live rainfall responses (local DB gaps)
@@ -546,6 +848,33 @@ async function executeApiAction(action) {
       data = fb.rows;
       note = fb.note;
       usedDate = fb.usedDate;
+      if (
+        (!data || !data.length) &&
+        action.post_process?.type === "filter_by_departure_category" &&
+        (action.post_filter?.district_name || action.post_filter?.state_name)
+      ) {
+        // Re-check without category to explain the miss
+        const unfiltered = await fallbackDistrictsFromCache(
+          body.startDate,
+          body.endDate,
+          action.post_filter,
+          null
+        );
+        if (unfiltered.rows?.length) {
+          const row = unfiltered.rows[0];
+          categoryMiss = {
+            name:
+              row.district_name ||
+              row.state_name ||
+              row.name ||
+              null,
+            departure: row.departure != null ? Number(row.departure) : null,
+            category: row.category || getDepartureCategory(row.departure),
+            wanted: action.post_process.categories || [],
+          };
+          if (unfiltered.usedDate) usedDate = unfiltered.usedDate;
+        }
+      }
     }
   }
 
@@ -557,6 +886,7 @@ async function executeApiAction(action) {
     data,
     note,
     usedDate,
+    category_miss: categoryMiss,
   };
 }
 
@@ -570,5 +900,11 @@ module.exports = {
   getDepartureCategory,
   normalizeBody,
   sanitizeRainfallAction,
+  sanitizeDatesFromQuestion,
   applyMonthRangeFromQuestion,
+  extractCategoriesFromQuestion,
+  questionHasExplicitDate,
+  hasClearCategoryPeriod,
+  extractBareMonthMention,
+  normalizeCategoryName,
 };

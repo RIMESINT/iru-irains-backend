@@ -1,11 +1,11 @@
 const moment = require("moment");
 const client = require("../connection");
 
-// Every role that has to sign off before data may leave the building. The
-// auto-publish cron flips all four together (2:00 PM IST publish, 12:00 AM IST
-// hold back — see CronJobs.js), but an admin can hold any single role back from
-// Review and Publish, and one held-back role gates every export API.
-const GATED_ROLES = ["hq", "mc", "sp", "public"];
+// HQ's sign-off is what releases data to the export APIs. The auto-publish cron
+// flips all four roles together (2:00 PM IST publish, 12:00 AM IST hold back —
+// see CronJobs.js); mc/sp/public only control what their own users see in the
+// UI, so an admin holding one of those back does not stop an export.
+const GATED_ROLES = ["hq"];
 
 const getHeldBackRoles = async () => {
     try {

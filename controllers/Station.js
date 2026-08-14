@@ -1462,11 +1462,9 @@ const fetchFilteredDataNWP = async (date) => {
 
         let { user, pass, date } = req.body;
         if(user=="IMD_NWP" && pass=="!Md@15O#nWp"){
-        // Publish gate — today's data stays internal until every role has
-        // published it, so fall back to yesterday while it is held back.
-        const today = moment().format('YYYY-MM-DD');
-        const gate = await applyPublishGateToDate(date || today, today);
-        const effectiveDate = gate.date;
+        // No publish gate here — this endpoint serves today's data as soon as it
+        // lands, regardless of the Review and Publish state.
+        const effectiveDate = date || moment().format('YYYY-MM-DD');
 
         let data = await fetchFilteredDataNWP(effectiveDate);
 

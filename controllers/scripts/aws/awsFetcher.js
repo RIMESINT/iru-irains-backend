@@ -4,6 +4,29 @@ const moment = require("moment-timezone");
 
 const IST = "Asia/Kolkata";
 
+/**
+ * Dates a freshly-fetched record is allowed to carry.
+ *
+ * city.imd.gov.in timestamps everything in UTC, and the feed publishes each
+ * 15-minute slot roughly 15 minutes late. This used to compare the record's UTC
+ * date against *today's IST date*. The two stop agreeing at 18:30 UTC, which is
+ * midnight in India — so from then until the UTC date caught up, every incoming
+ * record looked like it belonged to another day and was thrown away. Nothing
+ * ever retried them, because the check only ever considered "today".
+ *
+ * The result was a permanent hole from about 23:30 to 05:15 IST: 24 of every 96
+ * readings, every day, on every source.
+ *
+ * Comparing in UTC fixes the mismatch. Accepting yesterday as well removes the
+ * race at the boundary — the 23:45 UTC slot only publishes around 00:00 UTC, by
+ * which point "today" has already rolled over. Re-offering a row we already
+ * hold costs nothing: every insert is ON CONFLICT (id, dat, time) DO NOTHING.
+ */
+const acceptableDates = () => [
+    moment.utc().format("YYYY-MM-DD"),
+    moment.utc().subtract(1, "day").format("YYYY-MM-DD"),
+];
+
 const parseVal = (val) => {
     try {
         return val && val !== "NULL" && val !== "" ? parseFloat(val) : null;
@@ -15,13 +38,13 @@ const parseVal = (val) => {
 
 // ─── UP AWS ───────────────────────────────────────────────────────────────────
 const fetchAndStoreUP = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
+    const accept   = acceptableDates();
     const response = await axios.get("https://city.imd.gov.in/api/v1/getUPAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
     for (const s of records) {
-        if (s.dat !== today) { skipped++; continue; }
+        if (!accept.includes(s.dat)) { skipped++; continue; }
         await client.query(`
             INSERT INTO up_aws_observations (
                 id, station, type, state, district, tehsil, block,
@@ -47,13 +70,13 @@ const fetchAndStoreUP = async () => {
 
 // ─── NHP AWS ──────────────────────────────────────────────────────────────────
 const fetchAndStoreNHP = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
+    const accept   = acceptableDates();
     const response = await axios.get("https://city.imd.gov.in/api/v1/getNHPAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
     for (const s of records) {
-        if (s.dat !== today) { skipped++; continue; }
+        if (!accept.includes(s.dat)) { skipped++; continue; }
         await client.query(`
             INSERT INTO observations_aws_nhp (
                 id, station, district, state,
@@ -84,13 +107,13 @@ const fetchAndStoreNHP = async () => {
 
 // ─── ZOMATO AWS ───────────────────────────────────────────────────────────────
 const fetchAndStoreZomato = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
+    const accept   = acceptableDates();
     const response = await axios.get("https://city.imd.gov.in/api/v1/getZomatoAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
     for (const s of records) {
-        if (s.DATE !== today) { skipped++; continue; }
+        if (!accept.includes(s.DATE)) { skipped++; continue; }
         await client.query(`
             INSERT INTO observations_aws_zomato (
                 id, station, city, type,
@@ -120,13 +143,13 @@ const fetchAndStoreZomato = async () => {
 
 // ─── MEGHALAYA AWS ────────────────────────────────────────────────────────────
 const fetchAndStoreMeghalaya = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
+    const accept   = acceptableDates();
     const response = await axios.get("https://city.imd.gov.in/api/v1/getMeghalayaAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
     for (const s of records) {
-        if (s.dat !== today) { skipped++; continue; }
+        if (!accept.includes(s.dat)) { skipped++; continue; }
         await client.query(`
             INSERT INTO observations_aws_meghalaya (
                 id, station, facility, station_type,
@@ -167,13 +190,13 @@ const fetchAndStoreMeghalaya = async () => {
 
 // ─── MIZORAM AWS ──────────────────────────────────────────────────────────────
 const fetchAndStoreMizoram = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
+    const accept   = acceptableDates();
     const response = await axios.get("https://city.imd.gov.in/api/v1/getMizoramAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
     for (const s of records) {
-        if (s.dat !== today) { skipped++; continue; }
+        if (!accept.includes(s.dat)) { skipped++; continue; }
         await client.query(`
             INSERT INTO observations_aws_mizoram (
                 id, station, station_type, state, district,
@@ -208,13 +231,13 @@ const fetchAndStoreMizoram = async () => {
 
 // ─── TAMILNADU AWS ────────────────────────────────────────────────────────────
 const fetchAndStoreTamilnadu = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
+    const accept   = acceptableDates();
     const response = await axios.get("https://city.imd.gov.in/api/v1/getTamilnaduAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
     for (const s of records) {
-        if (s.dat !== today) { skipped++; continue; }
+        if (!accept.includes(s.dat)) { skipped++; continue; }
         await client.query(`
             INSERT INTO observations_aws_tamilnadu (
                 id, station, type, state, district, tehsil, firka, block,
@@ -244,13 +267,13 @@ const fetchAndStoreTamilnadu = async () => {
 
 // ─── UTTARAKHAND AWS ──────────────────────────────────────────────────────────
 const fetchAndStoreUttarakhand = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
+    const accept   = acceptableDates();
     const response = await axios.get("https://city.imd.gov.in/api/v1/getUttrakhandAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
     for (const s of records) {
-        if (s.dat !== today) { skipped++; continue; }
+        if (!accept.includes(s.dat)) { skipped++; continue; }
         await client.query(`
             INSERT INTO observations_aws_uttarakhand (
                 id, station, type, state, district, tehsil, block,
@@ -283,13 +306,13 @@ const fetchAndStoreUttarakhand = async () => {
 
 // ─── TELANGANA AWS ────────────────────────────────────────────────────────────
 const fetchAndStoreTelangana = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
+    const accept   = acceptableDates();
     const response = await axios.get("https://city.imd.gov.in/api/v1/getTelanganaAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
     for (const s of records) {
-        if (s.dat !== today) { skipped++; continue; }
+        if (!accept.includes(s.dat)) { skipped++; continue; }
         await client.query(`
             INSERT INTO observations_aws_telangana (
                 id, station, type, state, district, tehsil, block,
@@ -329,13 +352,13 @@ const parseRainfallKA = (val) => {
 
 // ─── KARNATAKA AWS ────────────────────────────────────────────────────────────
 const fetchAndStoreKarnataka = async () => {
-    const today    = moment().tz(IST).format("YYYY-MM-DD");
+    const accept   = acceptableDates();
     const response = await axios.get("https://city.imd.gov.in/api/v1/getKarnatakaAWS", { timeout: 30000 });
     const records  = response.data?.data || [];
     let inserted = 0, skipped = 0;
 
     for (const s of records) {
-        if (s.dat !== today) { skipped++; continue; }
+        if (!accept.includes(s.dat)) { skipped++; continue; }
         await client.query(`
             INSERT INTO observations_aws_karnataka (
                 id, station, type, state, district, tehsil, block,

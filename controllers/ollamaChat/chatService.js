@@ -350,6 +350,40 @@ function buildAmbiguousMapResponse({ model = null, llm_plan_raw = null, action =
   };
 }
 
+/** Example questions offered when a request falls outside the catalog. */
+function buildScopeSuggestions() {
+  return [
+    ...(SAMPLE_QUESTIONS.rainfall || []).slice(0, 3),
+    ...(SAMPLE_QUESTIONS.navigation || []).slice(0, 2),
+  ];
+}
+
+/**
+ * Question outside the IRAINS catalog (general knowledge, arithmetic, chit-chat).
+ * Varsha stays scoped to rainfall + navigation, so reply with the scope and
+ * examples rather than letting the model answer off-domain.
+ */
+function buildOutOfScopeResponse({
+  action = null,
+  llm_plan_raw = null,
+  model = null,
+} = {}) {
+  return {
+    success: false,
+    stage: "out_of_scope",
+    out_of_scope: true,
+    answer:
+      "That one is outside IRAINS, so I can't help with it. I'm Varsha — I only know " +
+      "Indian rainfall (actual, normal and departure) and where to find each product " +
+      "page. Try one of these:",
+    suggestions: buildScopeSuggestions(),
+    sample_questions: SAMPLE_QUESTIONS,
+    ...(llm_plan_raw ? { llm_plan_raw } : {}),
+    ...(action ? { action } : {}),
+    model,
+  };
+}
+
 /**
  * End-to-end Ollama flow for one rainfall / navigation question:
  * 1) LLM reads catalog → JSON action
@@ -416,14 +450,10 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
 
   let action = extractJsonObject(plan.content);
   if (!action || !action.api_id) {
-    return {
-      success: false,
-      stage: "plan",
-      answer:
-        "Could not map this question to an API from the catalog. Please ask a rainfall or product-location question.",
+    return buildOutOfScopeResponse({
       llm_plan_raw: plan.content,
       model: plan.model,
-    };
+    });
   }
 
   action = enrichNavigationAction(action, question);
@@ -449,15 +479,11 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
   }
 
   if (!resolveAllowedApi(action)) {
-    return {
-      success: false,
-      stage: "plan",
-      answer:
-        "Could not map this question to an allowed rainfall or navigation API. Please rephrase (e.g. ask for a state/district rainfall, or where a map/product is).",
-      llm_plan_raw: plan.content,
+    return buildOutOfScopeResponse({
       action,
+      llm_plan_raw: plan.content,
       model: plan.model,
-    };
+    });
   }
 
   // Post-plan location validation / fuzzy correction (do not invent places)

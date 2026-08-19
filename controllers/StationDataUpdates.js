@@ -639,21 +639,46 @@ const REVISION_SOURCE_CTE = `
     )
 `;
 
+// The Investigation page filters in one of two modes: one specific day
+// ({ date }, Day Wise tab) or an explicit from/to range ({ fromDate, toDate },
+// Range tab) — date wins if both are somehow sent. Returns the params to bind
+// plus a clause(column) builder, so each endpoint can place the placeholders at
+// whatever index its own query needs.
+//
+// Both bounds are inclusive and compared as dates, so a range whose ends are
+// the same day behaves exactly like Day Wise. Missing bounds fall back to a
+// 30-day window ending today, matching what the old rolling-days default did.
+const buildRevisionWindow = ({ date, fromDate, toDate }, startIndex = 1) => {
+    if (date) {
+        return {
+            params: [date],
+            clause: (col) => `${col}::date = $${startIndex}::date`
+        };
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const to = toDate || fromDate || today;
+    let from = fromDate;
+    if (!from) {
+        const d = new Date(`${to}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() - 30);
+        from = d.toISOString().slice(0, 10);
+    }
+    // Tolerate a reversed range rather than silently returning nothing.
+    const [lo, hi] = from <= to ? [from, to] : [to, from];
+
+    return {
+        params: [lo, hi],
+        clause: (col) => `${col}::date BETWEEN $${startIndex}::date AND $${startIndex + 1}::date`
+    };
+};
+
 // For each (update day, data day) pair, how many stations had a value saved —
-// used by the Data Entry "Revision Log". Accepts EITHER a rolling window
-// ({ days }, for the Range tab) OR one specific day ({ date }, for the Day
-// Wise tab) — date takes precedence if both are somehow sent.
+// used by the Data Entry "Revision Log". Windowed by buildRevisionWindow.
 exports.fetchRevisionLog = async (req, res) => {
     try {
-        const { days, date } = req.body;
-        let whereClause, param;
-        if (date) {
-            whereClause = 'c.updated_at::date = $1::date';
-            param = date;
-        } else {
-            param = Number(days) > 0 ? Number(days) : 30;
-            whereClause = "c.updated_at >= NOW() - ($1 || ' days')::interval";
-        }
+        const { date, fromDate, toDate } = req.body;
+        const win = buildRevisionWindow(req.body);
 
         const query = `
             ${REVISION_SOURCE_CTE}
@@ -661,15 +686,18 @@ exports.fetchRevisionLog = async (req, res) => {
                 c.updated_at::date::text AS revision_date,
                 c.collection_date::text AS data_date,
                 COUNT(DISTINCT c.station_id)::int AS station_count,
-                ARRAY_AGG(DISTINCT sd.station_name ORDER BY sd.station_name) AS station_names
+                ARRAY_AGG(DISTINCT sd.station_name ORDER BY sd.station_name) AS station_names,
+                -- Lets the page's search match a group by centre too, not only
+                -- by the stations inside it.
+                ARRAY_AGG(DISTINCT sd.centre_type || ' ' || sd.centre_name) AS centre_names
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
-            WHERE ${whereClause}
+            WHERE ${win.clause('c.updated_at')}
             GROUP BY c.updated_at::date, c.collection_date
             ORDER BY c.updated_at::date DESC, c.collection_date DESC;
         `;
-        const result = await client.query(query, [param]);
-        res.status(200).json({ success: true, days, date, data: result.rows });
+        const result = await client.query(query, win.params);
+        res.status(200).json({ success: true, date, fromDate, toDate, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchRevisionLog:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -737,19 +765,12 @@ exports.fetchRevisionStationDetails = async (req, res) => {
 
 // MC/RMC-wise update counts, in the same style as the Verification HQ page
 // (grouping key: centre_type + ' ' + centre_name) — top-left "MC-Wise
-// Reupdates" button on the Investigation page. Same days-vs-date dual mode
+// Reupdates" button on the Investigation page. Same date-vs-range dual mode
 // as fetchRevisionLog.
 exports.fetchRevisionLogByCentre = async (req, res) => {
     try {
-        const { days, date } = req.body;
-        let whereClause, param;
-        if (date) {
-            whereClause = 'c.updated_at::date = $1::date';
-            param = date;
-        } else {
-            param = Number(days) > 0 ? Number(days) : 30;
-            whereClause = "c.updated_at >= NOW() - ($1 || ' days')::interval";
-        }
+        const { date, fromDate, toDate } = req.body;
+        const win = buildRevisionWindow(req.body);
 
         const query = `
             ${REVISION_SOURCE_CTE}
@@ -758,15 +779,18 @@ exports.fetchRevisionLogByCentre = async (req, res) => {
                 sd.centre_name,
                 COUNT(*) FILTER (WHERE c.collection_date = c.updated_at::date)::int AS same_day_count,
                 COUNT(*) FILTER (WHERE c.collection_date < c.updated_at::date)::int AS back_dated_count,
-                COUNT(DISTINCT c.station_id)::int AS station_count
+                COUNT(DISTINCT c.station_id)::int AS station_count,
+                -- Mirror of centre_names in fetchRevisionLog: lets the page's
+                -- search match a centre by the stations under it.
+                ARRAY_AGG(DISTINCT sd.station_name) AS station_names
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
-            WHERE ${whereClause}
+            WHERE ${win.clause('c.updated_at')}
             GROUP BY sd.centre_type, sd.centre_name
             ORDER BY COUNT(*) DESC;
         `;
-        const result = await client.query(query, [param]);
-        res.status(200).json({ success: true, days, date, data: result.rows });
+        const result = await client.query(query, win.params);
+        res.status(200).json({ success: true, date, fromDate, toDate, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchRevisionLogByCentre:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -775,20 +799,12 @@ exports.fetchRevisionLogByCentre = async (req, res) => {
 
 // Per-station detail for a single MC/RMC — drilled into from the "MC-Wise
 // Reupdates" panel. Same row shape as fetchRevisionStationDetails. Same
-// days-vs-date dual mode as fetchRevisionLog, applied to the 3rd param.
+// date-vs-range dual mode as fetchRevisionLog, starting at the 3rd param
+// (centreType/centreName take $1/$2).
 exports.fetchCentreRevisionDetails = async (req, res) => {
     try {
-        const { centreType, centreName, days, date } = req.body;
-        let extraClause, editWindowClause, param3;
-        if (date) {
-            extraClause = 'c.updated_at::date = $3::date';
-            editWindowClause = 'e.edited_at::date = $3::date';
-            param3 = date;
-        } else {
-            param3 = Number(days) > 0 ? Number(days) : 30;
-            extraClause = "c.updated_at >= NOW() - ($3 || ' days')::interval";
-            editWindowClause = "e.edited_at >= NOW() - ($3 || ' days')::interval";
-        }
+        const { centreType, centreName } = req.body;
+        const win = buildRevisionWindow(req.body, 3);
 
         const query = `
             ${REVISION_SOURCE_CTE}
@@ -810,13 +826,13 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
-            ${EDIT_HISTORY_LATERAL(editWindowClause)}
+            ${EDIT_HISTORY_LATERAL(win.clause('e.edited_at'))}
             WHERE sd.centre_type = $1
               AND sd.centre_name = $2
-              AND ${extraClause}
+              AND ${win.clause('c.updated_at')}
             ORDER BY c.updated_at DESC;
         `;
-        const result = await client.query(query, [centreType, centreName, param3]);
+        const result = await client.query(query, [centreType, centreName, ...win.params]);
         res.status(200).json({ success: true, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchCentreRevisionDetails:', error);
@@ -832,20 +848,11 @@ exports.fetchCentreRevisionDetails = async (req, res) => {
 //
 // Both downloads (Revision Log and MC-Wise) are built from this one response —
 // the rows are the same, only the grouping differs, and the frontend does that
-// grouping. Same days-vs-date dual mode as fetchRevisionLog.
+// grouping. Same date-vs-range dual mode as fetchRevisionLog.
 exports.fetchRevisionLogExport = async (req, res) => {
     try {
-        const { days, date } = req.body;
-        let whereClause, editWindowClause, param;
-        if (date) {
-            whereClause = 'c.updated_at::date = $1::date';
-            editWindowClause = 'e.edited_at::date = $1::date';
-            param = date;
-        } else {
-            param = Number(days) > 0 ? Number(days) : 30;
-            whereClause = "c.updated_at >= NOW() - ($1 || ' days')::interval";
-            editWindowClause = "e.edited_at >= NOW() - ($1 || ' days')::interval";
-        }
+        const { date, fromDate, toDate } = req.body;
+        const win = buildRevisionWindow(req.body);
 
         const query = `
             ${REVISION_SOURCE_CTE}
@@ -868,12 +875,12 @@ exports.fetchRevisionLogExport = async (req, res) => {
             FROM combined c
             JOIN public.station_details sd ON sd.station_code = c.station_id
             JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
-            ${EDIT_HISTORY_LATERAL(editWindowClause)}
-            WHERE ${whereClause}
+            ${EDIT_HISTORY_LATERAL(win.clause('e.edited_at'))}
+            WHERE ${win.clause('c.updated_at')}
             ORDER BY c.updated_at::date DESC, c.collection_date DESC, sd.centre_name, sd.station_name;
         `;
-        const result = await client.query(query, [param]);
-        res.status(200).json({ success: true, days, date, data: result.rows });
+        const result = await client.query(query, win.params);
+        res.status(200).json({ success: true, date, fromDate, toDate, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchRevisionLogExport:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -905,6 +912,70 @@ exports.fetchRevisionEventsForDate = async (req, res) => {
         res.status(200).json({ success: true, date: targetDate, data: result.rows });
     } catch (error) {
         console.error('[REVISION LOG] fetchRevisionEventsForDate:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
+// One row per station PER REVISION DAY for the Investigation page's map: where
+// the station is, how many times it was touched that day, the same-day /
+// back-dated split, and when it was last edited. Stations with no coordinates
+// are dropped — they can't be plotted, and they still appear in both tables.
+//
+// The per-day grain is what lets the Range tab's timeline scrub through the
+// window without refetching: the page aggregates these rows across all days for
+// the default view, and filters them to one day while you drag.
+//
+// There is deliberately no "edited by" column: rainfalldataedits.edited_by is
+// null on every row because the Data Entry page doesn't send a user id yet (see
+// updateStationData), so the only author the data actually records is the
+// owning MC/RMC, which is what the map attributes edits to.
+exports.fetchRevisionStationMap = async (req, res) => {
+    try {
+        const { date, fromDate, toDate } = req.body;
+        const win = buildRevisionWindow(req.body);
+
+        const query = `
+            ${REVISION_SOURCE_CTE}
+            SELECT
+                c.updated_at::date::text AS revision_date,
+                sd.station_code,
+                sd.station_name,
+                sd.latitude::float8  AS latitude,
+                sd.longitude::float8 AS longitude,
+                sd.centre_type,
+                sd.centre_name,
+                ndd.state_name,
+                ndd.district_name,
+                COUNT(*)::int AS revision_count,
+                COUNT(*) FILTER (WHERE c.collection_date <  c.updated_at::date)::int AS back_dated_count,
+                COUNT(*) FILTER (WHERE c.collection_date =  c.updated_at::date)::int AS same_day_count,
+                COALESCE(SUM(ed.edit_count), 0)::int AS edit_count,
+                MAX(c.updated_at) AS last_updated,
+                MAX(c.collection_date)::text AS last_data_date,
+                -- The dates behind those two counts, not just their maximum.
+                -- MAX(collection_date) always lands on the same-day edit when a
+                -- station has one (a back-dated edit is older by definition), so
+                -- last_data_date alone hid the back-dated date the map is red for.
+                ARRAY_AGG(DISTINCT c.collection_date::text ORDER BY c.collection_date::text)
+                    FILTER (WHERE c.collection_date <  c.updated_at::date) AS back_dated_dates,
+                ARRAY_AGG(DISTINCT c.collection_date::text ORDER BY c.collection_date::text)
+                    FILTER (WHERE c.collection_date =  c.updated_at::date) AS same_day_dates
+            FROM combined c
+            JOIN public.station_details sd ON sd.station_code = c.station_id
+            JOIN public.normal_district_details ndd ON ndd.district_code = c.district_code
+            ${EDIT_HISTORY_LATERAL(win.clause('e.edited_at'))}
+            WHERE ${win.clause('c.updated_at')}
+              AND sd.latitude IS NOT NULL
+              AND sd.longitude IS NOT NULL
+            GROUP BY c.updated_at::date, sd.station_code, sd.station_name, sd.latitude, sd.longitude,
+                     sd.centre_type, sd.centre_name, ndd.state_name, ndd.district_name
+            ORDER BY c.updated_at::date, COUNT(*) DESC;
+        `;
+        const result = await client.query(query, win.params);
+        res.status(200).json({ success: true, date, fromDate, toDate, data: result.rows });
+    } catch (error) {
+        console.error('[REVISION LOG] fetchRevisionStationMap:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

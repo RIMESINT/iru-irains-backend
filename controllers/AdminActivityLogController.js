@@ -1,7 +1,6 @@
 const client = require("../connection");
 const {
     logActivity,
-    validateOfficerFields,
     resolvePage,
     buildDisplayOrderLogFields,
     buildReviewPublishLogFields,
@@ -15,6 +14,7 @@ const {
     NORMALS_ACTIONS,
     REVIEW_PUBLISH_ACTIONS,
 } = require("../utils/activityLogger");
+const { resolveOfficerIdentity } = require("../utils/officerPassKey");
 
 const DISPLAY_ORDER_ACTIONS = ["PAGE_ACCESS", "ADD", "DELETE", "REORDER"];
 const DISPLAY_ORDER_ENTITIES = ["district", "state", "subdivision"];
@@ -148,8 +148,12 @@ const resolveLogFields = (page_key, body, action_type) => {
 // POST /api/v1/admin/activity-log
 exports.recordActivity = async (req, res) => {
     try {
-        const officerErr = validateOfficerFields(req.body);
-        if (officerErr) return res.status(400).json({ success: false, message: officerErr });
+        const officerResolved = await resolveOfficerIdentity(req.body, {
+            requireRemarkWithPassKey: req.body?.action_type === "PAGE_ACCESS",
+        });
+        if (officerResolved.error) {
+            return res.status(400).json({ success: false, message: officerResolved.error });
+        }
 
         const { action_type, page_key } = req.body;
         if (!action_type) {

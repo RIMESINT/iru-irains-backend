@@ -47,6 +47,54 @@ const ALLOWED_APIS = {
     method: "POST",
     path: "/api/v1/fetchBlockRainfallAnalysis",
   },
+  fetch_district_data_with_aws: {
+    method: "POST",
+    path: "/api/v1/fetchDistrictDataWithAWS",
+  },
+  fetch_state_data_with_aws: {
+    method: "POST",
+    path: "/api/v1/fetchStateDataWithAWS",
+  },
+  fetch_subdivision_data_with_aws: {
+    method: "POST",
+    path: "/api/v1/fetchSubDivisionDataWithAWS",
+  },
+  fetch_country_data_with_aws: {
+    method: "POST",
+    path: "/api/v1/fetchCountryDataWithAWS",
+  },
+  fetch_district_station_count: {
+    method: "POST",
+    path: "/api/v1/fetchDistrictStationCount",
+  },
+  fetch_centre_station_summary: {
+    method: "POST",
+    path: "/api/v1/fetchCentreStationSummary",
+  },
+  fetch_station_with_max_rainfall: {
+    method: "POST",
+    path: "/api/v1/fetchStationWithMaxRainfall",
+  },
+  fetch_district_range_statistics: {
+    method: "POST",
+    path: "/api/v1/fetchDistrictRangeStatistics",
+  },
+  fetch_state_range_statistics: {
+    method: "POST",
+    path: "/api/v1/fetchStateRangeStatistics",
+  },
+  fetch_subdivision_range_statistics: {
+    method: "POST",
+    path: "/api/v1/fetchSubdivisionRangeStatistics",
+  },
+  get_latest_five_year_district: {
+    method: "POST",
+    path: "/api/v1/getLatestFiveYearDataOfDistrict",
+  },
+  get_calculations_mode: {
+    method: "GET",
+    path: "/api/v1/calculations-mode",
+  },
   get_all_districts: {
     method: "GET",
     path: "/api/v1/getAllDistrict",
@@ -62,6 +110,38 @@ const ALLOWED_APIS = {
   top_rainfall_stations: {
     method: "GET",
     path: "/api/v1/top-rainfall-stations",
+  },
+  get_spatial_distribution_data: {
+    method: "GET",
+    path: "/api/v1/getSpatialDistributionData",
+  },
+  get_spatial_distribution_data_state: {
+    method: "GET",
+    path: "/api/v1/getSpatialDistributionDataState",
+  },
+  get_monsoon_activity: {
+    method: "POST",
+    path: "/api/v1/monsoon-activity",
+  },
+  get_monsoon_activity_district: {
+    method: "POST",
+    path: "/api/v1/monsoon-activity-district",
+  },
+  get_monsoon_activity_subdiv_last7: {
+    method: "POST",
+    path: "/api/v1/monsoon-activity-subdiv-last7",
+  },
+  get_monsoon_activity_subdiv_last30: {
+    method: "POST",
+    path: "/api/v1/monsoon-activity-subdiv-last30",
+  },
+  get_monsoon_activity_district_last7: {
+    method: "POST",
+    path: "/api/v1/monsoon-activity-district-last7",
+  },
+  get_monsoon_activity_district_last30: {
+    method: "POST",
+    path: "/api/v1/monsoon-activity-district-last30",
   },
   resolve_product_route: {
     method: "NAV",
@@ -82,6 +162,23 @@ const SAMPLE_QUESTIONS = {
     "What is seasonal / cumulative rainfall so far?",
     "Give actual, normal and % departure for Chennai district from 01-Jul to 15-Jul.",
     "Compare rainfall of Tamil Nadu vs Kerala for yesterday.",
+    "Top 10 wettest districts today.",
+    "Top 5 wettest states this week.",
+    "Which place recorded the highest rainfall yesterday?",
+    "List districts with rainfall above 100 mm today.",
+    "Which stations recorded the heaviest rain last week?",
+    "District rainfall including AWS for yesterday.",
+    "Are we publishing IMD-only or IMD+AWS?",
+    "How many stations reported per district today?",
+    "Which MCs still have stations missing today?",
+    "Give me one-line state summary for the monsoon so far.",
+  ],
+  spatial_monsoon: [
+    "What is the spatial distribution for Kerala subdivision today?",
+    "Is monsoon Weak / Normal / Active / Vigorous over Kerala today?",
+    "Monsoon activity for last 7 days.",
+    "Monsoon activity at district level for today.",
+    "Which subdivisions are under active / vigorous monsoon?",
   ],
   navigation: [
     "Where is the daily actual state rainfall map?",
@@ -93,6 +190,8 @@ const SAMPLE_QUESTIONS = {
     "Where is spatial distribution / spatial table?",
     "Where is station level data?",
     "Where is station statistics?",
+    "Where is yearly statistics?",
+    "Where is all statistics?",
     "Where is data entry / verification?",
     "Where are annual–seasonal–monthly maps?",
     "Where is All Maps home overview?",
@@ -148,6 +247,21 @@ const PRODUCT_ROUTES = [
     product_name: "Station Statistics",
     route_path: "/station-statistics",
     aliases: ["station statistics"],
+  },
+  {
+    product_name: "Yearly Station Statistics",
+    route_path: "/yearlystationstatistics",
+    aliases: [
+      "yearly statistics",
+      "yearly station statistics",
+      "yearly stats",
+      "annual station statistics",
+    ],
+  },
+  {
+    product_name: "All Statistics",
+    route_path: "/all-statistics",
+    aliases: ["all statistics", "all stats"],
   },
   {
     product_name: "Data Entry / Verification",

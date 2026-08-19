@@ -6,10 +6,11 @@ const client = require("../connection");
 const moment = require('moment');
 const xlsx = require('xlsx');
 const {
-    validateOfficerFields,
+    extractUserFromRequest,
     logReviewPublishActivity,
     logReviewPublishPageAccess,
 } = require("../utils/activityLogger");
+const { resolveOfficerIdentity } = require("../utils/officerPassKey");
 
 
 
@@ -345,8 +346,12 @@ const updateMultipleStations = async (date, station_ids, verified_by) => {
 
 exports.recordReviewPublishOfficerAccess = async (req, res) => {
     try {
-        const err = validateOfficerFields(req.body);
-        if (err) return res.status(400).json({ success: false, message: err });
+        const resolved = await resolveOfficerIdentity(req.body, {
+            requireRemarkWithPassKey: true,
+        });
+        if (resolved.error) {
+            return res.status(400).json({ success: false, message: resolved.error });
+        }
 
         const date = req.body.date || req.body.Date || moment().format("YYYY-MM-DD");
         await logReviewPublishPageAccess(req, date);
@@ -355,6 +360,18 @@ exports.recordReviewPublishOfficerAccess = async (req, res) => {
             success: true,
             message: "Officer access recorded",
             date,
+            officer: resolved.officer
+                ? {
+                      emp_name: resolved.officer.emp_name,
+                      emp_designation: resolved.officer.emp_designation,
+                      emp_phone_number: resolved.officer.emp_phone_number,
+                      emp_email: resolved.officer.emp_email,
+                      login_id: resolved.officer.login_id,
+                      mcorhq_type: resolved.officer.mcorhq_type,
+                      pass_key: resolved.officer.pass_key,
+                  }
+                : extractUserFromRequest(req),
+            remark: req.body.remark?.trim() || null,
         });
     } catch (error) {
         console.error("[REVIEW PUBLISH] recordOfficerAccess:", error);

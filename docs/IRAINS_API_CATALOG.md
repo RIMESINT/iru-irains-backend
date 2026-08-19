@@ -7,6 +7,7 @@ This file is the **source of truth** for mapping user questions → API calls.
 - Valid `api_id` examples: `fetch_district_data`, `fetch_state_data`, `fetch_country_data`, `resolve_product_route` — never invent names like `fetch_catalog_data`.
 - If a question is outside listed APIs, ask the user to rephrase.
 - Base URL (local): `http://localhost:3000/api/v1`
+- Full read-only backend reference (all fetch APIs): [`docs/IRAINS_READONLY_API_CATALOG.md`](./IRAINS_READONLY_API_CATALOG.md)
 
 ---
 
@@ -15,17 +16,19 @@ This file is the **source of truth** for mapping user questions → API calls.
 | Module | Status in this file | Purpose |
 |--------|---------------------|---------|
 | Rainfall | **Active** | Actual / normal / departure / deficient / excess |
+| Rankings & Extremes | **Active** | Top wettest places, highest rainfall, above-X mm, heaviest stations |
+| Coverage | **Active** | Station/MC reporting counts |
+| IMD+AWS | **Active** | Rainfall with AWS blended; calculations mode |
+| Range statistics | **Active** | Period min/max/avg summaries |
+| Spatial distribution | **Active** | Isolated / Scattered / Fairly Widespread / Widespread |
+| Monsoon activity | **Active** | Weak / Normal / Active / Vigorous / Subdued |
 | Navigation | **Active** | “Where is this product?” → product name + frontend route |
-| Stations | Planned | Station master, daily entry, top stations |
-| Spatial distribution | Planned | Isolated / Scattered / Widespread |
-| Monsoon activity | Planned | Weak / Active / Vigorous |
-| AWS networks | Planned | State AWS rainfall & departure |
-| PDF / Email reports | Planned | Report generation & dissemination |
-| Admin / exclusions | Planned | Calculation exclusions, publish, locks |
-| Maps / GeoJSON | Planned | Map layers and geo files |
+| Stations (detail) | Partial | Max-rainfall stations; more station APIs later |
+| AWS network feeds | Planned | `/up-aws`, `/karnataka-aws`, … (see readonly catalog) |
+| PDF / Email / Admin | Planned | See readonly catalog §§15–19 |
 
-> Chat supports **Rainfall** data questions and **Navigation** product routing.  
-> Other modules will be added in the same format later.
+> Chat supports **Rainfall**, **Rankings**, **Coverage**, **IMD+AWS**, **Range stats**, **Spatial**, **Monsoon**, and **Navigation**.  
+> Broader fetch surface is documented in the readonly catalog.
 
 ---
 
@@ -72,7 +75,7 @@ When the user asks **where a product / map / menu is** (navigation), respond wit
 
 ### Field meanings
 
-- `module`: product area (`rainfall`, `navigation`, later `stations`, etc.)
+- `module`: product area (`rainfall`, `spatial`, `monsoon`, `navigation`, later `stations`, etc.)
 - `api_id`: id from this catalog (`resolve_product_route` for navigation)
 - `method`: `GET`, `POST`, or `NAV` (navigation only — no HTTP call)
 - `path`: exact API path from catalog (null for navigation)
@@ -136,6 +139,11 @@ Use these after district/state/subdivision departure is available:
 | 8 | Seasonal / cumulative so far | `fetch_cumulative_country_data` or range fetch | `SEASON_START` → `TODAY` |
 | 9 | Actual, normal, % departure for a district range | `fetch_district_data` | filter district + dates |
 | 10 | Compare state A vs state B | `fetch_state_data` | `state_names` array |
+| 36 | Top N wettest districts today | `fetch_district_data` | `post_process.rank_by_actual` |
+| 37 | Top N wettest states this week | `fetch_state_data` | `LAST_7_START`→`TODAY` + rank |
+| 38 | Top wettest blocks / subdivs / regions | matching `fetch_*_data` | `rank_by_actual` |
+| 39 | Highest rainfall place yesterday | `fetch_district_data` (or stations) | rank limit 1 / `YESTERDAY` |
+| 40 | Districts above X mm today | `fetch_district_data` | `filter_by_actual_min` |
 
 For deficient/excess / large excess, set **`post_process` only** (not `post_filter`):
 
@@ -516,7 +524,7 @@ User: `Give actual, normal and % departure for Chennai district from 01-Jul to 1
 ```
 
 ### Q10 — Compare two states
-User: `Compare rainfall of Tamil Nadu vs Kerala for yesterday.`  
+User: `Compare rainfall of Tamil Nadu vs Kerala for yesterday.`
 →
 
 ```json
@@ -530,6 +538,22 @@ User: `Compare rainfall of Tamil Nadu vs Kerala for yesterday.`
   "post_filter": { "state_names": ["Tamil Nadu", "Kerala"] },
   "post_process": null,
   "reason": "Compare two states for yesterday"
+}
+```
+
+User: `Compare Tamil Nadu vs Kerala in JUNE MONTH` →
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_state_data",
+  "method": "POST",
+  "path": "/api/v1/fetchStateData",
+  "body": { "startDate": "2026-06-01", "endDate": "2026-06-30" },
+  "query": {},
+  "post_filter": { "state_names": ["Tamil Nadu", "Kerala"] },
+  "post_process": null,
+  "reason": "Compare Tamil Nadu vs Kerala for June — NEVER monsoon activity"
 }
 ```
 
@@ -550,6 +574,352 @@ User: `What is the rainfall of Kerela on 20th june?`
   "reason": "Kerela is typo for Kerala; single-date state rainfall"
 }
 ```
+
+---
+
+# Module: Rankings & Extremes (ACTIVE)
+
+Use for briefing prep: top wettest places, highest rainfall, rainfall above a threshold.
+
+**IMPORTANT:** Do **not** call `POST /fetchTopNDistricts|States|Blocks|…`. Those APIs require an entity code and return top days for **one** place.  
+For nationwide / list rankings, call the normal `fetch_*_data` APIs with **empty** `post_filter` and a ranking `post_process`.
+
+### Ranking post_process
+
+```json
+"post_process": {
+  "type": "rank_by_actual",
+  "limit": 10,
+  "order": "desc"
+}
+```
+
+### Threshold post_process
+
+```json
+"post_process": {
+  "type": "filter_by_actual_min",
+  "min_mm": 100
+}
+```
+
+| # | User intent | api_id | body dates | post_process |
+|---|-------------|--------|------------|--------------|
+| 36 | Top 10 wettest districts today | `fetch_district_data` | TODAY–TODAY | `rank_by_actual` limit 10 |
+| 37 | Top 5 wettest states this week | `fetch_state_data` | LAST_7_START–TODAY | `rank_by_actual` limit 5 |
+| 38a | Top wettest blocks today | `fetch_block_data` | TODAY–TODAY | `rank_by_actual` limit 10 |
+| 38b | Top wettest subdivisions today | `fetch_subdivision_data` | TODAY–TODAY | `rank_by_actual` limit 10 |
+| 38c | Top wettest regions today | `fetch_region_data` | TODAY–TODAY | `rank_by_actual` limit 10 |
+| 39 | Highest rainfall place yesterday | `fetch_district_data` | YESTERDAY–YESTERDAY | `rank_by_actual` limit 1 |
+| 39b | Highest rainfall **station** recently | `top_rainfall_stations` | query `days=2`, `topN=5` | optional filter |
+| 40 | Districts with rainfall above 100 mm today | `fetch_district_data` | TODAY–TODAY | `filter_by_actual_min` min_mm 100 |
+
+### Ranking examples
+
+User: `Top 10 wettest districts today.` →
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_district_data",
+  "method": "POST",
+  "path": "/api/v1/fetchDistrictData",
+  "body": { "startDate": "TODAY", "endDate": "TODAY" },
+  "query": {},
+  "post_filter": {},
+  "post_process": { "type": "rank_by_actual", "limit": 10, "order": "desc" },
+  "reason": "Top 10 wettest districts today"
+}
+```
+
+User: `Top 5 wettest states this week.` →
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_state_data",
+  "method": "POST",
+  "path": "/api/v1/fetchStateData",
+  "body": { "startDate": "LAST_7_START", "endDate": "TODAY" },
+  "query": {},
+  "post_filter": {},
+  "post_process": { "type": "rank_by_actual", "limit": 5, "order": "desc" },
+  "reason": "Top 5 wettest states this week"
+}
+```
+
+User: `Which place recorded the highest rainfall yesterday?` →
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_district_data",
+  "method": "POST",
+  "path": "/api/v1/fetchDistrictData",
+  "body": { "startDate": "YESTERDAY", "endDate": "YESTERDAY" },
+  "query": {},
+  "post_filter": {},
+  "post_process": { "type": "rank_by_actual", "limit": 1, "order": "desc" },
+  "reason": "Highest rainfall district yesterday"
+}
+```
+
+User: `highest rainfall received on 25th july` →
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_district_data",
+  "method": "POST",
+  "path": "/api/v1/fetchDistrictData",
+  "body": { "startDate": "2026-07-25", "endDate": "2026-07-25" },
+  "query": {},
+  "post_filter": {},
+  "post_process": { "type": "rank_by_actual", "limit": 5, "order": "desc" },
+  "reason": "Highest rainfall districts on 25 July — NEVER monsoon activity"
+}
+```
+
+User: `List districts with rainfall above 100 mm today.` →
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_district_data",
+  "method": "POST",
+  "path": "/api/v1/fetchDistrictData",
+  "body": { "startDate": "TODAY", "endDate": "TODAY" },
+  "query": {},
+  "post_filter": {},
+  "post_process": { "type": "filter_by_actual_min", "min_mm": 100 },
+  "reason": "Districts with actual >= 100 mm today"
+}
+```
+
+User: `List districts with rainfall above 50 mm` (no date, all-India) → use last 30 days and return **day-wise rows with date**:
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_district_data",
+  "method": "POST",
+  "path": "/api/v1/fetchDistrictData",
+  "body": { "startDate": "LAST_30_START", "endDate": "TODAY" },
+  "query": {},
+  "post_filter": {},
+  "post_process": { "type": "filter_by_actual_min", "min_mm": 50 },
+  "reason": "All-India districts with actual >= 50 mm in last 30 days (include date on each row)"
+}
+```
+
+Do **not** ask for a place for nationwide district threshold lists. Do **not** use monsoon APIs.
+
+---
+
+# Module: Spatial distribution (ACTIVE)
+
+Categories: **Isolated** / **Scattered** / **Fairly Widespread** / **Widespread** (and Dry when applicable).
+
+### APIs
+
+| api_id | method | path | query |
+|--------|--------|------|-------|
+| `get_spatial_distribution_data` | GET | `/api/v1/getSpatialDistributionData` | `startDate`, `endDate` (use same day for today) |
+| `get_spatial_distribution_data_state` | GET | `/api/v1/getSpatialDistributionDataState` | `startDate`, `endDate` |
+
+Always send **both** `startDate` and `endDate` (tokens allowed).  
+Filter one subdivision with `post_filter.subdivision_name` (or `subdiv_name`).
+
+| # | User intent | api_id | notes |
+|---|-------------|--------|-------|
+| 41 | Spatial distribution for my subdivision | `get_spatial_distribution_data` | filter by subdivision name |
+| 41b | Spatial distribution by state | `get_spatial_distribution_data_state` | optional `post_filter.state_name` |
+
+User: `What is the spatial distribution for Kerala subdivision today?` →
+
+```json
+{
+  "module": "spatial",
+  "api_id": "get_spatial_distribution_data",
+  "method": "GET",
+  "path": "/api/v1/getSpatialDistributionData",
+  "body": {},
+  "query": { "startDate": "TODAY", "endDate": "TODAY" },
+  "post_filter": { "subdivision_name": "Kerala" },
+  "post_process": null,
+  "reason": "Spatial category for Kerala subdivision today"
+}
+```
+
+---
+
+# Module: Monsoon activity (ACTIVE)
+
+Activities: **Weak** / **Normal** / **Active** / **Vigorous** / **Subdued**.
+
+### APIs
+
+| api_id | method | path | body |
+|--------|--------|------|------|
+| `get_monsoon_activity` | POST | `/api/v1/monsoon-activity` | `{ "date": "TODAY" }` subdiv today |
+| `get_monsoon_activity_district` | POST | `/api/v1/monsoon-activity-district` | `{ "date": "TODAY" }` district today |
+| `get_monsoon_activity_subdiv_last7` | POST | `/api/v1/monsoon-activity-subdiv-last7` | `{ "date": "TODAY" }` |
+| `get_monsoon_activity_subdiv_last30` | POST | `/api/v1/monsoon-activity-subdiv-last30` | `{ "date": "TODAY" }` |
+| `get_monsoon_activity_district_last7` | POST | `/api/v1/monsoon-activity-district-last7` | `{ "date": "TODAY" }` |
+| `get_monsoon_activity_district_last30` | POST | `/api/v1/monsoon-activity-district-last30` | `{ "date": "TODAY" }` |
+
+Filter one place with `post_filter.name` (or `subdiv_name` / `district_name`).  
+List Active/Vigorous with:
+
+```json
+"post_process": {
+  "type": "filter_by_monsoon_activity",
+  "activities": ["Active", "Vigorous"]
+}
+```
+
+| # | User intent | api_id | notes |
+|---|-------------|--------|-------|
+| 42 | Is monsoon Weak/Normal/Active/Vigorous/Subdued over [subdivision] today? | `get_monsoon_activity` | `post_filter.name` |
+| 43 | Monsoon activity last 7 / 30 days | `get_monsoon_activity_subdiv_last7` / `_last30` | optional place filter |
+| 44 | Monsoon activity at district level today | `get_monsoon_activity_district` | optional district filter |
+| 45 | Which subdivisions are Active / Vigorous? | `get_monsoon_activity` | `filter_by_monsoon_activity` |
+
+User: `Is monsoon Active over Kerala today?` →
+
+```json
+{
+  "module": "monsoon",
+  "api_id": "get_monsoon_activity",
+  "method": "POST",
+  "path": "/api/v1/monsoon-activity",
+  "body": { "date": "TODAY" },
+  "query": {},
+  "post_filter": { "name": "Kerala" },
+  "post_process": null,
+  "reason": "Monsoon activity for Kerala subdivision today"
+}
+```
+
+User: `Monsoon activity for last 7 days.` →
+
+```json
+{
+  "module": "monsoon",
+  "api_id": "get_monsoon_activity_subdiv_last7",
+  "method": "POST",
+  "path": "/api/v1/monsoon-activity-subdiv-last7",
+  "body": { "date": "TODAY" },
+  "query": {},
+  "post_filter": {},
+  "post_process": null,
+  "reason": "Subdivision monsoon activity last 7 days"
+}
+```
+
+User: `Monsoon activity at district level for today.` →
+
+```json
+{
+  "module": "monsoon",
+  "api_id": "get_monsoon_activity_district",
+  "method": "POST",
+  "path": "/api/v1/monsoon-activity-district",
+  "body": { "date": "TODAY" },
+  "query": {},
+  "post_filter": {},
+  "post_process": null,
+  "reason": "District monsoon activity today"
+}
+```
+
+User: `Which subdivisions are under active / vigorous monsoon?` →
+
+```json
+{
+  "module": "monsoon",
+  "api_id": "get_monsoon_activity",
+  "method": "POST",
+  "path": "/api/v1/monsoon-activity",
+  "body": { "date": "TODAY" },
+  "query": {},
+  "post_filter": {},
+  "post_process": {
+    "type": "filter_by_monsoon_activity",
+    "activities": ["Active", "Vigorous"]
+  },
+  "reason": "List Active/Vigorous subdivisions today"
+}
+```
+
+---
+
+# Module: Stations — heaviest / max rainfall (ACTIVE)
+
+| api_id | method | path | body |
+|--------|--------|------|------|
+| `fetch_station_with_max_rainfall` | POST | `/api/v1/fetchStationWithMaxRainfall` | `{ startDate, endDate, limit }` |
+| `top_rainfall_stations` | GET | `/api/v1/top-rainfall-stations` | query `days`, `topN` |
+
+User: `Which stations recorded the heaviest rain last week?` →
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_station_with_max_rainfall",
+  "method": "POST",
+  "path": "/api/v1/fetchStationWithMaxRainfall",
+  "body": { "startDate": "LAST_7_START", "endDate": "TODAY", "limit": 10 },
+  "query": {},
+  "post_filter": {},
+  "post_process": null,
+  "reason": "Heaviest stations last 7 days"
+}
+```
+
+---
+
+# Module: Coverage & reporting (ACTIVE)
+
+| api_id | method | path | body |
+|--------|--------|------|------|
+| `fetch_district_station_count` | POST | `/api/v1/fetchDistrictStationCount` | `{ startDate, endDate }` |
+| `fetch_centre_station_summary` | POST | `/api/v1/fetchCentreStationSummary` | `{ startDate, endDate }` |
+
+User: `Which MCs still have stations missing today?` → `fetch_centre_station_summary` with TODAY–TODAY.  
+User: `How many stations reported per district today?` → `fetch_district_station_count`.
+
+---
+
+# Module: IMD + AWS combined (ACTIVE)
+
+| api_id | method | path |
+|--------|--------|------|
+| `fetch_district_data_with_aws` | POST | `/api/v1/fetchDistrictDataWithAWS` |
+| `fetch_state_data_with_aws` | POST | `/api/v1/fetchStateDataWithAWS` |
+| `fetch_subdivision_data_with_aws` | POST | `/api/v1/fetchSubDivisionDataWithAWS` |
+| `fetch_country_data_with_aws` | POST | `/api/v1/fetchCountryDataWithAWS` |
+| `get_calculations_mode` | GET | `/api/v1/calculations-mode` |
+
+User: `District rainfall including AWS for yesterday` → `fetch_district_data_with_aws` + YESTERDAY.  
+User: `Are we publishing IMD-only or IMD+AWS?` → `get_calculations_mode`.
+
+---
+
+# Module: Range statistics (ACTIVE)
+
+| api_id | method | path |
+|--------|--------|------|
+| `fetch_district_range_statistics` | POST | `/api/v1/fetchDistrictRangeStatistics` |
+| `fetch_state_range_statistics` | POST | `/api/v1/fetchStateRangeStatistics` |
+| `fetch_subdivision_range_statistics` | POST | `/api/v1/fetchSubdivisionRangeStatistics` |
+
+Body `{ startDate, endDate }` — period min/max/avg/total.  
+User: `Give me one-line state summary for the monsoon so far` → `fetch_state_range_statistics` with `SEASON_START`→`TODAY`.
+
+Also: `get_latest_five_year_district` → `POST /getLatestFiveYearDataOfDistrict` with `{ startDate, endDate, district_code }` for multi-year comparison of one district.
+
+> **Do not** use `/fetchTopNDistricts` for “top wettest districts nationwide” — that API needs a `district_code` and returns top days for **one** district. Use `fetch_district_data` + `rank_by_actual` instead.
 
 ---
 
@@ -589,6 +959,8 @@ The backend will ask which map they want and list options.
 | 17 | spatial distribution / spatial table | Spatial Distribution Table | `/spatial-distribution-table` |
 | 18 | station level data | Station Level Data | `/station-level-data` |
 | 19 | station statistics | Station Statistics | `/station-statistics` |
+| 19b | yearly statistics / yearly station statistics | Yearly Station Statistics | `/yearlystationstatistics` |
+| 19c | all statistics | All Statistics | `/all-statistics` |
 | 20 | data entry / verification | Data Entry / Verification | `/data-entry-verification` |
 | 21 | annual–seasonal–monthly maps | Annual–Seasonal–Monthly Maps | `/maps/annual-seasonal-monthly` |
 | 22 | All Maps home overview | All Maps Overview | `/all-maps-overview` |
@@ -626,13 +998,7 @@ If the product is not in the table, still use `module: "navigation"` but set `ro
 
 # Module: Stations (PLANNED)
 
-> Add later: station list, station daily data, verification, top stations details.
-
-# Module: Spatial distribution (PLANNED)
-
-> Add later:
-> - `GET /api/v1/getSpatialDistributionData`
-> - `GET /api/v1/getSpatialDistributionDataState`
+> Add later: station list, station daily data, verification details.
 
 # Module: AWS networks (PLANNED)
 

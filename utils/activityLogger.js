@@ -1,6 +1,7 @@
 const client = require("../connection");
 const moment = require("moment-timezone");
 const { broadcastActivityLogged } = require("./adminRealtime");
+const { hydrateOfficerFromPassKey } = require("./officerPassKey");
 
 const IST = "Asia/Kolkata";
 
@@ -342,6 +343,13 @@ const logActivity = async ({
     status = "updated",
     skip_broadcast = false,
 }) => {
+    if (req?.body) {
+        const hydrated = await hydrateOfficerFromPassKey(req.body);
+        if (hydrated.error) {
+            console.error("[ACTIVITY LOG] pass_key:", hydrated.error);
+        }
+    }
+
     const fromBody = req ? extractUserFromRequest(req) : {};
     const mergedUser = { ...fromBody, ...user };
 

@@ -52,7 +52,13 @@ exports.chat = async (req, res) => {
     }
 
     const skipAnswerLlm = Boolean(req.body?.skipAnswerLlm);
-    const result = await handleOllamaChat(question, { skipAnswerLlm });
+    const previousQuestion = String(
+      req.body?.previous_question || req.body?.previousQuestion || ""
+    ).trim();
+    const result = await handleOllamaChat(question, {
+      skipAnswerLlm,
+      previousQuestion: previousQuestion || null,
+    });
     return res.status(result.success ? 200 : 422).json(result);
   } catch (error) {
     console.error("ollama-chat error:", error);

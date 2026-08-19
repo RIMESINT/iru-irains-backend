@@ -15,6 +15,10 @@ function last7Start() {
   return moment().subtract(6, "days").format("YYYY-MM-DD");
 }
 
+function last30Start() {
+  return moment().subtract(29, "days").format("YYYY-MM-DD");
+}
+
 /** SW monsoon season start: 1 June of current year (previous year if before June). */
 function seasonStart() {
   const now = moment();
@@ -28,6 +32,7 @@ function replaceDateTokens(value) {
   if (token === "TODAY") return today();
   if (token === "YESTERDAY") return yesterday();
   if (token === "LAST_7_START") return last7Start();
+  if (token === "LAST_30_START") return last30Start();
   if (token === "SEASON_START") return seasonStart();
   return value;
 }
@@ -183,7 +188,19 @@ function applyPostFilter(rows, postFilter = {}) {
     Object.entries(postFilter).every(([key, expected]) => {
       if (key === "state_names") return true;
       if (expected == null || expected === "") return true;
-      const actual = row[key];
+
+      // Alias common name fields across rainfall / spatial / monsoon payloads
+      let actual = row[key];
+      if (actual == null && key === "subdiv_name") {
+        actual = row.subdivision_name || row.name;
+      } else if (actual == null && key === "subdivision_name") {
+        actual = row.subdiv_name || row.name;
+      } else if (actual == null && key === "district_name") {
+        actual = row.name;
+      } else if (actual == null && key === "name") {
+        actual = row.subdiv_name || row.subdivision_name || row.district_name;
+      }
+
       if (actual == null) {
         if (key === "state_name" && row.state_name == null) return false;
         return false;
@@ -248,8 +265,480 @@ function extractCategoriesFromQuestion(question) {
   return cats;
 }
 
+function extractThresholdMm(question) {
+  const q = String(question || "");
+  const m = q.match(
+    /\b(?:above|over|greater\s+than|more\s+than|at\s+least|>=?)\s*(\d+(?:\.\d+)?)\s*(?:mm)?\b/i
+  );
+  if (m) return Number(m[1]);
+  const m2 = q.match(
+    /\b(\d+(?:\.\d+)?)\s*mm\b/i
+  );
+  if (m2 && /\b(above|over|greater|more|at\s+least|threshold)\b/i.test(q)) {
+    return Number(m2[1]);
+  }
+  return null;
+}
+
+/**
+ * Parse a specific calendar day from the question (e.g. "25th july", "July 25 2026").
+ */
+function parseExplicitDayFromQuestion(question) {
+  const q = String(question || "");
+  if (!q.trim()) return null;
+
+  const iso = q.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (iso && moment(iso[1], "YYYY-MM-DD", true).isValid()) {
+    return iso[1];
+  }
+
+  const dmy = q.match(/\b(\d{1,2})[-/](\d{1,2})(?:[-/](\d{2,4}))?\b/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    let year = dmy[3] ? Number(dmy[3]) : moment().year();
+    if (year < 100) year += 2000;
+    const m = moment({ year, month: month - 1, day });
+    if (m.isValid()) return m.format("YYYY-MM-DD");
+  }
+
+  const dayFirst = q.match(
+    /\b(\d{1,2})(st|nd|rd|th)?\s+(?:of\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)(?:\s+(\d{4}))?\b/i
+  );
+  if (dayFirst) {
+    const day = Number(dayFirst[1]);
+    const monthNum = MONTH_NAMES[dayFirst[3].toLowerCase()];
+    const year = dayFirst[4] ? Number(dayFirst[4]) : moment().year();
+    if (monthNum) {
+      const m = moment({ year, month: monthNum - 1, day });
+      if (m.isValid()) return m.format("YYYY-MM-DD");
+    }
+  }
+
+  const monthFirst = q.match(
+    /\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s+(\d{1,2})(st|nd|rd|th)?(?:\s+(\d{4}))?\b/i
+  );
+  if (monthFirst) {
+    const monthNum = MONTH_NAMES[monthFirst[1].toLowerCase()];
+    const day = Number(monthFirst[2]);
+    const year = monthFirst[4] ? Number(monthFirst[4]) : moment().year();
+    if (monthNum) {
+      const m = moment({ year, month: monthNum - 1, day });
+      if (m.isValid()) return m.format("YYYY-MM-DD");
+    }
+  }
+
+  return null;
+}
+
+/**
+ * "highest rainfall", "wettest", "max rainfall", "top rainfall" questions.
+ */
+function isHighestRainfallQuestion(question) {
+  const q = String(question || "");
+  if (!q.trim()) return false;
+  // Explicit monsoon wording → not a ranking question
+  if (
+    /\b(monsoon\s+activity|weak|active|vigorous|subdued|isolated|scattered|fairly\s+widespread|widespread)\b/i.test(
+      q
+    ) &&
+    !/\b(highest|wettest|max(?:imum)?)\s+(rainfall|rain)\b/i.test(q)
+  ) {
+    return false;
+  }
+  return (
+    /\b(highest|wettest|max(?:imum)?|heaviest)\s+(rainfall|rain|precipitation|stations?)\b/i.test(
+      q
+    ) ||
+    /\b(rainfall|rain)\s+(received|recorded|observed).{0,40}\b(highest|max(?:imum)?)\b/i.test(
+      q
+    ) ||
+    /\b(highest|max(?:imum)?)\b.{0,40}\b(rainfall|rain)\b/i.test(q) ||
+    /\btop\s+\d+\s+wettest\b/i.test(q) ||
+    /\bwettest\s+(districts?|states?|places?|blocks?|stations?)\b/i.test(q) ||
+    /\bheaviest\s+(rain|rainfall|stations?)\b/i.test(q)
+  );
+}
+
+/**
+ * "Compare Tamil Nadu vs Kerala in June" → fetch_state_data + state_names.
+ * Never monsoon / nationwide district dumps.
+ */
+const COMPARE_STATE_ALIASES = [
+  ["tamil nadu", "Tamil Nadu"],
+  ["tamilnadu", "Tamil Nadu"],
+  ["tn", "Tamil Nadu"],
+  ["kerala", "Kerala"],
+  ["karnataka", "Karnataka"],
+  ["maharashtra", "Maharashtra"],
+  ["gujarat", "Gujarat"],
+  ["rajasthan", "Rajasthan"],
+  ["odisha", "Odisha"],
+  ["orissa", "Odisha"],
+  ["west bengal", "West Bengal"],
+  ["andhra pradesh", "Andhra Pradesh"],
+  ["andhra", "Andhra Pradesh"],
+  ["telangana", "Telangana"],
+  ["madhya pradesh", "Madhya Pradesh"],
+  ["uttar pradesh", "Uttar Pradesh"],
+  ["bihar", "Bihar"],
+  ["assam", "Assam"],
+  ["punjab", "Punjab"],
+  ["haryana", "Haryana"],
+  ["himachal pradesh", "Himachal Pradesh"],
+  ["uttarakhand", "Uttarakhand"],
+  ["jharkhand", "Jharkhand"],
+  ["chhattisgarh", "Chhattisgarh"],
+  ["goa", "Goa"],
+  ["delhi", "Delhi"],
+  ["jammu and kashmir", "Jammu and Kashmir"],
+  ["jammu & kashmir", "Jammu and Kashmir"],
+];
+
+function isCompareQuestion(question) {
+  const q = String(question || "");
+  return (
+    /\bcompar(?:e|ison|ing)\b/i.test(q) ||
+    /\bvs\.?\b/i.test(q) ||
+    /\bversus\b/i.test(q)
+  );
+}
+
+function resolveCompareStateName(raw) {
+  const cleaned = String(raw || "")
+    .replace(/\b(rainfall|rain|state|data|month|june|july|august|for|in|on|the|of)\b/gi, " ")
+    .replace(/[?.!,]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+  const key = cleaned.toLowerCase();
+  for (const [alias, name] of COMPARE_STATE_ALIASES) {
+    if (key === alias || key.includes(alias) || alias.includes(key)) {
+      return name;
+    }
+  }
+  // Title-case fallback for unknown but plausible state phrases
+  if (cleaned.length >= 3 && cleaned.length <= 40) {
+    return cleaned
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+  }
+  return null;
+}
+
+function extractCompareStatePair(question) {
+  const q = String(question || "").trim();
+  if (!q) return null;
+
+  const patterns = [
+    /\bcompar(?:e|ison|ing)\s+(.+?)\s+(?:vs\.?|versus|with|and|to)\s+(.+?)(?:\s+(?:in|for|on|during|over)\s+.+)?$/i,
+    /\b(.+?)\s+(?:vs\.?|versus)\s+(.+?)(?:\s+(?:in|for|on|during|over)\s+.+)?$/i,
+  ];
+
+  for (const re of patterns) {
+    const m = q.match(re);
+    if (!m) continue;
+    const a = resolveCompareStateName(m[1]);
+    const b = resolveCompareStateName(m[2]);
+    if (a && b && a.toLowerCase() !== b.toLowerCase()) {
+      return [a, b];
+    }
+  }
+  return null;
+}
+
+function sanitizeCompareAction(action, question = "") {
+  if (!action || typeof action !== "object") return action;
+  const q = String(question || "");
+  if (!isCompareQuestion(q)) return action;
+
+  const pair = extractCompareStatePair(q);
+  if (!pair) return action;
+
+  action.module = "rainfall";
+  action.api_id = "fetch_state_data";
+  action.method = "POST";
+  action.path = "/api/v1/fetchStateData";
+  action.post_filter = { state_names: pair };
+  action.post_process = null;
+  action.body = action.body || {};
+  action.reason = `Compare ${pair[0]} vs ${pair[1]} rainfall`;
+  return action;
+}
+
+/**
+ * Force highest/wettest questions onto district ranking — never monsoon APIs.
+ * Station-level "heaviest stations" → fetchStationWithMaxRainfall.
+ */
+function sanitizeRankingAction(action, question = "") {
+  if (!action || typeof action !== "object") return action;
+  const q = String(question || "");
+  if (!isHighestRainfallQuestion(q) && !/\btop\s+\d+\s+wettest\b/i.test(q)) {
+    return action;
+  }
+
+  const wantsStations =
+    /\bstations?\b/i.test(q) ||
+    /\bheaviest\s+stations?\b/i.test(q) ||
+    /\bstation[- ]level\b/i.test(q);
+
+  if (wantsStations) {
+    const topNMatch = q.match(/\btop\s+(\d+)\b/i);
+    const limit = topNMatch
+      ? Math.max(1, Math.min(100, parseInt(topNMatch[1], 10)))
+      : 10;
+    action.module = "rainfall";
+    action.api_id = "fetch_station_with_max_rainfall";
+    action.method = "POST";
+    action.path = "/api/v1/fetchStationWithMaxRainfall";
+    action.post_filter = {};
+    action.post_process = null;
+    action.body = action.body || {};
+    action.body.limit = limit;
+    const day = parseExplicitDayFromQuestion(q);
+    if (day) {
+      action.body.startDate = day;
+      action.body.endDate = day;
+    } else if (/\byesterday\b/i.test(q)) {
+      action.body.startDate = yesterday();
+      action.body.endDate = yesterday();
+    } else if (
+      /\b(last\s+7\s+days|past\s+7\s+days|this\s+week|last\s+week)\b/i.test(q)
+    ) {
+      action.body.startDate = last7Start();
+      action.body.endDate = today();
+    } else if (!questionHasExplicitDate(q) || /\btoday\b/i.test(q)) {
+      action.body.startDate = today();
+      action.body.endDate = today();
+    } else {
+      // Relative phrase already handled elsewhere — still ensure dates exist
+      if (!action.body.startDate) action.body.startDate = last7Start();
+      if (!action.body.endDate) action.body.endDate = today();
+    }
+    action.reason = `Heaviest stations (limit ${limit})`;
+    return action;
+  }
+
+  const wantsStates = /\bstates?\b/i.test(q) && !/\bdistricts?\b/i.test(q);
+  const topNMatch = q.match(/\btop\s+(\d+)\b/i);
+  const limit = topNMatch
+    ? Math.max(1, Math.min(50, parseInt(topNMatch[1], 10)))
+    : /\b(highest|max(?:imum)?)\b/i.test(q)
+      ? 5
+      : 10;
+
+  action.module = "rainfall";
+  action.api_id = wantsStates ? "fetch_state_data" : "fetch_district_data";
+  action.method = "POST";
+  action.path = wantsStates
+    ? "/api/v1/fetchStateData"
+    : "/api/v1/fetchDistrictData";
+  action.post_filter = {};
+  action.post_process = {
+    type: "rank_by_actual",
+    limit,
+    order: "desc",
+  };
+  action.body = action.body || {};
+
+  const day = parseExplicitDayFromQuestion(q);
+  if (day) {
+    action.body.startDate = day;
+    action.body.endDate = day;
+  } else if (/\byesterday\b/i.test(q)) {
+    action.body.startDate = yesterday();
+    action.body.endDate = yesterday();
+  } else if (/\btoday\b/i.test(q) || !questionHasExplicitDate(q)) {
+    action.body.startDate = today();
+    action.body.endDate = today();
+  }
+
+  action.reason = `Highest/wettest rainfall ranking (limit ${limit})`;
+  return action;
+}
+
+/**
+ * Nationwide / list threshold questions ("districts with rainfall above 50 mm").
+ */
+function isThresholdListQuestion(question) {
+  const q = String(question || "");
+  if (!q.trim()) return false;
+  const hasThreshold =
+    /\b(above|over|greater\s+than|more\s+than|at\s+least|>=?)\s*\d+(\.\d+)?\s*(mm)?\b/i.test(
+      q
+    ) ||
+    (/\b\d+(\.\d+)?\s*mm\b/i.test(q) &&
+      /\b(above|over|greater|more|at\s+least)\b/i.test(q));
+  if (!hasThreshold) return false;
+  return (
+    /\b(districts?|states?|blocks?|subdivisions?|regions?)\b/i.test(q) ||
+    /\b(list|show|find|which|any)\b/i.test(q)
+  );
+}
+
+/**
+ * Force threshold list questions onto fetch_district_data + filter_by_actual_min.
+ * Avoids monsoon mis-routes when user replies "All-India".
+ */
+function sanitizeThresholdAction(action, question = "") {
+  if (!action || typeof action !== "object") return action;
+  const q = String(question || "");
+  const minMm = extractThresholdMm(q);
+  const thresholdQ = isThresholdListQuestion(q) || minMm != null;
+
+  // Standalone "all-india" replies after a clarify are handled in chatService via context.
+  if (!thresholdQ && minMm == null) return action;
+
+  if (!thresholdQ) return action;
+
+  const wantsStates = /\bstates?\b/i.test(q) && !/\bdistricts?\b/i.test(q);
+  action.module = "rainfall";
+  action.api_id = wantsStates ? "fetch_state_data" : "fetch_district_data";
+  action.method = "POST";
+  action.path = wantsStates
+    ? "/api/v1/fetchStateData"
+    : "/api/v1/fetchDistrictData";
+  action.post_filter = action.post_filter || {};
+  // Nationwide unless a specific place was named
+  if (
+    /\b(all[- ]?india|whole\s+india|pan[- ]?india|across\s+india|entire\s+india|country)\b/i.test(
+      q
+    ) ||
+    (!extractCategoriesFromQuestion(q).length &&
+      !action.post_filter.district_name &&
+      !action.post_filter.state_name)
+  ) {
+    // Keep empty for all-India list; strip bogus place filters from LLM
+    if (
+      /\b(all[- ]?india|whole\s+india|pan[- ]?india|across\s+india|entire\s+india|country|list\s+districts?|districts?\s+with)\b/i.test(
+        q
+      )
+    ) {
+      delete action.post_filter.district_name;
+      delete action.post_filter.state_name;
+      delete action.post_filter.state_names;
+      delete action.post_filter.name;
+    }
+  }
+
+  const mm = minMm != null ? minMm : Number(action.post_process?.min_mm) || 50;
+  action.post_process = {
+    type: "filter_by_actual_min",
+    min_mm: mm,
+  };
+
+  // No explicit date → look back 30 days so matches include their dates
+  if (!questionHasExplicitDate(q)) {
+    action.body = action.body || {};
+    action.body.startDate = last30Start();
+    action.body.endDate = today();
+  }
+
+  return action;
+}
+
+/**
+ * Day-wise districts/states at/above threshold, each row includes `date`.
+ */
+async function fetchThresholdRowsDaywise({
+  level = "district",
+  startDate,
+  endDate,
+  minMm,
+  postFilter = {},
+}) {
+  const start = startDate || last30Start();
+  const end = endDate || today();
+  const min = Number(minMm);
+  if (!Number.isFinite(min)) return { rows: [], usedDate: `${start} to ${end}` };
+
+  if (level === "state") {
+    const params = [start, end, min];
+    let stateClause = "";
+    if (postFilter.state_name) {
+      params.push(postFilter.state_name);
+      stateClause = ` AND LOWER(ndd.state_name) = LOWER($${params.length}) `;
+    }
+    const result = await client.query(
+      `
+      SELECT
+        TO_CHAR(dd.from_date, 'YYYY-MM-DD') AS date,
+        ndd.state_name,
+        ROUND(AVG(dd.actual)::numeric, 2) AS actual,
+        ROUND(AVG(dd.departure)::numeric, 2) AS departure
+      FROM public.district_data dd
+      JOIN public.normal_district_details ndd
+        ON ndd.district_code = dd.district_id
+      WHERE dd.from_date = dd.to_date
+        AND dd.from_date BETWEEN $1 AND $2
+        AND dd.actual IS NOT NULL
+        AND dd.actual >= $3
+        AND dd.actual < 999
+        ${stateClause}
+      GROUP BY dd.from_date, ndd.state_name
+      HAVING AVG(dd.actual) >= $3
+      ORDER BY dd.from_date DESC, AVG(dd.actual) DESC
+      LIMIT 500
+      `,
+      params
+    );
+    return {
+      rows: result.rows,
+      usedDate: start === end ? start : `${start} to ${end}`,
+      note: `Day-wise state rainfall ≥ ${min} mm from ${start} to ${end}.`,
+    };
+  }
+
+  const params = [start, end, min];
+  const clauses = [];
+  if (postFilter.district_name) {
+    params.push(postFilter.district_name);
+    clauses.push(`LOWER(ndd.district_name) = LOWER($${params.length})`);
+  }
+  if (postFilter.state_name) {
+    params.push(postFilter.state_name);
+    clauses.push(`LOWER(ndd.state_name) = LOWER($${params.length})`);
+  }
+  const extra = clauses.length ? ` AND ${clauses.join(" AND ")} ` : "";
+
+  const result = await client.query(
+    `
+    SELECT DISTINCT ON (dd.from_date, ndd.district_code)
+      TO_CHAR(dd.from_date, 'YYYY-MM-DD') AS date,
+      ndd.district_name,
+      ndd.state_name,
+      ROUND(dd.actual::numeric, 2) AS actual,
+      ROUND(dd.departure::numeric, 2) AS departure
+    FROM public.district_data dd
+    JOIN public.normal_district_details ndd
+      ON ndd.district_code = dd.district_id
+    WHERE dd.from_date = dd.to_date
+      AND dd.from_date BETWEEN $1 AND $2
+      AND dd.actual IS NOT NULL
+      AND dd.actual >= $3
+      AND dd.actual < 999
+      ${extra}
+    ORDER BY dd.from_date DESC, ndd.district_code, dd.actual DESC
+    LIMIT 500
+    `,
+    params
+  );
+
+  return {
+    rows: result.rows.sort((a, b) => {
+      const d = String(b.date).localeCompare(String(a.date));
+      if (d !== 0) return d;
+      return Number(b.actual) - Number(a.actual);
+    }),
+    usedDate: start === end ? start : `${start} to ${end}`,
+    note: `Day-wise district rainfall ≥ ${min} mm from ${start} to ${end} (each row includes its date).`,
+  };
+}
+
 function applyPostProcess(rows, postProcess) {
   if (!postProcess || !Array.isArray(rows)) return rows;
+
   if (postProcess.type === "filter_by_departure_category") {
     const wanted = (postProcess.categories || [])
       .map(normalizeCategoryName)
@@ -261,7 +750,119 @@ function applyPostProcess(rows, postProcess) {
       }))
       .filter((r) => wanted.includes(r.category));
   }
+
+  if (postProcess.type === "rank_by_actual") {
+    const limit = Math.max(1, parseInt(postProcess.limit, 10) || 10);
+    const order = String(postProcess.order || "desc").toLowerCase() === "asc"
+      ? "asc"
+      : "desc";
+    const scored = rows
+      .map((r) => ({
+        ...r,
+        _rank_actual: Number(
+          r.actual ?? r.actual_rainfall ?? r.rainfall ?? r.avg_actual ?? NaN
+        ),
+      }))
+      .filter((r) => Number.isFinite(r._rank_actual) && r._rank_actual < 999);
+    scored.sort((a, b) =>
+      order === "asc"
+        ? a._rank_actual - b._rank_actual
+        : b._rank_actual - a._rank_actual
+    );
+    return scored.slice(0, limit).map(({ _rank_actual, ...rest }) => rest);
+  }
+
+  if (postProcess.type === "filter_by_actual_min") {
+    const minMm = Number(postProcess.min_mm);
+    if (!Number.isFinite(minMm)) return rows;
+    return rows.filter((r) => {
+      const actual = Number(
+        r.actual ?? r.actual_rainfall ?? r.rainfall ?? r.avg_actual ?? NaN
+      );
+      return Number.isFinite(actual) && actual >= minMm && actual < 999;
+    });
+  }
+
+  if (postProcess.type === "filter_by_monsoon_activity") {
+    const wanted = (postProcess.activities || [])
+      .map((a) => String(a || "").trim().toLowerCase())
+      .filter(Boolean);
+    if (!wanted.length) return rows;
+    return rows.filter((r) =>
+      wanted.includes(String(r.activity || "").trim().toLowerCase())
+    );
+  }
+
+  if (postProcess.type === "filter_by_spatial_category") {
+    const wanted = (postProcess.categories || [])
+      .map((a) => String(a || "").trim().toLowerCase())
+      .filter(Boolean);
+    if (!wanted.length) return rows;
+    return rows.filter((r) => {
+      const cat = String(r.category || r.spatial || "").trim().toLowerCase();
+      return wanted.includes(cat);
+    });
+  }
+
   return rows;
+}
+
+/**
+ * Flatten monsoon activity keyed objects into row arrays for filtering/answers.
+ */
+function normalizeApiRows(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return data;
+
+  const values = Object.values(data);
+  if (!values.length) return [];
+
+  // Monsoon today: { "12": { name, activity, ... }, ... }
+  if (
+    values.every(
+      (v) =>
+        v &&
+        typeof v === "object" &&
+        !Array.isArray(v) &&
+        (v.activity != null || (v.name != null && v.days == null))
+    )
+  ) {
+    return Object.entries(data).map(([code, row]) => ({
+      code,
+      subdiv_name: row.name,
+      district_name: row.name,
+      ...row,
+    }));
+  }
+
+  // Monsoon history: { "12": { name, days: [...] }, ... }
+  if (
+    values.every(
+      (v) =>
+        v &&
+        typeof v === "object" &&
+        !Array.isArray(v) &&
+        Array.isArray(v.days)
+    )
+  ) {
+    return Object.entries(data).map(([code, row]) => ({
+      code,
+      name: row.name,
+      subdiv_name: row.name,
+      district_name: row.name,
+      days: row.days,
+    }));
+  }
+
+  return data;
+}
+
+function normalizeQuery(query = {}) {
+  const out = {};
+  for (const [k, v] of Object.entries(query || {})) {
+    out[k] = typeof v === "string" ? replaceDateTokens(v) : v;
+  }
+  return out;
 }
 
 function questionHasExplicitDate(question) {
@@ -451,13 +1052,23 @@ function sanitizeRainfallAction(action, question = "") {
   }
 
   // Question text is source of truth for category intent (LLM often drops or invents it)
+  // Do not overwrite ranking / threshold / monsoon / spatial post_process types.
+  const keepPostProcess =
+    postProcess &&
+    [
+      "rank_by_actual",
+      "filter_by_actual_min",
+      "filter_by_monsoon_activity",
+      "filter_by_spatial_category",
+    ].includes(postProcess.type);
+
   const fromQuestion = extractCategoriesFromQuestion(question);
-  if (fromQuestion.length) {
+  if (!keepPostProcess && fromQuestion.length) {
     postProcess = {
       type: "filter_by_departure_category",
       categories: fromQuestion,
     };
-  } else if (collected.length) {
+  } else if (!keepPostProcess && collected.length) {
     postProcess = {
       type: "filter_by_departure_category",
       categories: collected,
@@ -501,7 +1112,31 @@ function sanitizeDatesFromQuestion(action, question) {
   if (!action || typeof action !== "object") return action;
   if (!action.body || typeof action.body !== "object") action.body = {};
 
+  const finish = () => {
+    const apiId = String(action.api_id || "");
+    if (apiId.startsWith("get_monsoon_activity")) {
+      action.body.date =
+        action.body.date || action.body.endDate || action.body.startDate || today();
+    }
+    if (apiId.startsWith("get_spatial_distribution")) {
+      action.query = action.query || {};
+      if (!action.query.startDate && !action.query.endDate) {
+        action.query.startDate = action.body.startDate || today();
+        action.query.endDate = action.body.endDate || action.query.startDate;
+      }
+    }
+    return action;
+  };
+
   const q = String(question || "");
+
+  // Explicit calendar day in the question always wins (e.g. "25th July")
+  const explicitDay = parseExplicitDayFromQuestion(q);
+  if (explicitDay) {
+    action.body.startDate = explicitDay;
+    action.body.endDate = explicitDay;
+    return finish();
+  }
   const hasAbsoluteCalendar =
     /\b\d{4}-\d{2}-\d{2}\b/.test(q) ||
     /\b\d{1,2}[-/]\d{1,2}([-/]\d{2,4})?\b/.test(q) ||
@@ -516,32 +1151,41 @@ function sanitizeDatesFromQuestion(action, question) {
     );
 
   if (!questionHasExplicitDate(q)) {
+    // Threshold lists without a date → look back 30 days (day-wise rows include dates)
+    if (
+      isThresholdListQuestion(q) ||
+      action.post_process?.type === "filter_by_actual_min"
+    ) {
+      action.body.startDate = last30Start();
+      action.body.endDate = today();
+      return finish();
+    }
     action.body.startDate = today();
     action.body.endDate = today();
-    return action;
+    return finish();
   }
 
   if (!hasAbsoluteCalendar) {
     if (/\byesterday\b/i.test(q)) {
       action.body.startDate = yesterday();
       action.body.endDate = yesterday();
-      return action;
+      return finish();
     }
     if (/\b(last\s+7\s+days|past\s+7\s+days|this\s+week)\b/i.test(q)) {
       action.body.startDate = last7Start();
       action.body.endDate = today();
-      return action;
+      return finish();
     }
     if (/\bthis\s+month\b/i.test(q) || /\bmonthly\b/i.test(q)) {
       action.body.startDate = moment().startOf("month").format("YYYY-MM-DD");
       action.body.endDate = today();
-      return action;
+      return finish();
     }
     if (/\blast\s+month\b/i.test(q)) {
       const start = moment().subtract(1, "month").startOf("month");
       action.body.startDate = start.format("YYYY-MM-DD");
       action.body.endDate = start.clone().endOf("month").format("YYYY-MM-DD");
-      return action;
+      return finish();
     }
     // Historical / seasonal / monsoon-to-date → SW monsoon season start → today
     if (
@@ -552,16 +1196,16 @@ function sanitizeDatesFromQuestion(action, question) {
     ) {
       action.body.startDate = seasonStart();
       action.body.endDate = today();
-      return action;
+      return finish();
     }
     if (/\btoday\b/i.test(q)) {
       action.body.startDate = today();
       action.body.endDate = today();
-      return action;
+      return finish();
     }
   }
 
-  return action;
+  return finish();
 }
 
 function roundNum(value, digits = 1) {
@@ -768,24 +1412,59 @@ async function executeApiAction(action) {
   const url = `${apiBase}${path}`;
 
   const body = method === "POST" ? normalizeBody(action.body || {}) : undefined;
-  const query = action.query || {};
+  const query = normalizeQuery(action.query || {});
+
+  // Threshold lists: day-wise DB rows with dates (not single-day aggregate API)
+  if (
+    action.post_process?.type === "filter_by_actual_min" &&
+    (apiId === "fetch_district_data" || apiId === "fetch_state_data")
+  ) {
+    const tw = await fetchThresholdRowsDaywise({
+      level: apiId === "fetch_state_data" ? "state" : "district",
+      startDate: body?.startDate,
+      endDate: body?.endDate,
+      minMm: action.post_process.min_mm,
+      postFilter: action.post_filter || {},
+    });
+    return {
+      ok: true,
+      status: 200,
+      request: {
+        method: "DAYWISE_THRESHOLD",
+        url: null,
+        body,
+        query: {},
+      },
+      raw: { success: true, data: tw.rows },
+      data: tw.rows,
+      note: tw.note,
+      usedDate: tw.usedDate,
+      category_miss: null,
+    };
+  }
 
   const response = await axios({
     method,
     url,
     data: body,
     params: query,
-    timeout: 60000,
+    timeout: 120000,
     validateStatus: () => true,
   });
 
   let data = response.data?.data ?? response.data;
+  data = normalizeApiRows(data);
   let note = null;
   let categoryMiss = null;
   let usedDate =
     body?.startDate && body?.endDate && body.startDate !== body.endDate
       ? `${body.startDate} to ${body.endDate}`
-      : body?.startDate || null;
+      : body?.startDate ||
+        body?.date ||
+        (query.startDate && query.endDate && query.startDate !== query.endDate
+          ? `${query.startDate} to ${query.endDate}`
+          : query.startDate || query.date) ||
+        null;
 
   if (Array.isArray(data)) {
     data = applyPostFilter(data, action.post_filter || {});
@@ -895,14 +1574,23 @@ module.exports = {
   today,
   yesterday,
   last7Start,
+  last30Start,
   seasonStart,
   replaceDateTokens,
   getDepartureCategory,
   normalizeBody,
   sanitizeRainfallAction,
+  sanitizeThresholdAction,
+  sanitizeRankingAction,
+  sanitizeCompareAction,
   sanitizeDatesFromQuestion,
   applyMonthRangeFromQuestion,
   extractCategoriesFromQuestion,
+  extractThresholdMm,
+  isThresholdListQuestion,
+  isHighestRainfallQuestion,
+  isCompareQuestion,
+  parseExplicitDayFromQuestion,
   questionHasExplicitDate,
   hasClearCategoryPeriod,
   extractBareMonthMention,

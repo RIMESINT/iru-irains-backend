@@ -1,11 +1,11 @@
 const client = require("../connection");
 const {
-    validateOfficerFields,
     calcModeLabel,
     extractUserFromRequest,
     logCalcModePageAccess,
     logCalcModeToggle,
 } = require("../utils/activityLogger");
+const { resolveOfficerIdentity } = require("../utils/officerPassKey");
 const { broadcastPageStateChanged } = require("../utils/adminRealtime");
 const { fetchCalcModeState, CALC_MODE_ROUTE } = require("../utils/calcModeState");
 
@@ -27,11 +27,15 @@ exports.getMode = async (req, res) => {
 };
 
 // POST /api/v1/calculations-mode/officer-access
-// Officer Identification modal — save when user clicks Continue
+// Officer Identification modal — pass_key + remark, or full officer details
 exports.recordOfficerAccess = async (req, res) => {
     try {
-        const err = validateOfficerFields(req.body);
-        if (err) return res.status(400).json({ success: false, message: err });
+        const resolved = await resolveOfficerIdentity(req.body, {
+            requireRemarkWithPassKey: true,
+        });
+        if (resolved.error) {
+            return res.status(400).json({ success: false, message: resolved.error });
+        }
 
         const state = await fetchCalcModeState();
         await logCalcModePageAccess(req, state.use_aws_label);
@@ -39,6 +43,18 @@ exports.recordOfficerAccess = async (req, res) => {
         res.status(200).json({
             success: true,
             message: "Officer access recorded",
+            officer: resolved.officer
+                ? {
+                      emp_name: resolved.officer.emp_name,
+                      emp_designation: resolved.officer.emp_designation,
+                      emp_phone_number: resolved.officer.emp_phone_number,
+                      emp_email: resolved.officer.emp_email,
+                      login_id: resolved.officer.login_id,
+                      mcorhq_type: resolved.officer.mcorhq_type,
+                      pass_key: resolved.officer.pass_key,
+                  }
+                : extractUserFromRequest(req),
+            remark: req.body.remark?.trim() || null,
             ...state,
         });
     } catch (error) {

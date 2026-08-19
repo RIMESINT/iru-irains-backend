@@ -524,13 +524,17 @@ function findLocationTypoInQuestion(question, master, { minScore = 0.72 } = {}) 
   if (!q || !master) return null;
 
   // Threshold / listing questions without a place cue should not invent a district
-  // ("any district that has more than 40mm" must not become "Thane").
+  // ("any district that has more than 40mm" / "rainfall above 50 mm" must not become a place).
   const looksLikeThresholdQuery =
     /\b(more|less|greater|higher|lower|above|below|over|under|at\s+least|at\s+most)\s+than\b/i.test(
       q
     ) ||
     /\b(more|less|greater|higher|above|below|over)\s+than\s+\d+/i.test(q) ||
-    /\b(any|which|list|find|show)\s+districts?\b/i.test(q);
+    /\b(above|over|greater\s+than|more\s+than|at\s+least|>=?)\s*\d+(\.\d+)?\s*(mm)?\b/i.test(
+      q
+    ) ||
+    /\b(any|which|list|find|show)\s+districts?\b/i.test(q) ||
+    /\bdistricts?\s+with\s+rainfall\b/i.test(q);
   const hasPlaceCue =
     LOCATION_PREP.test(q) ||
     LOCATION_LOOSE.test(scrubCategoryPhrases(q)) ||
@@ -1163,10 +1167,22 @@ async function runPostPlanLocationClarifications(question, action) {
       return null;
     }
 
+    // Rankings / threshold lists are all-India by default (no place required)
+    const isRankingOrThreshold =
+      /\b(top\s+\d+|wettest|highest|rankings?)\b/i.test(q) ||
+      /\b(above|over|greater\s+than|more\s+than|at\s+least|>=?)\s*\d+(\.\d+)?\s*(mm)?\b/i.test(
+        q
+      ) ||
+      /\bdistricts?\s+with\s+rainfall\b/i.test(q);
+    if (isRankingOrThreshold && asksAllAreas) {
+      return null;
+    }
+
     if (
       isRainfallDataQuestion(q) &&
       !extractMentionedLocation(q) &&
-      !/\b(all[- ]?india|country|india|pan[- ]?india|all states)\b/i.test(q)
+      !/\b(all[- ]?india|country|india|pan[- ]?india|all states|whole\s+india)\b/i.test(q) &&
+      !isRankingOrThreshold
     ) {
       return buildClarifyResponse({
         type: "ambiguous_location",

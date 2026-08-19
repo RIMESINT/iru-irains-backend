@@ -12,9 +12,13 @@ const {
   today,
   replaceDateTokens,
   sanitizeRainfallAction,
+  sanitizeThresholdAction,
+  sanitizeRankingAction,
+  sanitizeCompareAction,
   sanitizeDatesFromQuestion,
   applyMonthRangeFromQuestion,
   extractCategoriesFromQuestion,
+  isThresholdListQuestion,
 } = require("./apiExecutor");
 const {
   runPreChatClarifications,
@@ -24,17 +28,24 @@ const {
 function buildPlannerSystemPrompt(catalogMarkdown) {
   return `You are an API planner for IRAINS.
 Read the API catalog and map the user question to ONE action.
-- Rainfall / data questions → module "rainfall" + an allowed api_id
-- "Where is…" / "Open…" product/menu questions → module "navigation" with product_name + route_path
-- CRITICAL: If the user only says "map" / "maps" / "show map" / "open map" without naming which product, do NOT pick a default map. Return module "navigation", api_id "resolve_product_route", product_name null, route_path null, and reason "ambiguous_map".
-- CRITICAL category rule: if the user asks Large Excess / Excess / Deficient / Large Deficient / No Rain for a place, use fetch_district_data (or fetch_state_data for a state), keep post_filter for the place name, and set post_process.filter_by_departure_category with that category. NEVER invent a date range from catalog examples (e.g. do not copy 2026-07-01 to 2026-07-15 unless the user said those dates).
-- If the user names no date for a category question, still use TODAY tokens (the backend may clarify).
+- Rainfall / rankings / threshold / coverage / AWS-inclusive / range-stats → matching allowed api_id
+- Spatial → get_spatial_distribution_data*; Monsoon activity labels → get_monsoon_activity*
+- "Where is…" / "Open…" → navigation + product_name + route_path
+- CRITICAL: bare "map"/"maps" without a product → navigation with null route, reason "ambiguous_map"
+- CRITICAL category rule: Large Excess/Excess/Deficient/Large Deficient/No Rain → fetch_district_data (or state) + post_process.filter_by_departure_category. Never copy example date ranges unless the user said them.
+- Compare state A vs B (e.g. "Compare Tamil Nadu vs Kerala in June") → fetch_state_data + post_filter.state_names: [A, B] + month/date range. NEVER monsoon or all-district dumps for compare.
+- Heaviest/wettest stations → fetch_station_with_max_rainfall with body.limit (and dates).
+- Threshold above X mm → filter_by_actual_min; no date → LAST_30_START→TODAY day-wise with dates; all-India needs no place.
+- Highest rainfall on a date (e.g. 25th July) → fetch_district_data + rank_by_actual. NEVER monsoon.
+- IMD+AWS rainfall → fetch_*_data_with_aws; "IMD or AWS mode?" → get_calculations_mode
+- Missing stations / MC chase-up → fetch_centre_station_summary or fetch_district_station_count
+- Period min/max/avg summary → fetch_*_range_statistics
+- Monsoon Weak/Active/Vigorous/Subdued ONLY when user asks monsoon activity — not for highest rainfall
 Return ONLY valid JSON matching the catalog contract.
-Use date tokens TODAY, YESTERDAY, LAST_7_START, SEASON_START when appropriate.
-CRITICAL date rule: if the user says "month of June", "during June", "in June", "for June", or any whole month name without a day number, set startDate to the 1st and endDate to the last day of that month (e.g. June → 2026-06-01 and 2026-06-30). NEVER use only the 1st for a whole-month question.
-Do not invent endpoints, api_id values, or routes.
+Use date tokens TODAY, YESTERDAY, LAST_7_START, LAST_30_START, SEASON_START when appropriate.
+CRITICAL date rule: whole month without a day → 1st to last day of that month. Never only the 1st.
+Do not invent endpoints or api_id values.
 api_id MUST be exactly one of: ${ALLOWED_API_IDS.join(", ")}
-Never invent ids like fetch_catalog_data — that is not an API.
 Do not include markdown.
 
 Current server date: ${today()}
@@ -66,6 +77,10 @@ Answer using ONLY the provided API JSON data.
 Be concise.
 Include actual mm, normal mm, and departure % when present.
 When startDate and endDate differ, say the full range (e.g. "from 2026-06-01 to 2026-06-30"), never a single day.
+For rankings (top wettest / highest), list places with actual mm in order.
+For threshold questions (above X mm), list matching places with actual mm AND the date of each row.
+For spatial distribution, state the category (Isolated / Scattered / Fairly Widespread / Widespread) and percentage when present.
+For monsoon activity, state Weak / Normal / Active / Vigorous / Subdued clearly with the place name.
 For navigation results, reply with the product name and route path clearly (e.g. "Open: Product Name → /route").
 If comparing multiple areas, summarize each side-by-side.
 If the user asked for a departure category (Large Excess, Excess, Deficient, Large Deficient, Normal, No Rain) and api_data_sample is empty, say that place/date was NOT in that category — do NOT say "data is not available".
@@ -140,6 +155,108 @@ function formatFallbackAnswer(question, action, apiResult) {
       })
       .join("; ");
     return `${notePrefix}For ${dateText}, found ${rows.length} area(s) in ${cats}. Examples: ${sample}.`;
+  }
+
+  if (action?.post_process?.type === "rank_by_actual") {
+    if (!rows.length) {
+      return `${notePrefix}No ranking data available for ${dateText}.`;
+    }
+    const limit = action.post_process.limit || rows.length;
+    const list = rows
+      .slice(0, limit)
+      .map((r, i) => {
+        const name =
+          r.district_name ||
+          r.state_name ||
+          r.subdiv_name ||
+          r.subdivision_name ||
+          r.block_name ||
+          r.region_name ||
+          r.station_name ||
+          r.name ||
+          "Area";
+        const actual = Number(
+          r.actual ?? r.actual_rainfall ?? r.rainfall ?? r.avg_actual ?? 0
+        );
+        return `${i + 1}. ${name} (${actual.toFixed(1)} mm)`;
+      })
+      .join("; ");
+    return `${notePrefix}Top wettest for ${dateText}: ${list}.`;
+  }
+
+  if (action?.post_process?.type === "filter_by_actual_min") {
+    const minMm = action.post_process.min_mm;
+    if (!rows.length) {
+      return `${notePrefix}No places with rainfall ≥ ${minMm} mm for ${dateText}.`;
+    }
+    const list = rows
+      .slice(0, 20)
+      .map((r) => {
+        const name =
+          r.district_name ||
+          r.state_name ||
+          r.subdiv_name ||
+          r.name ||
+          "Area";
+        const actual = Number(
+          r.actual ?? r.actual_rainfall ?? r.rainfall ?? 0
+        );
+        const d = r.date ? ` on ${r.date}` : "";
+        return `${name}${d} (${actual.toFixed(1)} mm)`;
+      })
+      .join("; ");
+    const more =
+      rows.length > 20 ? ` …and ${rows.length - 20} more.` : "";
+    return `${notePrefix}Places with ≥ ${minMm} mm (${dateText}): ${list}.${more}`;
+  }
+
+  if (
+    action?.post_process?.type === "filter_by_monsoon_activity" ||
+    String(action?.api_id || "").startsWith("get_monsoon_activity")
+  ) {
+    if (!rows.length) {
+      return `${notePrefix}No monsoon activity rows for ${dateText}.`;
+    }
+    const list = rows
+      .slice(0, 12)
+      .map((r) => {
+        const name =
+          r.name || r.subdiv_name || r.district_name || r.code || "Area";
+        if (Array.isArray(r.days) && r.days.length) {
+          const recent = r.days
+            .slice(-3)
+            .map((d) => `${d.date}:${d.activity}`)
+            .join(", ");
+          return `${name} [${recent}]`;
+        }
+        return `${name}: ${r.activity || "n/a"} (spatial ${r.spatial || "n/a"})`;
+      })
+      .join("; ");
+    return `${notePrefix}Monsoon activity for ${dateText}: ${list}.`;
+  }
+
+  if (
+    String(action?.api_id || "").startsWith("get_spatial_distribution") ||
+    action?.post_process?.type === "filter_by_spatial_category"
+  ) {
+    if (!rows.length) {
+      return `${notePrefix}No spatial distribution data for ${dateText}.`;
+    }
+    const list = rows
+      .slice(0, 12)
+      .map((r) => {
+        const name =
+          r.subdivision_name ||
+          r.subdiv_name ||
+          r.state_name ||
+          r.name ||
+          "Area";
+        const pct =
+          r.percentage != null ? `${Number(r.percentage).toFixed(1)}%` : "n/a";
+        return `${name}: ${r.category || r.spatial || "n/a"} (${pct})`;
+      })
+      .join("; ");
+    return `${notePrefix}Spatial distribution for ${dateText}: ${list}.`;
   }
 
   if (!rows.length) {
@@ -390,7 +507,7 @@ function buildOutOfScopeResponse({
  * 2) Backend executes allowlisted API (or NAV)
  * 3) LLM (or fallback) formats answer
  */
-async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
+async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuestion = null } = {}) {
   const status = await isOllamaUp();
   if (!status.up) {
     const err = new Error(
@@ -401,13 +518,28 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
     throw err;
   }
 
+  // If user only replies with all-India / whole India after a prior threshold/list Q,
+  // merge into a full nationwide threshold question.
+  let effectiveQuestion = String(question || "").trim();
+  const prev = String(previousQuestion || "").trim();
+  if (
+    prev &&
+    /^(all[- ]?india|whole\s+india|pan[- ]?india|india|country|all)$/i.test(
+      effectiveQuestion
+    )
+  ) {
+    if (isThresholdListQuestion(prev) || extractCategoriesFromQuestion(prev).length) {
+      effectiveQuestion = `${prev} for all-India`;
+    }
+  }
+
   // Vague "map" → ask which map (do not default to one product)
-  if (isAmbiguousMapQuestion(question)) {
+  if (isAmbiguousMapQuestion(effectiveQuestion)) {
     return buildAmbiguousMapResponse({ model: null });
   }
 
   // Sample clarification layer: typos, invalid places, bad dates, mixed intent, ambiguity
-  const preClarify = await runPreChatClarifications(question);
+  const preClarify = await runPreChatClarifications(effectiveQuestion);
   let locationCorrection = null;
   if (preClarify) {
     if (preClarify.kind === "location_correction") {
@@ -422,7 +554,7 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
   // If we soft-corrected a place name, plan with the corrected question text.
   // Replace only whole-word place tokens so "chennai deficient" is not wiped.
   const planQuestion = (() => {
-    let raw = String(question || "")
+    let raw = String(effectiveQuestion || "")
       .replace(/\bconfirmed_rainfall_mm\b/gi, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -456,12 +588,19 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
     });
   }
 
-  action = enrichNavigationAction(action, question);
+  action = enrichNavigationAction(action, effectiveQuestion);
   action = resolveActionDateTokens(action);
-  // Use original question for category heal so typo rewrites cannot drop "deficient"
-  action = sanitizeRainfallAction(action, question);
-  action = applyMonthRangeFromQuestion(action, question);
+  // Use effective question for category/threshold/compare heal
+  action = sanitizeRainfallAction(action, effectiveQuestion);
+  action = sanitizeCompareAction(action, effectiveQuestion);
+  action = sanitizeThresholdAction(action, effectiveQuestion);
+  action = sanitizeRankingAction(action, effectiveQuestion);
+  action = applyMonthRangeFromQuestion(action, effectiveQuestion);
   action = sanitizeDatesFromQuestion(action, planQuestion);
+  // Re-apply after date sanitize so intent wins over monsoon mis-routes
+  action = sanitizeCompareAction(action, effectiveQuestion);
+  action = sanitizeThresholdAction(action, effectiveQuestion);
+  action = sanitizeRankingAction(action, effectiveQuestion);
   action = resolveActionDateTokens(action);
   action = normalizeApiAction(action);
 
@@ -469,7 +608,7 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
   if (
     (action.module === "navigation" || action.api_id === "resolve_product_route") &&
     !action.route_path &&
-    (action.reason === "ambiguous_map" || isAmbiguousMapQuestion(question))
+    (action.reason === "ambiguous_map" || isAmbiguousMapQuestion(effectiveQuestion))
   ) {
     return buildAmbiguousMapResponse({
       model: plan.model,
@@ -487,7 +626,7 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
   }
 
   // Post-plan location validation / fuzzy correction (do not invent places)
-  const postClarify = await runPostPlanLocationClarifications(question, action);
+  const postClarify = await runPostPlanLocationClarifications(effectiveQuestion, action);
   if (postClarify) {
     if (postClarify.kind === "location_correction") {
       locationCorrection = postClarify;
@@ -647,9 +786,14 @@ async function handleOllamaChat(question, { skipAnswerLlm = false } = {}) {
       note: apiResult.note || null,
       usedDate: apiResult.usedDate || null,
       category_miss: apiResult.category_miss || null,
+      // Cap payload size for chat UI; row_count keeps the full match total.
       data: Array.isArray(apiResult.data)
-        ? apiResult.data.slice(0, 50)
+        ? apiResult.data.slice(0, 200)
         : apiResult.data,
+      truncated:
+        Array.isArray(apiResult.data) && apiResult.data.length > 200
+          ? true
+          : false,
     },
   };
 }

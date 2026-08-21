@@ -197,8 +197,14 @@ function applyPostFilter(rows, postFilter = {}) {
         actual = row.subdiv_name || row.name;
       } else if (actual == null && key === "district_name") {
         actual = row.name;
+      } else if (actual == null && key === "station_name") {
+        actual = row.name || row.station;
       } else if (actual == null && key === "name") {
-        actual = row.subdiv_name || row.subdivision_name || row.district_name;
+        actual =
+          row.subdiv_name ||
+          row.subdivision_name ||
+          row.district_name ||
+          row.station_name;
       }
 
       if (actual == null) {
@@ -347,13 +353,14 @@ function isHighestRainfallQuestion(question) {
     return false;
   }
   return (
-    /\b(highest|wettest|max(?:imum)?|heaviest)\s+(rainfall|rain|precipitation|stations?)\b/i.test(
+    /\b(highest|wettest|max(?:imum)?|heaviest|heavy)\s+(rainfall|rain|precipitation|stations?)\b/i.test(
       q
     ) ||
-    /\b(rainfall|rain)\s+(received|recorded|observed).{0,40}\b(highest|max(?:imum)?)\b/i.test(
+    /\b(rainfall|rain)\s+(received|recorded|observed).{0,40}\b(highest|max(?:imum)?|heavy)\b/i.test(
       q
     ) ||
     /\b(highest|max(?:imum)?)\b.{0,40}\b(rainfall|rain)\b/i.test(q) ||
+    /\bheavy\s+rainfall\b/i.test(q) ||
     /\btop\s+\d+\s+wettest\b/i.test(q) ||
     /\bwettest\s+(districts?|states?|places?|blocks?|stations?)\b/i.test(q) ||
     /\bheaviest\s+(rain|rainfall|stations?)\b/i.test(q)
@@ -468,18 +475,34 @@ function sanitizeCompareAction(action, question = "") {
 }
 
 /**
- * Force highest/wettest questions onto district ranking — never monsoon APIs.
- * Station-level "heaviest stations" → fetchStationWithMaxRainfall.
+ * Force highest/wettest/heavy-rainfall questions onto ranking APIs — never monsoon.
+ * Station-level "heavy rainfall stations" → fetchStationWithMaxRainfall.
+ * Prefer meteorological wording "Heavy Rainfall" (not "Heaviest Rainfall").
  */
 function sanitizeRankingAction(action, question = "") {
   if (!action || typeof action !== "object") return action;
   const q = String(question || "");
-  if (!isHighestRainfallQuestion(q) && !/\btop\s+\d+\s+wettest\b/i.test(q)) {
+  if (
+    !isHighestRainfallQuestion(q) &&
+    !/\btop\s+\d+\s+wettest\b/i.test(q) &&
+    !/\bheavy\s+rainfall\b/i.test(q)
+  ) {
+    return action;
+  }
+
+  // Named place rainfall (not a ranking) — leave for place-level sanitizer
+  if (
+    /\bheavy\s+rainfall\b/i.test(q) &&
+    !/\b(stations?|districts?|states?|places?|top\s+\d+|highest|wettest|which|list)\b/i.test(
+      q
+    )
+  ) {
     return action;
   }
 
   const wantsStations =
     /\bstations?\b/i.test(q) ||
+    /\bheavy\s+rainfall\s+stations?\b/i.test(q) ||
     /\bheaviest\s+stations?\b/i.test(q) ||
     /\bstation[- ]level\b/i.test(q);
 
@@ -512,11 +535,10 @@ function sanitizeRankingAction(action, question = "") {
       action.body.startDate = today();
       action.body.endDate = today();
     } else {
-      // Relative phrase already handled elsewhere — still ensure dates exist
       if (!action.body.startDate) action.body.startDate = last7Start();
       if (!action.body.endDate) action.body.endDate = today();
     }
-    action.reason = `Heaviest stations (limit ${limit})`;
+    action.reason = `Heavy Rainfall stations (limit ${limit})`;
     return action;
   }
 
@@ -554,7 +576,7 @@ function sanitizeRankingAction(action, question = "") {
     action.body.endDate = today();
   }
 
-  action.reason = `Highest/wettest rainfall ranking (limit ${limit})`;
+  action.reason = `Highest/wettest / Heavy Rainfall ranking (limit ${limit})`;
   return action;
 }
 
@@ -1376,6 +1398,477 @@ function executeNavigationAction(action) {
 }
 
 /**
+ * Stations in a district for a date (or date range sum).
+ */
+async function queryStationsForDistrict(districtName, startDate, endDate) {
+  const name = String(districtName || "").trim();
+  if (!name || !startDate) return [];
+  const end = endDate || startDate;
+  const sameDay = startDate === end;
+  try {
+    const result = await client.query(
+      sameDay
+        ? `
+      SELECT ndd.district_name,
+             ndd.state_name,
+             sd.station_code,
+             sd.station_name,
+             TO_CHAR(sdd.collection_date, 'YYYY-MM-DD') AS date,
+             CASE
+               WHEN sdd.data IS NULL OR sdd.data = -999.9 THEN NULL
+               ELSE ROUND(sdd.data::numeric, 2)
+             END AS actual_rainfall,
+             sdd.data
+      FROM public.station_details sd
+      JOIN public.station_daily_data_updates sdd
+        ON sdd.station_id = sd.station_code
+      JOIN public.normal_district_details ndd
+        ON ndd.district_code = sdd.district_code
+      WHERE sdd.collection_date = $1::date
+        AND sd.flag != 0
+        AND LOWER(ndd.district_name) = LOWER($2)
+      ORDER BY sd.station_name
+      `
+        : `
+      SELECT ndd.district_name,
+             ndd.state_name,
+             sd.station_code,
+             sd.station_name,
+             $1::text || ' to ' || $2::text AS date,
+             ROUND(SUM(
+               CASE
+                 WHEN sdd.data IS NULL OR sdd.data = -999.9 THEN NULL
+                 ELSE sdd.data::numeric
+               END
+             ), 2) AS actual_rainfall
+      FROM public.station_details sd
+      JOIN public.station_daily_data_updates sdd
+        ON sdd.station_id = sd.station_code
+      JOIN public.normal_district_details ndd
+        ON ndd.district_code = sdd.district_code
+      WHERE sdd.collection_date BETWEEN $1::date AND $2::date
+        AND sd.flag != 0
+        AND LOWER(ndd.district_name) = LOWER($3)
+      GROUP BY ndd.district_name, ndd.state_name, sd.station_code, sd.station_name
+      ORDER BY sd.station_name
+      `,
+      sameDay ? [startDate, name] : [startDate, end, name]
+    );
+    return result.rows || [];
+  } catch (err) {
+    console.error("[ollamaChat] queryStationsForDistrict:", err.message);
+    return [];
+  }
+}
+
+/**
+ * One station by name for a date.
+ */
+async function queryStationByName(stationName, startDate, endDate) {
+  const name = String(stationName || "").trim();
+  if (!name || !startDate) return [];
+  const end = endDate || startDate;
+  try {
+    const result = await client.query(
+      `
+      SELECT ndd.district_name,
+             ndd.state_name,
+             sd.station_code,
+             sd.station_name,
+             TO_CHAR(sdd.collection_date, 'YYYY-MM-DD') AS date,
+             CASE
+               WHEN sdd.data IS NULL OR sdd.data = -999.9 THEN NULL
+               ELSE ROUND(sdd.data::numeric, 2)
+             END AS actual_rainfall,
+             sdd.data
+      FROM public.station_details sd
+      JOIN public.station_daily_data_updates sdd
+        ON sdd.station_id = sd.station_code
+      JOIN public.normal_district_details ndd
+        ON ndd.district_code = sdd.district_code
+      WHERE sdd.collection_date BETWEEN $1::date AND $2::date
+        AND sd.flag != 0
+        AND LOWER(sd.station_name) = LOWER($3)
+      ORDER BY sdd.collection_date DESC
+      LIMIT 30
+      `,
+      [startDate, end, name]
+    );
+    return result.rows || [];
+  } catch (err) {
+    console.error("[ollamaChat] queryStationByName:", err.message);
+    return [];
+  }
+}
+
+/**
+ * Same calendar date across previous years for a district (actual rainfall).
+ */
+async function fetchSameDateHistoryDistrict(districtName, monthDay, years = 5) {
+  const name = String(districtName || "").trim();
+  const md = String(monthDay || "").trim(); // MM-DD
+  if (!name || !/^\d{2}-\d{2}$/.test(md)) return [];
+  const rows = [];
+  const thisYear = moment().year();
+  for (let y = thisYear; y >= thisYear - years + 1; y -= 1) {
+    const date = `${y}-${md}`;
+    if (moment(date, "YYYY-MM-DD", true).isAfter(moment(), "day")) continue;
+    try {
+      const result = await client.query(
+        `
+        SELECT TO_CHAR(dd.from_date, 'YYYY-MM-DD') AS date,
+               ndd.district_name,
+               ndd.state_name,
+               ROUND(dd.actual::numeric, 2) AS actual,
+               ROUND(dd.actual::numeric, 2) AS actual_rainfall,
+               ROUND(dd.normal::numeric, 2) AS normal,
+               ROUND(dd.departure::numeric, 2) AS departure,
+               $2::int AS year
+        FROM public.district_data dd
+        JOIN public.normal_district_details ndd
+          ON ndd.district_code = dd.district_id
+        WHERE dd.from_date = dd.to_date
+          AND dd.from_date = $1::date
+          AND LOWER(ndd.district_name) = LOWER($3)
+        LIMIT 1
+        `,
+        [date, y, name]
+      );
+      if (result.rows?.[0]) {
+        rows.push({ ...result.rows[0], _level: "history" });
+      } else {
+        rows.push({
+          date,
+          year: y,
+          district_name: name,
+          actual: null,
+          actual_rainfall: null,
+          _level: "history",
+          note: "no data",
+        });
+      }
+    } catch (_) {
+      /* skip year */
+    }
+  }
+  return rows;
+}
+
+async function fetchSameDateHistoryStation(stationName, monthDay, years = 5) {
+  const name = String(stationName || "").trim();
+  const md = String(monthDay || "").trim();
+  if (!name || !/^\d{2}-\d{2}$/.test(md)) return [];
+  const rows = [];
+  const thisYear = moment().year();
+  for (let y = thisYear; y >= thisYear - years + 1; y -= 1) {
+    const date = `${y}-${md}`;
+    if (moment(date, "YYYY-MM-DD", true).isAfter(moment(), "day")) continue;
+    const dayRows = await queryStationByName(name, date, date);
+    if (dayRows[0]) {
+      rows.push({ ...dayRows[0], year: y, _level: "history" });
+    } else {
+      rows.push({
+        date,
+        year: y,
+        station_name: name,
+        actual_rainfall: null,
+        _level: "history",
+        note: "no data",
+      });
+    }
+  }
+  return rows;
+}
+
+function isSameDateHistoryQuestion(question) {
+  const q = String(question || "");
+  return (
+    /\b(same\s+date|same\s+day|previous\s+years?|past\s+years?|last\s+\d+\s+years?|histor(?:y|ical))\b/i.test(
+      q
+    ) &&
+    /\b(rainfall|rain)\b/i.test(q)
+  );
+}
+
+/**
+ * Named station → fetch_station_data; history → same_date_history post_process.
+ */
+function sanitizePlaceLevelAction(action, question = "") {
+  if (!action || typeof action !== "object") return action;
+  const q = String(question || "");
+
+  if (isSameDateHistoryQuestion(q)) {
+    action.post_process = {
+      ...(action.post_process || {}),
+      type: "same_date_history",
+      years: 5,
+    };
+    action.reason = action.reason || "Same-date rainfall for previous years";
+
+    // Ensure place filter from phrasing like "for Chennai district on 20 August"
+    if (!action.post_filter?.district_name && !action.post_filter?.station_name) {
+      const distM = q.match(
+        /\b(?:for|of)\s+([A-Za-z][A-Za-z\s&.']{1,40}?)\s+district\b/i
+      );
+      const stM = q.match(
+        /\b(?:for|of|at)\s+([A-Za-z][A-Za-z0-9\s&.']{1,40}?)\s+station\b/i
+      );
+      if (stM) {
+        action.post_filter = { ...(action.post_filter || {}), station_name: stM[1].trim() };
+        action.api_id = "fetch_station_data";
+        action.path = "/api/v1/fetchStationData";
+        action.method = "POST";
+      } else if (distM) {
+        action.post_filter = {
+          ...(action.post_filter || {}),
+          district_name: distM[1].trim(),
+        };
+        action.api_id = "fetch_district_data";
+        action.path = "/api/v1/fetchDistrictData";
+        action.method = "POST";
+      }
+    }
+
+    // Calendar day from "on 20 August" / "on August 20"
+    const day = parseExplicitDayFromQuestion(q);
+    if (day) {
+      action.body = action.body || {};
+      action.body.startDate = day;
+      action.body.endDate = day;
+      action.body.Date = day;
+    }
+  }
+
+  const stationCue =
+    /\bstation\b/i.test(q) &&
+    !/\b(stations?\s+(?:with|that|which|recorded|reported)|how many stations|missing stations|station count|station level data|station statistics)\b/i.test(
+      q
+    );
+
+  if (stationCue && !isHighestRainfallQuestion(q)) {
+    let stationName =
+      action.post_filter?.station_name ||
+      action.post_filter?.name ||
+      null;
+    if (!stationName) {
+      const m =
+        q.match(
+          /\b(?:at|for|of)\s+([A-Za-z][A-Za-z0-9\s&.']{1,40}?)\s+station\b/i
+        ) ||
+        q.match(
+          /\bstation\s+([A-Za-z][A-Za-z0-9\s&.']{1,40}?)(?:\s+(?:today|yesterday|rainfall|rain|on|for)\b|[?.!,]|$)/i
+        );
+      if (m) stationName = m[1].trim();
+    }
+    if (stationName) {
+      action.module = "rainfall";
+      action.api_id = "fetch_station_data";
+      action.method = "POST";
+      action.path = "/api/v1/fetchStationData";
+      action.post_filter = { station_name: stationName };
+      if (action.post_process?.type !== "same_date_history") {
+        action.post_process = null;
+      }
+      action.body = action.body || {};
+      if (!action.body.Date && action.body.startDate) {
+        action.body.Date = action.body.startDate;
+      }
+      action.reason = `Station rainfall for ${stationName}`;
+    }
+  }
+
+  return action;
+}
+
+/**
+ * Follow-up chips after a place-specific rainfall answer.
+ */
+function buildRelatedOptions({
+  placeName,
+  placeType = "district",
+  date = null,
+} = {}) {
+  const name = String(placeName || "").trim();
+  if (!name) return [];
+  const typeWord = placeType === "station" ? "station" : "district";
+  const refDate = date ? moment(date, "YYYY-MM-DD") : moment();
+  const dayLabel = refDate.isValid()
+    ? refDate.format("D MMMM")
+    : moment().format("D MMMM");
+  return [
+    {
+      label: "Previous few days",
+      value: `Rainfall for ${name} ${typeWord} for the last 7 days`,
+    },
+    {
+      label: "Same date in previous years",
+      value: `Historical rainfall for ${name} ${typeWord} on ${dayLabel} for previous years`,
+    },
+  ];
+}
+
+function extractRelatedPlaceContext(action, apiResult) {
+  if (!action || action.post_process?.type === "rank_by_actual") return null;
+  if (action.post_process?.type === "filter_by_actual_min") return null;
+  if (action.post_process?.type === "filter_by_departure_category") return null;
+
+  const station =
+    action.post_filter?.station_name ||
+    (Array.isArray(apiResult?.data) &&
+      apiResult.data.find((r) => r._level === "station")?.station_name);
+  const district =
+    action.post_filter?.district_name ||
+    (Array.isArray(apiResult?.data) &&
+      apiResult.data.find((r) => r._level === "district" || r.district_name)
+        ?.district_name);
+
+  const date =
+    apiResult?.usedDate && !String(apiResult.usedDate).includes(" to ")
+      ? apiResult.usedDate
+      : action.body?.startDate || action.body?.Date || today();
+
+  if (station && action.api_id === "fetch_station_data") {
+    return { placeName: station, placeType: "station", date };
+  }
+  if (district && action.api_id === "fetch_district_data") {
+    return { placeName: district, placeType: "district", date };
+  }
+  if (action.post_process?.type === "same_date_history") {
+    if (station) return { placeName: station, placeType: "station", date };
+    if (district) return { placeName: district, placeType: "district", date };
+  }
+  return null;
+}
+
+async function enrichDistrictWithStations(action, apiResult) {
+  if (action?.api_id !== "fetch_district_data") return apiResult;
+  if (action.post_process && action.post_process.type !== "same_date_history") {
+    return apiResult;
+  }
+  if (action.post_process?.type === "same_date_history") return apiResult;
+  const district = action.post_filter?.district_name;
+  if (!district) return apiResult;
+  if (!Array.isArray(apiResult?.data) || apiResult.data.length === 0) {
+    return apiResult;
+  }
+
+  const districtRows = apiResult.data.filter(
+    (r) => !r._level || r._level === "district"
+  );
+  if (!districtRows.length) return apiResult;
+  const start = action.body?.startDate || today();
+  const end = action.body?.endDate || start;
+  const stations = await queryStationsForDistrict(district, start, end);
+  const primary = {
+    ...districtRows[0],
+    _level: "district",
+  };
+  const stationRows = stations.map((s) => ({
+    ...s,
+    actual: s.actual_rainfall != null ? Number(s.actual_rainfall) : null,
+    _level: "station",
+  }));
+  return {
+    ...apiResult,
+    ok: apiResult.ok !== false,
+    data: [primary, ...stationRows],
+    place_level: "district",
+    stations_count: stationRows.length,
+  };
+}
+
+async function resolveStationOrHistoryResult(action, apiResult) {
+  const body = action.body || {};
+  const start = body.startDate || body.Date || today();
+  const end = body.endDate || start;
+
+  if (action.post_process?.type === "same_date_history") {
+    const md = moment(start, "YYYY-MM-DD").format("MM-DD");
+    const years = Math.max(
+      2,
+      Math.min(10, parseInt(action.post_process.years, 10) || 5)
+    );
+    if (action.post_filter?.station_name) {
+      const rows = await fetchSameDateHistoryStation(
+        action.post_filter.station_name,
+        md,
+        years
+      );
+      return {
+        ok: true,
+        status: 200,
+        request: apiResult?.request || null,
+        raw: { success: true, data: rows },
+        data: rows,
+        note: `Same calendar date (${md}) for the last ${years} years (station).`,
+        usedDate: md,
+        category_miss: null,
+        place_level: "station",
+      };
+    }
+    const district = action.post_filter?.district_name;
+    if (district) {
+      const rows = await fetchSameDateHistoryDistrict(district, md, years);
+      return {
+        ok: true,
+        status: 200,
+        request: apiResult?.request || null,
+        raw: { success: true, data: rows },
+        data: rows,
+        note: `Same calendar date (${md}) for the last ${years} years (district).`,
+        usedDate: md,
+        category_miss: null,
+        place_level: "district",
+      };
+    }
+  }
+
+  if (action.api_id === "fetch_station_data") {
+    const stationName = action.post_filter?.station_name;
+    if (stationName) {
+      const rows = await queryStationByName(stationName, start, end);
+      const mapped = rows.map((r) => ({
+        ...r,
+        actual: r.actual_rainfall != null ? Number(r.actual_rainfall) : null,
+        _level: "station",
+      }));
+      if (
+        mapped.length ||
+        !Array.isArray(apiResult?.data) ||
+        !apiResult.data.length
+      ) {
+        return {
+          ok: true,
+          status: 200,
+          request: apiResult?.request || {
+            method: "POST",
+            url: null,
+            body,
+            query: {},
+          },
+          raw: { success: true, data: mapped },
+          data: mapped,
+          note: mapped.length
+            ? null
+            : `No station rainfall found for ${stationName} on ${
+                start === end ? start : `${start} to ${end}`
+              }.`,
+          usedDate: start === end ? start : `${start} to ${end}`,
+          category_miss: null,
+          place_level: "station",
+        };
+      }
+      const filtered = applyPostFilter(apiResult.data, {
+        station_name: stationName,
+      }).map((r) => ({ ...r, _level: "station" }));
+      return { ...apiResult, data: filtered, place_level: "station" };
+    }
+  }
+
+  return apiResult;
+}
+
+/**
  * Execute one allowlisted API action decided by the LLM.
  */
 async function executeApiAction(action) {
@@ -1413,6 +1906,24 @@ async function executeApiAction(action) {
 
   const body = method === "POST" ? normalizeBody(action.body || {}) : undefined;
   const query = normalizeQuery(action.query || {});
+
+  // Station / same-date history: resolve from DB (avoid all-India station dump)
+  if (
+    action.post_process?.type === "same_date_history" ||
+    apiId === "fetch_station_data"
+  ) {
+    action.body = body || action.body || {};
+    return resolveStationOrHistoryResult(action, {
+      ok: true,
+      status: 200,
+      request: { method, url, body, query },
+      raw: null,
+      data: [],
+      note: null,
+      usedDate: null,
+      category_miss: null,
+    });
+  }
 
   // Threshold lists: day-wise DB rows with dates (not single-day aggregate API)
   if (
@@ -1557,7 +2068,7 @@ async function executeApiAction(action) {
     }
   }
 
-  return {
+  let result = {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
     request: { method, url, body, query },
@@ -1567,6 +2078,9 @@ async function executeApiAction(action) {
     usedDate,
     category_miss: categoryMiss,
   };
+
+  result = await enrichDistrictWithStations(action, result);
+  return result;
 }
 
 module.exports = {
@@ -1583,6 +2097,7 @@ module.exports = {
   sanitizeThresholdAction,
   sanitizeRankingAction,
   sanitizeCompareAction,
+  sanitizePlaceLevelAction,
   sanitizeDatesFromQuestion,
   applyMonthRangeFromQuestion,
   extractCategoriesFromQuestion,
@@ -1590,9 +2105,12 @@ module.exports = {
   isThresholdListQuestion,
   isHighestRainfallQuestion,
   isCompareQuestion,
+  isSameDateHistoryQuestion,
   parseExplicitDayFromQuestion,
   questionHasExplicitDate,
   hasClearCategoryPeriod,
   extractBareMonthMention,
   normalizeCategoryName,
+  buildRelatedOptions,
+  extractRelatedPlaceContext,
 };

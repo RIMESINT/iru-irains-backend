@@ -19,6 +19,9 @@ const {
   applyMonthRangeFromQuestion,
   extractCategoriesFromQuestion,
   isThresholdListQuestion,
+  sanitizePlaceLevelAction,
+  buildRelatedOptions,
+  extractRelatedPlaceContext,
 } = require("./apiExecutor");
 const {
   runPreChatClarifications,
@@ -34,7 +37,10 @@ Read the API catalog and map the user question to ONE action.
 - CRITICAL: bare "map"/"maps" without a product → navigation with null route, reason "ambiguous_map"
 - CRITICAL category rule: Large Excess/Excess/Deficient/Large Deficient/No Rain → fetch_district_data (or state) + post_process.filter_by_departure_category. Never copy example date ranges unless the user said them.
 - Compare state A vs B (e.g. "Compare Tamil Nadu vs Kerala in June") → fetch_state_data + post_filter.state_names: [A, B] + month/date range. NEVER monsoon or all-district dumps for compare.
-- Heaviest/wettest stations → fetch_station_with_max_rainfall with body.limit (and dates).
+- Heavy rainfall / wettest stations → fetch_station_with_max_rainfall with body.limit (and dates). Prefer the term "Heavy Rainfall" (never "Heaviest Rainfall").
+- Named station rainfall → fetch_station_data + post_filter.station_name (show that station only).
+- Named district rainfall → fetch_district_data + post_filter.district_name (backend also attaches stations in that district).
+- Same date in previous years / historical for a place → fetch_district_data or fetch_station_data with post_process.type same_date_history.
 - Threshold above X mm → filter_by_actual_min; no date → LAST_30_START→TODAY day-wise with dates; all-India needs no place.
 - Highest rainfall on a date (e.g. 25th July) → fetch_district_data + rank_by_actual. NEVER monsoon.
 - IMD+AWS rainfall → fetch_*_data_with_aws; "IMD or AWS mode?" → get_calculations_mode
@@ -77,8 +83,12 @@ Answer using ONLY the provided API JSON data.
 Be concise.
 Include actual mm, normal mm, and departure % when present.
 When startDate and endDate differ, say the full range (e.g. "from 2026-06-01 to 2026-06-30"), never a single day.
-For rankings (top wettest / highest), list places with actual mm in order.
+Use meteorological term "Heavy Rainfall" — never say "Heaviest Rainfall".
+For rankings (top wettest / highest / heavy rainfall stations), list places with actual mm in order.
+For a named district, state the district rainfall first, then list station rainfall values in that district when present in api_data_sample (_level station rows).
+For a named station, state only that station’s rainfall.
 For threshold questions (above X mm), list matching places with actual mm AND the date of each row.
+For same_date_history, list each year’s rainfall for that calendar date.
 For spatial distribution, state the category (Isolated / Scattered / Fairly Widespread / Widespread) and percentage when present.
 For monsoon activity, state Weak / Normal / Active / Vigorous / Subdued clearly with the place name.
 For navigation results, reply with the product name and route path clearly (e.g. "Open: Product Name → /route").
@@ -181,7 +191,80 @@ function formatFallbackAnswer(question, action, apiResult) {
         return `${i + 1}. ${name} (${actual.toFixed(1)} mm)`;
       })
       .join("; ");
-    return `${notePrefix}Top wettest for ${dateText}: ${list}.`;
+    return `${notePrefix}Heavy Rainfall / top wettest for ${dateText}: ${list}.`;
+  }
+
+  if (action?.post_process?.type === "same_date_history") {
+    if (!rows.length) {
+      return `${notePrefix}No historical same-date rainfall found.`;
+    }
+    const list = rows
+      .map((r) => {
+        const label = r.year || r.date || "";
+        const actual = r.actual ?? r.actual_rainfall;
+        const name =
+          r.station_name || r.district_name || r.name || "Place";
+        return actual == null
+          ? `${label}: ${name} (no data)`
+          : `${label}: ${name} (${Number(actual).toFixed(1)} mm)`;
+      })
+      .join("; ");
+    return `${notePrefix}Same-date history: ${list}.`;
+  }
+
+  // District + stations payload
+  const districtRows = rows.filter((r) => r._level === "district");
+  const stationRows = rows.filter((r) => r._level === "station");
+  if (districtRows.length === 1 && stationRows.length) {
+    const d = districtRows[0];
+    const dName = d.district_name || d.name || "District";
+    const dActual = Number(
+      d.actual ?? d.actual_rainfall ?? d.rainfall ?? NaN
+    );
+    const dNormal = Number(d.normal ?? d.normal_rainfall ?? NaN);
+    const dDep = Number(d.departure ?? NaN);
+    const bits = [
+      Number.isFinite(dActual) ? `actual ${dActual.toFixed(1)} mm` : null,
+      Number.isFinite(dNormal) ? `normal ${dNormal.toFixed(1)} mm` : null,
+      Number.isFinite(dDep)
+        ? `departure ${dDep > 0 ? "+" : ""}${dDep.toFixed(1)}%`
+        : null,
+    ].filter(Boolean);
+    const stations = stationRows
+      .slice(0, 40)
+      .map((s) => {
+        const sn = s.station_name || s.name || "Station";
+        const a = Number(s.actual ?? s.actual_rainfall ?? s.data ?? NaN);
+        return Number.isFinite(a)
+          ? `${sn} (${a.toFixed(1)} mm)`
+          : `${sn} (n/a)`;
+      })
+      .join("; ");
+    return (
+      `${notePrefix}${dName} district for ${dateText}` +
+      (bits.length ? `: ${bits.join(", ")}.` : ".") +
+      ` Stations (${stationRows.length}): ${stations}.`
+    );
+  }
+
+  if (
+    action?.api_id === "fetch_station_data" ||
+    (stationRows.length && !districtRows.length)
+  ) {
+    if (!rows.length) {
+      return `${notePrefix}No station rainfall available for ${dateText}.`;
+    }
+    const list = rows
+      .slice(0, 20)
+      .map((r) => {
+        const sn = r.station_name || r.name || "Station";
+        const a = Number(r.actual ?? r.actual_rainfall ?? r.data ?? NaN);
+        return Number.isFinite(a)
+          ? `${sn} (${a.toFixed(1)} mm)`
+          : `${sn} (n/a)`;
+      })
+      .join("; ");
+    return `${notePrefix}Station rainfall for ${dateText}: ${list}.`;
   }
 
   if (action?.post_process?.type === "filter_by_actual_min") {
@@ -595,12 +678,14 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
   action = sanitizeCompareAction(action, effectiveQuestion);
   action = sanitizeThresholdAction(action, effectiveQuestion);
   action = sanitizeRankingAction(action, effectiveQuestion);
+  action = sanitizePlaceLevelAction(action, effectiveQuestion);
   action = applyMonthRangeFromQuestion(action, effectiveQuestion);
   action = sanitizeDatesFromQuestion(action, planQuestion);
   // Re-apply after date sanitize so intent wins over monsoon mis-routes
   action = sanitizeCompareAction(action, effectiveQuestion);
   action = sanitizeThresholdAction(action, effectiveQuestion);
   action = sanitizeRankingAction(action, effectiveQuestion);
+  action = sanitizePlaceLevelAction(action, effectiveQuestion);
   action = resolveActionDateTokens(action);
   action = normalizeApiAction(action);
 
@@ -674,6 +759,11 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
   // Step 2: execute API / navigation
   const apiResult = await executeApiAction(action);
 
+  const relatedCtx = extractRelatedPlaceContext(action, apiResult);
+  const related_options = relatedCtx
+    ? buildRelatedOptions(relatedCtx)
+    : [];
+
   // Step 3: answer
   let answer;
   let answerMode = "fallback";
@@ -705,8 +795,10 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
                 api_note: apiResult.note || null,
                 category_miss: apiResult.category_miss || null,
                 used_date: apiResult.usedDate || null,
+                place_level: apiResult.place_level || null,
+                stations_count: apiResult.stations_count || null,
                 api_data_sample: Array.isArray(apiResult.data)
-                  ? apiResult.data.slice(0, 25)
+                  ? apiResult.data.slice(0, 40)
                   : apiResult.data,
                 row_count: Array.isArray(apiResult.data)
                   ? apiResult.data.length
@@ -778,6 +870,7 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
             route_path: action.route_path || null,
           }
         : null,
+    related_options,
     api: {
       ok: apiResult.ok,
       status: apiResult.status,
@@ -786,6 +879,8 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
       note: apiResult.note || null,
       usedDate: apiResult.usedDate || null,
       category_miss: apiResult.category_miss || null,
+      place_level: apiResult.place_level || null,
+      stations_count: apiResult.stations_count || null,
       // Cap payload size for chat UI; row_count keeps the full match total.
       data: Array.isArray(apiResult.data)
         ? apiResult.data.slice(0, 200)

@@ -16,14 +16,14 @@ This file is the **source of truth** for mapping user questions → API calls.
 | Module | Status in this file | Purpose |
 |--------|---------------------|---------|
 | Rainfall | **Active** | Actual / normal / departure / deficient / excess |
-| Rankings & Extremes | **Active** | Top wettest places, highest rainfall, above-X mm, heaviest stations |
+| Rankings & Extremes | **Active** | Top wettest places, highest rainfall, above-X mm, Heavy Rainfall stations |
 | Coverage | **Active** | Station/MC reporting counts |
 | IMD+AWS | **Active** | Rainfall with AWS blended; calculations mode |
 | Range statistics | **Active** | Period min/max/avg summaries |
 | Spatial distribution | **Active** | Isolated / Scattered / Fairly Widespread / Widespread |
 | Monsoon activity | **Active** | Weak / Normal / Active / Vigorous / Subdued |
 | Navigation | **Active** | “Where is this product?” → product name + frontend route |
-| Stations (detail) | Partial | Max-rainfall stations; more station APIs later |
+| Stations (detail) | **Active** | Named station rainfall; district → district + all stations; same-date history |
 | AWS network feeds | Planned | `/up-aws`, `/karnataka-aws`, … (see readonly catalog) |
 | PDF / Email / Admin | Planned | See readonly catalog §§15–19 |
 
@@ -346,7 +346,17 @@ User: `What is today’s rainfall for Maharashtra?`
 ```
 
 User: `What is today’s rainfall for Pune district?` → `fetch_district_data` + `post_filter.district_name: "Pune"`.  
+(Backend also returns station rainfall rows for every station in that district.)  
+User: `What is rainfall at Nungambakkam station today?` → `fetch_station_data` + `post_filter.station_name: "Nungambakkam"`.  
 User: `What is today’s rainfall for Konkan & Goa?` → `fetch_subdivision_data` + `post_filter.subdiv_name`.
+
+### Q1b — Same date in previous years (place)
+User: `Historical rainfall for Chennai district on 20 August for previous years` →  
+`fetch_district_data` + `post_filter.district_name: "Chennai"` + `post_process.type: "same_date_history"` (body date = that calendar day).  
+User: `Historical rainfall for Nungambakkam station on 20 August for previous years` →  
+`fetch_station_data` + station filter + `same_date_history`.
+
+Related follow-ups the UI may offer after a place answer: previous few days; same date in previous years.
 
 ### Q2 — Departure from normal
 User: `What is the departure from normal for Maharashtra today?`  
@@ -854,14 +864,17 @@ User: `Which subdivisions are under active / vigorous monsoon?` →
 
 ---
 
-# Module: Stations — heaviest / max rainfall (ACTIVE)
+# Module: Stations — Heavy Rainfall / max rainfall (ACTIVE)
+
+Use the meteorological term **Heavy Rainfall** — never “Heaviest Rainfall”.
 
 | api_id | method | path | body |
 |--------|--------|------|------|
 | `fetch_station_with_max_rainfall` | POST | `/api/v1/fetchStationWithMaxRainfall` | `{ startDate, endDate, limit }` |
+| `fetch_station_data` | POST | `/api/v1/fetchStationData` | `{ Date }` or `{ startDate, endDate }` + `post_filter.station_name` |
 | `top_rainfall_stations` | GET | `/api/v1/top-rainfall-stations` | query `days`, `topN` |
 
-User: `Which stations recorded the heaviest rain last week?` →
+User: `Which stations recorded heavy rainfall last week?` →
 
 ```json
 {
@@ -873,10 +886,27 @@ User: `Which stations recorded the heaviest rain last week?` →
   "query": {},
   "post_filter": {},
   "post_process": null,
-  "reason": "Heaviest stations last 7 days"
+  "reason": "Heavy Rainfall stations last 7 days"
 }
 ```
 
+User: `What is rainfall at Nungambakkam station today?` →
+
+```json
+{
+  "module": "rainfall",
+  "api_id": "fetch_station_data",
+  "method": "POST",
+  "path": "/api/v1/fetchStationData",
+  "body": { "startDate": "TODAY", "endDate": "TODAY", "Date": "TODAY" },
+  "query": {},
+  "post_filter": { "station_name": "Nungambakkam" },
+  "post_process": null,
+  "reason": "Named station rainfall"
+}
+```
+
+District questions return district actual/normal/departure **and** all stations in that district (backend enrichment).
 ---
 
 # Module: Coverage & reporting (ACTIVE)

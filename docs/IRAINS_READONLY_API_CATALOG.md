@@ -142,7 +142,7 @@ Example: `GET /getMissingDistrictNormals?year=2026`
 | POST | `/dataActions` | `{ startDate }` |
 | GET | `/fetchStationLogs` | — |
 
-**Chat example:** “Heaviest stations 1–7 Aug” → `POST /fetchStationWithMaxRainfall`
+**Chat example:** “Heavy Rainfall stations 1–7 Aug” → `POST /fetchStationWithMaxRainfall`
 
 > **Note:** `/fetchTopNDistricts` etc. require an entity **code** and return top **days for one place**, not nationwide wettest districts. For nationwide rankings, chat uses `fetchDistrictData` + `rank_by_actual` (or day-wise threshold queries).
 
@@ -267,7 +267,7 @@ FTP parallel: `/fetchDistrictDataFtp`, …, `/fetchDistrictDataInBunchOfDatesFtp
 | IMD-only or IMD+AWS mode? | `GET /calculations-mode` |
 | Stations that reported | `POST /fetchDistrictStationCount`, `POST /fetchCentreStationSummary` |
 | Wettest places (nationwide chat) | `fetchDistrictData` + rank / threshold (not raw `/fetchTopNDistricts`) |
-| Heaviest stations | `POST /fetchStationWithMaxRainfall` or `GET /top-rainfall-stations` |
+| Heavy Rainfall stations | `POST /fetchStationWithMaxRainfall` or `GET /top-rainfall-stations` |
 | Widespread vs isolated | `GET /getSpatialDistributionData` |
 | Monsoon vigorous where? | `POST /monsoon-activity` |
 | Neighbours of a reading | `POST /fetchStationDataInRadius` |

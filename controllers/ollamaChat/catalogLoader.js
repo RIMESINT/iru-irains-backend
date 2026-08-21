@@ -75,6 +75,10 @@ const ALLOWED_APIS = {
     method: "POST",
     path: "/api/v1/fetchStationWithMaxRainfall",
   },
+  fetch_station_data: {
+    method: "POST",
+    path: "/api/v1/fetchStationData",
+  },
   fetch_district_range_statistics: {
     method: "POST",
     path: "/api/v1/fetchDistrictRangeStatistics",
@@ -166,7 +170,9 @@ const SAMPLE_QUESTIONS = {
     "Top 5 wettest states this week.",
     "Which place recorded the highest rainfall yesterday?",
     "List districts with rainfall above 100 mm today.",
-    "Which stations recorded the heaviest rain last week?",
+    "Which stations recorded heavy rainfall last week?",
+    "What is today’s rainfall for Chennai district?",
+    "What is rainfall at Nungambakkam station today?",
     "District rainfall including AWS for yesterday.",
     "Are we publishing IMD-only or IMD+AWS?",
     "How many stations reported per district today?",

@@ -5,7 +5,8 @@ const moment = require('moment');
 const xlsx = require('xlsx');
 const client = require("../../connection");
 const axios = require('axios'); // Add axios for API calls
-const { getExclusionWindows, applyExclusions } = require("../utils/exclusionSql");
+const { getExclusionWindows } = require("../utils/exclusionSql");
+const QueryStream = require('pg-query-stream');
 
 exports.fetchStationUnifiedFileFtp = async (req, res) => {
     try {
@@ -44,46 +45,131 @@ exports.fetchStationUnifiedFileFtp = async (req, res) => {
     }
 };
 // created by balu on oct 22
+// Every YYYY-MM-DD from startDate to endDate inclusive, walked in UTC so a
+// server running in IST cannot skip or repeat a day.
+const buildDateRange = (startDate, endDate) => {
+    const dates = [];
+    const current = new Date(`${startDate}T00:00:00Z`);
+    const last = new Date(`${endDate}T00:00:00Z`);
+    while (current <= last) {
+        dates.push(current.toISOString().slice(0, 10));
+        current.setUTCDate(current.getUTCDate() + 1);
+    }
+    return dates;
+};
+
+// Returns the station-by-date grid the UI renders directly:
+//   { columns: [...meta fields, ...dates], rows: [{ ...meta, '2026-01-01': 0.0, ... }] }
+// The daily readings are streamed and pivoted here rather than sent one row per
+// station-per-day. The old flat shape repeated each station's name/district/lat/lon
+// on all 239 rows of a long range, which pushed the response past V8's max string
+// length and made res.json throw "RangeError: Invalid string length".
 const fetchFilteredStationUnifiedFile = async (startDate, endDate, districtCodes) => {
     try {
+        // Station metadata once per station instead of once per reading. The inner
+        // join to normal_district_details mirrors the original query, so any station
+        // missing from this map is one the old join would have dropped anyway.
+        const metaResult = await client.query(`
+            SELECT
+                sd.station_code,
+                sd.station_name,
+                sd.latitude,
+                sd.longitude,
+                sd.block_name,
+                sd.block_code,
+                ndd.district_name,
+                ndd.state_name
+            FROM station_details AS sd
+            JOIN normal_district_details ndd ON ndd.district_code = sd.district_code
+            WHERE sd.flag != 0
+            ORDER BY ndd.state_name, ndd.district_name, sd.block_name, sd.station_name
+        `);
 
+        const meta = new Map();
+        for (const row of metaResult.rows) {
+            meta.set(String(row.station_code), row);
+        }
 
-        // SQL Query to fetch the filtered data
-        const query = `
-        SELECT
-            TO_CHAR(sddf.collection_date, 'YYYY-MM-DD') AS collection_date,
-            sddf.data,
-            sddf.station_id,
-            sddf.district_code,
-            ndd.district_name,
-            ndd.state_name,
-            sd.station_name,
-            sd.latitude,
-            sd.longitude,
-            sd.block_name,
-            sd.block_code
-        FROM public.station_daily_data as sddf
-        JOIN station_details as sd ON sd.station_code = sddf.station_id
-        JOIN normal_district_details ndd on ndd.district_code = sd.district_code
-        WHERE sddf.district_code = ANY($1)
-        AND sddf.collection_date BETWEEN $2 AND $3
-        AND sd.flag != 0;
-    `;
-    
+        const { byStation, byDistrict, byBlock } = await getExclusionWindows(startDate, endDate);
+        const inWindow = (windows, date) =>
+            windows && windows.some(w => date >= w.from && date <= w.to);
 
-        // Execute the query using the client
-        const result = await client.query(query, [districtCodes, startDate, endDate]);
+        const dates = buildDateRange(startDate, endDate);
+        const dateIndex = new Map(dates.map((d, i) => [d, i]));
 
-        // Disconnect the client after query execution
-        // await client.end();
+        const values = new Map();   // station_code -> values positioned by dateIndex
+        const seenDates = new Set();
 
-        // Flag dates covered by a station/district/block exclusion window
-        // with the -999.9 "no data" sentinel instead of the real value
-        const windows = await getExclusionWindows(startDate, endDate);
-        applyExclusions(result.rows, windows);
+        // Streamed so the 1.6M readings of a long range never sit in memory at once.
+        const stream = client.query(new QueryStream(`
+            SELECT
+                sddf.station_id,
+                sddf.district_code,
+                sddf.data,
+                TO_CHAR(sddf.collection_date, 'YYYY-MM-DD') AS collection_date
+            FROM public.station_daily_data AS sddf
+            WHERE sddf.district_code = ANY($1)
+            AND sddf.collection_date BETWEEN $2 AND $3
+        `, [districtCodes, startDate, endDate], { batchSize: 10000 }));
 
-        // Return the fetched data
-        return result.rows;
+        for await (const row of stream) {
+            const stationId = String(row.station_id);
+            const stationMeta = meta.get(stationId);
+            if (!stationMeta) continue;
+
+            const index = dateIndex.get(row.collection_date);
+            if (index === undefined) continue;
+
+            let stationValues = values.get(stationId);
+            if (!stationValues) {
+                stationValues = new Array(dates.length).fill(null);
+                values.set(stationId, stationValues);
+            }
+
+            // Same -999.9 sentinel applyExclusions writes for a covered window
+            const excluded =
+                inWindow(byStation.get(stationId), row.collection_date) ||
+                inWindow(byDistrict.get(String(row.district_code)), row.collection_date) ||
+                inWindow(byBlock.get(String(stationMeta.block_code)), row.collection_date);
+
+            stationValues[index] = excluded ? '-999.9' : row.data;
+            seenDates.add(index);
+        }
+
+        // Only dates that actually carry a reading become columns, matching the
+        // uniqueDates the UI used to derive from the flat rows.
+        const activeIndexes = [...seenDates].sort((a, b) => a - b);
+        const activeDates = activeIndexes.map(i => dates[i]);
+
+        const rows = [];
+        for (const [stationId, stationMeta] of meta) {
+            const stationValues = values.get(stationId);
+            if (!stationValues) continue;   // no readings in range, as before
+
+            const row = {
+                state_name: stationMeta.state_name,
+                district_name: stationMeta.district_name,
+                block_name: stationMeta.block_name,
+                block_code: stationMeta.block_code,
+                station_name: stationMeta.station_name,
+                station_id: stationId,
+                latitude: Number(parseFloat(stationMeta.latitude).toFixed(4)),
+                longitude: Number(parseFloat(stationMeta.longitude).toFixed(4)),
+            };
+            for (let i = 0; i < activeIndexes.length; i++) {
+                row[activeDates[i]] = stationValues[activeIndexes[i]];
+            }
+            rows.push(row);
+        }
+
+        return {
+            columns: [
+                "state_name", "district_name", "block_name", "station_name",
+                "station_id", "latitude", "longitude",
+                ...activeDates,
+            ],
+            rows,
+        };
     } catch (error) {
         console.error('Error fetching station data:', error);
         throw error;

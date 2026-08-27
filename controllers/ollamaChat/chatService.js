@@ -1,6 +1,7 @@
 const moment = require("moment");
 const {
   loadApiCatalog,
+  getCatalogMeta,
   SAMPLE_QUESTIONS,
   PRODUCT_ROUTES,
   ALLOWED_API_IDS,
@@ -584,11 +585,122 @@ function buildOutOfScopeResponse({
   };
 }
 
+let warmupPromise = null;
+let warmupStatus = {
+  ready: false,
+  status: "idle",
+  at: null,
+  model: null,
+  error: null,
+  catalog_chars: 0,
+  catalog_mtime_ms: null,
+};
+
+function snapshotWarmupStatus() {
+  return { ...warmupStatus };
+}
+
+/**
+ * Load the API catalog into the model (and keep the model in memory) before
+ * any user question is planned. Same system prompt as the planner so Ollama
+ * can reuse the catalog prefix cache on later questions.
+ */
+async function warmupCatalogIntoModel({ force = false } = {}) {
+  const catalogMeta = getCatalogMeta();
+  const catalogChanged =
+    warmupStatus.catalog_mtime_ms != null &&
+    warmupStatus.catalog_mtime_ms !== catalogMeta.mtimeMs;
+
+  if (!force && !catalogChanged && warmupStatus.status === "ready") {
+    return snapshotWarmupStatus();
+  }
+
+  const ollamaWasDown =
+    warmupStatus.status === "failed" &&
+    /not running/i.test(String(warmupStatus.error || ""));
+  if (
+    !force &&
+    !catalogChanged &&
+    warmupStatus.status === "failed" &&
+    !ollamaWasDown
+  ) {
+    return snapshotWarmupStatus();
+  }
+
+  if (!force && !catalogChanged && warmupPromise) {
+    return warmupPromise;
+  }
+
+  warmupPromise = (async () => {
+    warmupStatus = {
+      ready: false,
+      status: "warming",
+      at: new Date().toISOString(),
+      model: null,
+      error: null,
+      catalog_chars: catalogMeta.chars,
+      catalog_mtime_ms: catalogMeta.mtimeMs,
+    };
+
+    const status = await isOllamaUp();
+    if (!status.up) {
+      warmupStatus = {
+        ...warmupStatus,
+        status: "failed",
+        error: `Ollama is not running at ${status.baseUrl}`,
+      };
+      return snapshotWarmupStatus();
+    }
+
+    const catalog = loadApiCatalog();
+    const ack = await askOllama(
+      [
+        { role: "system", content: buildPlannerSystemPrompt(catalog) },
+        {
+          role: "user",
+          content:
+            'Read the API catalog now. Do not wait for a rainfall question. Reply with JSON only: {"catalog_ready":true}',
+        },
+      ],
+      { temperature: 0, formatJson: true, timeout: 180000 }
+    );
+
+    const parsed = extractJsonObject(ack.content);
+    warmupStatus = {
+      ready: true,
+      status: "ready",
+      at: new Date().toISOString(),
+      model: ack.model || status.model,
+      error: null,
+      catalog_chars: catalogMeta.chars,
+      catalog_mtime_ms: catalogMeta.mtimeMs,
+      ack: parsed,
+    };
+    return snapshotWarmupStatus();
+  })()
+    .catch((err) => {
+      warmupStatus = {
+        ...warmupStatus,
+        ready: false,
+        status: "failed",
+        at: new Date().toISOString(),
+        error: err.message || "Catalog warmup failed",
+      };
+      return snapshotWarmupStatus();
+    })
+    .finally(() => {
+      warmupPromise = null;
+    });
+
+  return warmupPromise;
+}
+
 /**
  * End-to-end Ollama flow for one rainfall / navigation question:
- * 1) LLM reads catalog → JSON action
- * 2) Backend executes allowlisted API (or NAV)
- * 3) LLM (or fallback) formats answer
+ * 1) Warmup: model reads catalog (skipped if already ready)
+ * 2) LLM maps question → JSON action
+ * 3) Backend executes allowlisted API (or NAV)
+ * 4) LLM (or fallback) formats answer
  */
 async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuestion = null } = {}) {
   const status = await isOllamaUp();
@@ -600,6 +712,9 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     err.meta = status;
     throw err;
   }
+
+  // Catalog must be ingested before the planner sees a user question.
+  await warmupCatalogIntoModel();
 
   // If user only replies with all-India / whole India after a prior threshold/list Q,
   // merge into a full nationwide threshold question.
@@ -895,6 +1010,8 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
 
 module.exports = {
   handleOllamaChat,
+  warmupCatalogIntoModel,
+  getCatalogWarmupStatus: snapshotWarmupStatus,
   isOllamaUp,
   SAMPLE_QUESTIONS,
   PRODUCT_ROUTES,

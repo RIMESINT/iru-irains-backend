@@ -194,6 +194,24 @@ server.listen(port, () => {
   } else {
     console.log(`HTTP Server started at http://localhost:${port} (WebSocket: /socket.io)`);
   }
+
+  const {
+    warmupCatalogIntoModel,
+  } = require("./controllers/ollamaChat/chatService");
+  warmupCatalogIntoModel()
+    .then((catalog) => {
+      if (catalog.ready) {
+        console.log("[ollama-chat] API catalog loaded into model before questions");
+      } else {
+        console.warn(
+          "[ollama-chat] catalog warmup not ready:",
+          catalog.error || catalog.status
+        );
+      }
+    })
+    .catch((err) => {
+      console.warn("[ollama-chat] catalog warmup skipped:", err.message);
+    });
 });
 
 client.connect();

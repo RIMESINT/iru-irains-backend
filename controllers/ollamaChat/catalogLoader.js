@@ -3,11 +3,34 @@ const path = require("path");
 
 const CATALOG_PATH = path.join(__dirname, "../../docs/IRAINS_API_CATALOG.md");
 
-function loadApiCatalog() {
+let catalogCache = { text: null, mtimeMs: null };
+
+function getCatalogStat() {
   if (!fs.existsSync(CATALOG_PATH)) {
     throw new Error(`API catalog not found at ${CATALOG_PATH}`);
   }
-  return fs.readFileSync(CATALOG_PATH, "utf8");
+  return fs.statSync(CATALOG_PATH);
+}
+
+function loadApiCatalog() {
+  const stat = getCatalogStat();
+  if (catalogCache.text != null && catalogCache.mtimeMs === stat.mtimeMs) {
+    return catalogCache.text;
+  }
+  catalogCache = {
+    text: fs.readFileSync(CATALOG_PATH, "utf8"),
+    mtimeMs: stat.mtimeMs,
+  };
+  return catalogCache.text;
+}
+
+function getCatalogMeta() {
+  const text = loadApiCatalog();
+  return {
+    path: CATALOG_PATH,
+    chars: text.length,
+    mtimeMs: catalogCache.mtimeMs,
+  };
 }
 
 /**
@@ -331,6 +354,7 @@ function resolveAllowedApi(action = {}) {
 
 module.exports = {
   loadApiCatalog,
+  getCatalogMeta,
   ALLOWED_APIS,
   ALLOWED_API_IDS,
   resolveAllowedApi,

@@ -1,5 +1,7 @@
 const {
   handleOllamaChat,
+  warmupCatalogIntoModel,
+  getCatalogWarmupStatus,
   isOllamaUp,
   SAMPLE_QUESTIONS,
   PRODUCT_ROUTES,
@@ -13,6 +15,7 @@ exports.health = async (_req, res) => {
   return res.status(status.up ? 200 : 503).json({
     success: status.up,
     ollama: status,
+    catalog: getCatalogWarmupStatus(),
     demo_question: SAMPLE_QUESTIONS.rainfall[0],
     sample_questions: SAMPLE_QUESTIONS,
     navigation_products: PRODUCT_ROUTES.map(({ product_name, route_path }) => ({
@@ -20,7 +23,7 @@ exports.health = async (_req, res) => {
       route_path,
     })),
     training_note:
-      "Questions are taught via docs/IRAINS_API_CATALOG.md few-shot examples (no model fine-tuning). Add more Q→API / Q→route examples there.",
+      "Questions are taught via docs/IRAINS_API_CATALOG.md few-shot examples (no model fine-tuning). Add more Q→API / Q→route examples there. Call POST /api/v1/ollama-chat/warmup when the chat UI opens so the catalog is read before the first question.",
     install_hint: [
       "1) Install Ollama from https://ollama.com",
       "2) Run: ollama serve",
@@ -28,6 +31,34 @@ exports.health = async (_req, res) => {
       "4) Retry this health endpoint",
     ],
   });
+};
+
+/**
+ * POST /api/v1/ollama-chat/warmup
+ * Load the API catalog into Ollama before the user asks a question.
+ * Frontend should call this when the chatbot widget opens.
+ */
+exports.warmup = async (req, res) => {
+  try {
+    const forceRaw = req.body?.force ?? req.query?.force;
+    const force =
+      forceRaw === true ||
+      forceRaw === 1 ||
+      String(forceRaw || "").trim().toLowerCase() === "true" ||
+      String(forceRaw || "").trim() === "1";
+    const catalog = await warmupCatalogIntoModel({ force });
+    return res.status(catalog.ready ? 200 : 503).json({
+      success: catalog.ready,
+      catalog,
+    });
+  } catch (error) {
+    console.error("ollama-chat warmup error:", error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Catalog warmup failed",
+      catalog: getCatalogWarmupStatus(),
+    });
+  }
 };
 
 /**

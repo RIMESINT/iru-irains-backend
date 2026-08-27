@@ -2,6 +2,18 @@ const axios = require("axios");
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2";
+const OLLAMA_KEEP_ALIVE = parseKeepAlive(process.env.OLLAMA_KEEP_ALIVE);
+
+function parseKeepAlive(value) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return -1;
+  }
+  const raw = String(value).trim();
+  if (raw === "-1") return -1;
+  const asNumber = Number(raw);
+  if (Number.isFinite(asNumber)) return asNumber;
+  return raw;
+}
 
 async function isOllamaUp() {
   try {
@@ -22,11 +34,15 @@ async function isOllamaUp() {
   }
 }
 
-async function askOllama(messages, { temperature = 0, formatJson = false } = {}) {
+async function askOllama(
+  messages,
+  { temperature = 0, formatJson = false, timeout = 120000 } = {}
+) {
   const payload = {
     model: OLLAMA_MODEL,
     messages,
     stream: false,
+    keep_alive: OLLAMA_KEEP_ALIVE,
     options: {
       temperature,
     },
@@ -36,7 +52,7 @@ async function askOllama(messages, { temperature = 0, formatJson = false } = {})
   }
 
   const res = await axios.post(`${OLLAMA_BASE_URL}/api/chat`, payload, {
-    timeout: 120000,
+    timeout,
   });
 
   const content = res.data?.message?.content || "";
@@ -87,4 +103,5 @@ module.exports = {
   extractJsonObject,
   OLLAMA_BASE_URL,
   OLLAMA_MODEL,
+  OLLAMA_KEEP_ALIVE,
 };

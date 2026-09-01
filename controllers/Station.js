@@ -1423,8 +1423,40 @@ const dataActionsTable = async (startDate) => {
 
 
 
+// station_daily_data_updates only retains the last ~60 days: AddDailyStationData
+// copies that window into station_daily_data and then deletes anything older
+// from _updates (see removePrevData() in StationDataUpdates.js). Reading only
+// _updates therefore left this endpoint returning nothing for any date past that
+// window, so historical requests (June, say) came back empty.
+//
+// This CTE resolves one row per station for the requested date: the live
+// _updates row when there is one, the station_daily_data archive row otherwise.
+// The two tables overlap inside the 60-day window (the archive is re-synced with
+// it every day), so a plain UNION ALL would double-count each recent station —
+// DISTINCT ON with source_rank keeps exactly one row, preferring _updates so
+// same-day edits still win. Binds $1 = collection_date.
+const IMD_DAILY_FOR_DATE = `
+    WITH imd_daily AS (
+        SELECT DISTINCT ON (station_id)
+               station_id, district_code, collection_date, data
+        FROM (
+            SELECT station_id, district_code, collection_date, data, updated_at,
+                   1 AS source_rank
+            FROM public.station_daily_data_updates
+            WHERE collection_date = $1
+            UNION ALL
+            SELECT station_id, district_code, collection_date, data, updated_at,
+                   2 AS source_rank
+            FROM public.station_daily_data
+            WHERE collection_date = $1
+        ) src
+        ORDER BY station_id, source_rank, updated_at DESC NULLS LAST
+    )
+`;
+
 const fetchFilteredDataNWP = async (date) => {
     const query = `
+        ${IMD_DAILY_FOR_DATE}
         SELECT
                ndd.region_name,
                ndd.subdiv_name,
@@ -1440,11 +1472,11 @@ const fetchFilteredDataNWP = async (date) => {
                TO_CHAR(sdd.collection_date, 'YYYY-MM-DD') as date,
                sdd.data as rainfall_data_in_mm
         FROM public.station_details AS sd
-        JOIN public.station_daily_data_updates AS sdd
+        JOIN imd_daily AS sdd
           ON sdd.station_id = sd.station_code
         JOIN normal_district_details AS ndd
           ON ndd.district_code = sdd.district_code
-        WHERE sdd.collection_date = $1 AND sd.flag != 0;
+        WHERE sd.flag != 0;
       `;
 
     try {
@@ -1468,17 +1500,20 @@ const fetchFilteredDataNWP = async (date) => {
 
         let data = await fetchFilteredDataNWP(effectiveDate);
 
+        // Same combined source as the rows above, so the counts stay consistent
+        // with `data` on historical dates instead of reporting 0.
         const [inactiveResult, totalResult] = await Promise.all([
           client.query(
-            `SELECT COUNT(DISTINCT sd.station_code) FROM public.station_details sd
-             JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
-             WHERE sdd.collection_date = $1 AND sd.flag = 0`,
+            `${IMD_DAILY_FOR_DATE}
+             SELECT COUNT(DISTINCT sd.station_code) FROM public.station_details sd
+             JOIN imd_daily sdd ON sdd.station_id = sd.station_code
+             WHERE sd.flag = 0`,
             [effectiveDate]
           ),
           client.query(
-            `SELECT COUNT(DISTINCT sd.station_code) FROM public.station_details sd
-             JOIN public.station_daily_data_updates sdd ON sdd.station_id = sd.station_code
-             WHERE sdd.collection_date = $1`,
+            `${IMD_DAILY_FOR_DATE}
+             SELECT COUNT(DISTINCT sd.station_code) FROM public.station_details sd
+             JOIN imd_daily sdd ON sdd.station_id = sd.station_code`,
             [effectiveDate]
           )
         ]);

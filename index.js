@@ -199,18 +199,36 @@ server.listen(port, () => {
     warmupCatalogIntoModel,
   } = require("./controllers/ollamaChat/chatService");
   warmupCatalogIntoModel()
-    .then((catalog) => {
-      if (catalog.ready) {
-        console.log("[ollama-chat] API catalog loaded into model before questions");
-      } else {
+    .then((warm) => {
+      if (!warm.ready) {
         console.warn(
-          "[ollama-chat] catalog warmup not ready:",
-          catalog.error || catalog.status
+          "[ollama-chat] warmup not ready:",
+          warm.error || warm.status
+        );
+        return;
+      }
+      const rag = warm.rag || {};
+      if (rag.ready) {
+        console.log(
+          `[ollama-chat] ready — RAG index ${rag.chunk_count} chunks ` +
+            `(${rag.embed_model}), num_ctx ${warm.num_ctx}` +
+            (rag.stale ? "  [STALE: run npm run rag:build]" : "")
+        );
+      } else {
+        // Without the index the planner falls back to stuffing the whole
+        // catalog, which only works if num_ctx is large enough to hold it.
+        console.warn(
+          `[ollama-chat] ready WITHOUT RAG index (${rag.error}). ` +
+            `Falling back to full-catalog prompts: ${warm.full_catalog_prompt_tokens} tokens ` +
+            `vs num_ctx ${warm.num_ctx} — ` +
+            (warm.full_catalog_fits
+              ? "fits, but slower per question. Run: npm run rag:build"
+              : "DOES NOT FIT, the catalog will be truncated and the planner will invent endpoints. Run: npm run rag:build")
         );
       }
     })
     .catch((err) => {
-      console.warn("[ollama-chat] catalog warmup skipped:", err.message);
+      console.warn("[ollama-chat] warmup skipped:", err.message);
     });
 });
 

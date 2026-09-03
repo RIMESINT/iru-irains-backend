@@ -6,7 +6,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon index.js",
     "migrate:activity-logs": "node scripts/runMigration.js migrations/create_admin_activity_logs.sql",
-    "migrate:calculations-mode": "node scripts/runMigration.js migrations/create_calculations_imd_aws.sql"
+    "migrate:calculations-mode": "node scripts/runMigration.js migrations/create_calculations_imd_aws.sql",
+    "rag:build": "node controllers/ollamaChat/rag/buildIndex.js",
+    "rag:eval": "node controllers/ollamaChat/rag/eval.js"
   },
   "keywords": [],
   "author": "",

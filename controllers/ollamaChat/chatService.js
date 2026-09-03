@@ -7,7 +7,12 @@ const {
   ALLOWED_API_IDS,
   resolveAllowedApi,
 } = require("./catalogLoader");
-const { askOllama, extractJsonObject, isOllamaUp } = require("./ollamaClient");
+const {
+  askOllama,
+  extractJsonObject,
+  isOllamaUp,
+  checkContextBudget,
+} = require("./ollamaClient");
 const {
   executeApiAction,
   today,
@@ -23,13 +28,28 @@ const {
   sanitizePlaceLevelAction,
   buildRelatedOptions,
   extractRelatedPlaceContext,
+  getDepartureCategory,
 } = require("./apiExecutor");
 const {
   runPreChatClarifications,
   runPostPlanLocationClarifications,
 } = require("./clarification");
+const { retrieveForPlanner, formatContext, init: initRag } = require("./rag/retriever");
+const { answerKnowledgeQuestion } = require("./rag/knowledge");
+const { route: routeQuestion } = require("./rag/router");
+const { getIndexMeta } = require("./rag/indexStore");
 
-function buildPlannerSystemPrompt(catalogMarkdown) {
+const RAG_ENABLED = String(process.env.RAG_ENABLED ?? "true").toLowerCase() !== "false";
+
+/**
+ * @param {string} catalogMarkdown  either the retrieved sections (RAG) or, when
+ *                                  retrieval is off/unavailable, the whole catalog.
+ * @param {boolean} retrieved       true when the text is a retrieved subset.
+ */
+function buildPlannerSystemPrompt(catalogMarkdown, { retrieved = false } = {}) {
+  const catalogHeading = retrieved
+    ? `API CATALOG (sections retrieved for THIS question):`
+    : `API CATALOG:`;
   return `You are an API planner for IRAINS.
 Read the API catalog and map the user question to ONE action.
 - Rainfall / rankings / threshold / coverage / AWS-inclusive / range-stats → matching allowed api_id
@@ -57,8 +77,44 @@ Do not include markdown.
 
 Current server date: ${today()}
 
-API CATALOG:
+${catalogHeading}
 ${catalogMarkdown}`;
+}
+
+/**
+ * Planner context for one question.
+ *
+ * Retrieval replaced whole-catalog stuffing: the full catalog is ~9,200 tokens
+ * and, with Ollama's old 2048 default window, ~82% of it was silently dropped
+ * before the model read a word. Retrieved context is ~2,500-3,500 tokens, fits
+ * any sane window, and carries the sections this question actually needs.
+ * Falls back to the full catalog when RAG is disabled or the index is missing.
+ */
+async function buildPlannerContext(question) {
+  if (!RAG_ENABLED) {
+    return { text: loadApiCatalog(), retrieved: false, reason: "RAG_ENABLED=false" };
+  }
+  try {
+    const result = await retrieveForPlanner(question);
+    const text = formatContext(result);
+    if (!text || !result.chunks.length) {
+      return { text: loadApiCatalog(), retrieved: false, reason: "empty retrieval" };
+    }
+    return {
+      text,
+      retrieved: true,
+      chunks: result.chunks.map((c) => ({
+        heading: c.heading,
+        type: c.type,
+        score: c.score,
+      })),
+      tokens: Math.ceil(text.length / 4),
+      timings: result.timings,
+    };
+  } catch (err) {
+    console.warn("[rag] planner retrieval failed, using full catalog:", err.message);
+    return { text: loadApiCatalog(), retrieved: false, reason: err.message };
+  }
 }
 
 /**
@@ -83,9 +139,12 @@ function buildAnswerSystemPrompt({ didYouMean = null } = {}) {
 Answer using ONLY the provided API JSON data.
 Be concise.
 Include actual mm, normal mm, and departure % when present.
+CRITICAL UNITS: actual and normal are in millimetres (mm). Departure is a PERCENTAGE (%) — never write departure with "mm".
+Round rainfall to 1 decimal place. Never print a raw float like 7.238679956847527.
 When startDate and endDate differ, say the full range (e.g. "from 2026-06-01 to 2026-06-30"), never a single day.
 Use meteorological term "Heavy Rainfall" — never say "Heaviest Rainfall".
-For rankings (top wettest / highest / heavy rainfall stations), list places with actual mm in order.
+CRITICAL LEVEL NAMING: name places by the field they came from — rows with district_name are DISTRICTS, state_name are STATES, subdiv_name are SUBDIVISIONS, station_name are STATIONS. Never call a district a station, or a state a district.
+For rankings (top wettest / highest / heavy rainfall), list places with actual mm in order, and say which level they are (e.g. "top 5 districts").
 For a named district, state the district rainfall first, then list station rainfall values in that district when present in api_data_sample (_level station rows).
 For a named station, state only that station’s rainfall.
 For threshold questions (above X mm), list matching places with actual mm AND the date of each row.
@@ -407,6 +466,161 @@ function formatFallbackAnswer(question, action, apiResult) {
   return `${notePrefix}${name} on ${rowDate}: actual ${actualText}, normal ${normalText}, departure ${depText}.`;
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Numeric grounding guard                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Every number the answer is allowed to contain: the values actually returned
+ * by the API, plus their roundings, plus the row count.
+ */
+function collectAllowedNumbers(apiResult) {
+  const allowed = new Set();
+  const add = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    allowed.add(n);
+    allowed.add(Number(n.toFixed(0)));
+    allowed.add(Number(n.toFixed(1)));
+    allowed.add(Number(n.toFixed(2)));
+    allowed.add(Math.abs(n));
+    allowed.add(Number(Math.abs(n).toFixed(1)));
+    allowed.add(Number(Math.abs(n).toFixed(2)));
+  };
+
+  const walk = (node, depth = 0) => {
+    if (node == null || depth > 4) return;
+    if (Array.isArray(node)) return node.forEach((v) => walk(v, depth + 1));
+    if (typeof node === "object") return Object.values(node).forEach((v) => walk(v, depth + 1));
+    if (typeof node === "number") return add(node);
+    if (typeof node === "string" && /^-?\d+(\.\d+)?$/.test(node.trim())) add(node.trim());
+  };
+
+  walk(apiResult?.data);
+  if (Array.isArray(apiResult?.data)) add(apiResult.data.length);
+  if (apiResult?.category_miss?.departure != null) add(apiResult.category_miss.departure);
+  return allowed;
+}
+
+/**
+ * Numbers the model wrote, minus the ones that are structural rather than
+ * factual: dates, list ordinals ("3."), and ranking positions.
+ */
+function extractAnswerNumbers(answer) {
+  const text = String(answer || "")
+    // ISO and d/m/y dates
+    .replace(/\d{4}-\d{2}-\d{2}/g, " ")
+    .replace(/\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b/g, " ")
+    // list ordinals at the start of a line or after a bullet
+    .replace(/(^|\n)\s*(?:[-*]\s*)?\d{1,2}[.)]\s/g, "$1 ");
+
+  const found = [];
+  for (const match of text.matchAll(/-?\d+(?:\.\d+)?/g)) {
+    const n = Number(match[0]);
+    if (Number.isFinite(n)) found.push(n);
+  }
+  return found;
+}
+
+/**
+ * True when every number in the answer traces back to the API response.
+ *
+ * A 3.2B model will confidently invent a figure that was never in the data:
+ * asked for country departure it answered "4.908 mm ... a Large Excess of
+ * 43.79%" when the real value was +4.91% (Normal) and 43.79 appeared nowhere.
+ * Prompt instructions did not prevent that, so the check is mechanical:
+ * an ungrounded answer is discarded in favour of the deterministic formatter.
+ */
+function answerIsNumericallyGrounded(answer, apiResult) {
+  const allowed = collectAllowedNumbers(apiResult);
+  if (!allowed.size) return true; // nothing to check against
+
+  const tolerance = 0.05;
+  return extractAnswerNumbers(answer).every((n) => {
+    if (allowed.has(n)) return true;
+    for (const ok of allowed) {
+      if (Math.abs(ok - n) <= tolerance) return true;
+      // percentage rendered from the same underlying figure
+      if (ok !== 0 && Math.abs(Math.abs(ok) - Math.abs(n)) / Math.abs(ok) < 0.001) return true;
+    }
+    return false;
+  });
+}
+
+
+/**
+ * Departure is a PERCENTAGE. The model renders it as "4.91 mm" often enough
+ * that it needs a mechanical check: a number that matches a `departure` value
+ * must not be followed by a mm unit. Rainfall depth and departure from normal
+ * are different quantities and operational users read them differently.
+ */
+function answerHasUnitError(answer, apiResult) {
+  const rows = Array.isArray(apiResult?.data) ? apiResult.data : [];
+  const departures = rows
+    .map((r) => r?.departure)
+    .filter((d) => d != null && Number.isFinite(Number(d)))
+    .map((d) => Number(d));
+  if (!departures.length) return false;
+
+  const text = String(answer || "");
+  for (const dep of departures) {
+    for (const decimals of [1, 2]) {
+      const shown = Math.abs(dep).toFixed(decimals);
+      // "4.91 mm", "4.91mm", "-4.91 mm"
+      const re = new RegExp(`-?${shown.replace(".", "\\.")}\\s*mm\\b`, "i");
+      if (re.test(text)) return true;
+    }
+  }
+  return false;
+}
+
+
+/**
+ * Departure categories are a pure function of the departure value, so a stated
+ * category can be checked rather than trusted.
+ *
+ * The model wrote "Kerala rainfall for today: 0.4 mm (Normal, -96.08%)" — the
+ * figures were both correct and passed the numeric guard, but -96.08% is Large
+ * Deficient, not Normal. A wrong band is a worse error than a wrong number in
+ * an operational context, because it is the part people act on.
+ *
+ * Uses getDepartureCategory() from apiExecutor so there is exactly one copy of
+ * the IMD bands in the codebase.
+ */
+const CATEGORY_NAMES = [
+  "Large Excess",
+  "Large Deficient",
+  "Excess",
+  "Deficient",
+  "Normal",
+  "No Rain",
+];
+
+function answerHasCategoryError(answer, apiResult) {
+  const rows = Array.isArray(apiResult?.data) ? apiResult.data : [];
+  const departures = rows
+    .map((r) => r?.departure)
+    .filter((d) => d != null && Number.isFinite(Number(d)))
+    .map((d) => Number(d));
+  if (!departures.length) return false;
+
+  const text = String(answer || "");
+  // Longest names first so "Large Deficient" is not read as "Deficient".
+  const stated = CATEGORY_NAMES.filter((name) =>
+    new RegExp(`\\b${name.replace(/\s+/g, "\\s+")}\\b`, "i").test(text)
+  );
+  if (!stated.length) return false;
+
+  const truthful = new Set(departures.map((d) => getDepartureCategory(d)));
+  // Drop names that are substrings of a longer stated name already accounted for.
+  const meaningful = stated.filter(
+    (name) => !stated.some((other) => other !== name && other.includes(name))
+  );
+
+  return meaningful.some((name) => !truthful.has(name));
+}
+
 function resolveActionDateTokens(action) {
   if (!action?.body) return action;
   for (const key of Object.keys(action.body)) {
@@ -601,9 +815,16 @@ function snapshotWarmupStatus() {
 }
 
 /**
- * Load the API catalog into the model (and keep the model in memory) before
- * any user question is planned. Same system prompt as the planner so Ollama
- * can reuse the catalog prefix cache on later questions.
+ * Prepare the assistant before the first question.
+ *
+ * This used to push the entire API catalog through the model and record
+ * status "ready" from the acknowledgement. With Ollama's 2048-token default
+ * that acknowledgement was produced from a truncated prompt, so "ready" was a
+ * false signal — the catalog had never fully arrived.
+ *
+ * Now: load the retrieval index (the real preparation), warm the chat model so
+ * the first question does not pay model load time, and report the context
+ * budget honestly.
  */
 async function warmupCatalogIntoModel({ force = false } = {}) {
   const catalogMeta = getCatalogMeta();
@@ -614,19 +835,6 @@ async function warmupCatalogIntoModel({ force = false } = {}) {
   if (!force && !catalogChanged && warmupStatus.status === "ready") {
     return snapshotWarmupStatus();
   }
-
-  const ollamaWasDown =
-    warmupStatus.status === "failed" &&
-    /not running/i.test(String(warmupStatus.error || ""));
-  if (
-    !force &&
-    !catalogChanged &&
-    warmupStatus.status === "failed" &&
-    !ollamaWasDown
-  ) {
-    return snapshotWarmupStatus();
-  }
-
   if (!force && !catalogChanged && warmupPromise) {
     return warmupPromise;
   }
@@ -652,20 +860,38 @@ async function warmupCatalogIntoModel({ force = false } = {}) {
       return snapshotWarmupStatus();
     }
 
-    const catalog = loadApiCatalog();
+    // Load the retrieval index + build the BM25 table.
+    let ragMeta = { ready: false, error: "RAG disabled" };
+    if (RAG_ENABLED) {
+      try {
+        initRag();
+        ragMeta = getIndexMeta();
+        if (ragMeta.stale) {
+          console.warn(
+            "[rag] index is STALE — a source document changed since it was built. Run: npm run rag:build"
+          );
+        }
+      } catch (err) {
+        ragMeta = { ready: false, error: err.message };
+        console.warn(
+          `[rag] index unavailable (${err.message}); planner will fall back to the full catalog.`
+        );
+      }
+    }
+
+    // Warm the chat model itself with a trivial prompt so question #1 is fast.
     const ack = await askOllama(
       [
-        { role: "system", content: buildPlannerSystemPrompt(catalog) },
-        {
-          role: "user",
-          content:
-            'Read the API catalog now. Do not wait for a rainfall question. Reply with JSON only: {"catalog_ready":true}',
-        },
+        { role: "system", content: "You are Varsha, the iRAINS assistant." },
+        { role: "user", content: 'Reply with JSON only: {"ready":true}' },
       ],
       { temperature: 0, formatJson: true, timeout: 180000 }
     );
 
-    const parsed = extractJsonObject(ack.content);
+    const budget = checkContextBudget(
+      buildPlannerSystemPrompt(loadApiCatalog(), { retrieved: false })
+    );
+
     warmupStatus = {
       ready: true,
       status: "ready",
@@ -674,7 +900,12 @@ async function warmupCatalogIntoModel({ force = false } = {}) {
       error: null,
       catalog_chars: catalogMeta.chars,
       catalog_mtime_ms: catalogMeta.mtimeMs,
-      ack: parsed,
+      rag: ragMeta,
+      // Honest reporting: what a full-catalog prompt would cost vs the window.
+      full_catalog_prompt_tokens: budget.estimated_tokens,
+      num_ctx: budget.num_ctx,
+      full_catalog_fits: budget.fits,
+      ack: extractJsonObject(ack.content),
     };
     return snapshotWarmupStatus();
   })()
@@ -684,7 +915,7 @@ async function warmupCatalogIntoModel({ force = false } = {}) {
         ready: false,
         status: "failed",
         at: new Date().toISOString(),
-        error: err.message || "Catalog warmup failed",
+        error: err.message || "Warmup failed",
       };
       return snapshotWarmupStatus();
     })
@@ -693,6 +924,77 @@ async function warmupCatalogIntoModel({ force = false } = {}) {
     });
 
   return warmupPromise;
+}
+
+/**
+ * Route/plan contradiction heal.
+ *
+ * The router is deterministic and independent of the model. When it says a
+ * question is a data question but the planner still answers "navigation" —
+ * llama3.2 does this on "Which MCs still have stations missing today?", where
+ * "MC" pattern-matches the MC/RMC map route — re-plan once, saying so.
+ * Only fires on contradiction, so it costs nothing on the normal path.
+ *
+ * Exported so rag/eval.js scores the same behaviour production runs.
+ */
+async function healNavigationContradiction({ action, routing, plan, plannerContext, planQuestion }) {
+  if (
+    routing?.route !== "data" ||
+    !action ||
+    (action.module !== "navigation" && action.api_id !== "resolve_product_route")
+  ) {
+    return action;
+  }
+
+  const retry = await askOllama(
+    [
+      {
+        role: "system",
+        content: buildPlannerSystemPrompt(plannerContext.text, {
+          retrieved: plannerContext.retrieved,
+        }),
+      },
+      { role: "user", content: planQuestion },
+      { role: "assistant", content: plan.content },
+      {
+        role: "user",
+        content:
+          "That is wrong. This question asks for rainfall DATA, not for where a page lives. " +
+          "Do not use navigation or resolve_product_route. Choose the data api_id from the " +
+          "catalog sections above that answers the question, and return the JSON action only.",
+      },
+    ],
+    { temperature: 0, formatJson: true }
+  );
+
+  const healed = extractJsonObject(retry.content);
+  if (healed?.api_id && healed.api_id !== "resolve_product_route" && resolveAllowedApi(healed)) {
+    healed.reason = `${healed.reason || ""} [healed: router said data, planner said navigation]`.trim();
+    return healed;
+  }
+  return action;
+}
+
+/**
+ * Last resort before telling a user their question is out of scope.
+ *
+ * When the planner cannot produce a valid action we used to answer "That one
+ * is outside iRAINS" immediately — even for questions the documentation
+ * answers perfectly. "u knwo spatial distirbution?" failed to plan (typos, no
+ * place, no date) and was refused, while the technical document had a whole
+ * module on it. Search the docs before giving up.
+ */
+async function tryKnowledgeFallback(question, { skipAnswerLlm = false } = {}) {
+  if (!RAG_ENABLED) return null;
+  try {
+    const knowledge = await answerKnowledgeQuestion(question, { skipAnswerLlm });
+    if (knowledge?.success && knowledge.answer) {
+      return { ...knowledge, stage: "knowledge_fallback" };
+    }
+  } catch (err) {
+    console.warn("[rag] knowledge fallback failed:", err.message);
+  }
+  return null;
 }
 
 /**
@@ -736,6 +1038,24 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     return buildAmbiguousMapResponse({ model: null });
   }
 
+  // Route before planning. Only "knowledge" is intercepted here — "data" and
+  // "navigation" continue down the existing planner path (now RAG-fed), so all
+  // clarification, sanitising and executor behaviour is unchanged.
+  let routing = null;
+  if (RAG_ENABLED) {
+    try {
+      routing = await routeQuestion(effectiveQuestion);
+      if (routing.route === "knowledge") {
+        const knowledge = await answerKnowledgeQuestion(effectiveQuestion, {
+          skipAnswerLlm,
+        });
+        return { ...knowledge, routing };
+      }
+    } catch (err) {
+      console.warn("[rag] routing failed, continuing to planner:", err.message);
+    }
+  }
+
   // Sample clarification layer: typos, invalid places, bad dates, mixed intent, ambiguity
   const preClarify = await runPreChatClarifications(effectiveQuestion);
   let locationCorrection = null;
@@ -746,8 +1066,6 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
       return preClarify;
     }
   }
-
-  const catalog = loadApiCatalog();
 
   // If we soft-corrected a place name, plan with the corrected question text.
   // Replace only whole-word place tokens so "chennai deficient" is not wiped.
@@ -770,16 +1088,33 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     );
   })();
 
+  const plannerContext = await buildPlannerContext(planQuestion);
   const plan = await askOllama(
     [
-      { role: "system", content: buildPlannerSystemPrompt(catalog) },
+      {
+        role: "system",
+        content: buildPlannerSystemPrompt(plannerContext.text, {
+          retrieved: plannerContext.retrieved,
+        }),
+      },
       { role: "user", content: planQuestion },
     ],
     { temperature: 0, formatJson: true }
   );
 
   let action = extractJsonObject(plan.content);
+
+  action = await healNavigationContradiction({
+    action,
+    routing,
+    plan,
+    plannerContext,
+    planQuestion,
+  });
+
   if (!action || !action.api_id) {
+    const viaDocs = await tryKnowledgeFallback(effectiveQuestion, { skipAnswerLlm });
+    if (viaDocs) return { ...viaDocs, routing };
     return buildOutOfScopeResponse({
       llm_plan_raw: plan.content,
       model: plan.model,
@@ -818,6 +1153,8 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
   }
 
   if (!resolveAllowedApi(action)) {
+    const viaDocs = await tryKnowledgeFallback(effectiveQuestion, { skipAnswerLlm });
+    if (viaDocs) return { ...viaDocs, routing };
     return buildOutOfScopeResponse({
       action,
       llm_plan_raw: plan.content,
@@ -936,6 +1273,32 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     answer = formatFallbackAnswer(planQuestion, action, apiResult);
   }
 
+  // Numeric grounding: discard an answer containing figures that are not in
+  // the API response. Rainfall numbers reach operational users — a fabricated
+  // departure or category is worse than a plainer, correct sentence.
+  if (answerMode === "ollama") {
+    if (!answerIsNumericallyGrounded(answer, apiResult)) {
+      console.warn(
+        `[chat] answer discarded: ungrounded number(s) for "${planQuestion}". ` +
+          `Falling back to the deterministic formatter.`
+      );
+      answer = formatFallbackAnswer(planQuestion, action, apiResult);
+      answerMode = "fallback_ungrounded";
+    } else if (answerHasUnitError(answer, apiResult)) {
+      console.warn(
+        `[chat] answer discarded: departure rendered in mm instead of % for "${planQuestion}".`
+      );
+      answer = formatFallbackAnswer(planQuestion, action, apiResult);
+      answerMode = "fallback_unit_error";
+    } else if (answerHasCategoryError(answer, apiResult)) {
+      console.warn(
+        `[chat] answer discarded: stated departure category does not match the data for "${planQuestion}".`
+      );
+      answer = formatFallbackAnswer(planQuestion, action, apiResult);
+      answerMode = "fallback_category_error";
+    }
+  }
+
   // Category miss / empty category filter: use deterministic copy so the LLM
   // cannot contradict itself with "data is not available".
   const emptyCategoryFilter =
@@ -965,8 +1328,16 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
 
   return {
     success: true,
-    mode: "ollama_catalog",
+    mode: plannerContext.retrieved ? "rag_planner" : "ollama_catalog",
     model: plan.model,
+    routing,
+    retrieval: plannerContext.retrieved
+      ? {
+          chunks: plannerContext.chunks,
+          context_tokens: plannerContext.tokens,
+          timings: plannerContext.timings,
+        }
+      : { retrieved: false, reason: plannerContext.reason },
     answer,
     answer_mode: answerMode,
     action,
@@ -1010,6 +1381,10 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
 
 module.exports = {
   handleOllamaChat,
+  // exported for the RAG eval harness so it scores the exact production prompt
+  buildPlannerSystemPrompt,
+  buildPlannerContext,
+  healNavigationContradiction,
   warmupCatalogIntoModel,
   getCatalogWarmupStatus: snapshotWarmupStatus,
   isOllamaUp,

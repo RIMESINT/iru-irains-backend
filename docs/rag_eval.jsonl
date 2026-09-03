@@ -1,0 +1,62 @@
+{"question":"What is today's rainfall for Maharashtra?","route":"data","api_id":["fetch_state_data"]}
+{"question":"What is the departure from normal for Maharashtra today?","route":"data","api_id":["fetch_state_data"]}
+{"question":"Show Actual vs Departure for Maharashtra from 2026-05-01 to 2026-05-10","route":"data","api_id":["fetch_state_data"]}
+{"question":"Which districts are deficient / large deficient today?","route":"data","api_id":["fetch_district_data"]}
+{"question":"Which districts are in excess / large excess today?","route":"data","api_id":["fetch_district_data"]}
+{"question":"What is country / all-India rainfall today?","route":"data","api_id":["fetch_country_data","fetch_cumulative_country_data"]}
+{"question":"What is rainfall for last 7 days / this week?","route":"data","api_id":["fetch_district_data","fetch_state_data","fetch_country_data"]}
+{"question":"What is seasonal / cumulative rainfall so far?","route":"data","api_id":["fetch_cumulative_country_data","fetch_country_data","fetch_state_data"]}
+{"question":"Give actual, normal and % departure for Chennai district from 01-Jul to 15-Jul.","route":"data","api_id":["fetch_district_data"]}
+{"question":"Compare rainfall of Tamil Nadu vs Kerala for yesterday.","route":"data","api_id":["fetch_state_data"]}
+{"question":"Top 10 wettest districts today.","route":"data","api_id":["fetch_district_data"]}
+{"question":"Top 5 wettest states this week.","route":"data","api_id":["fetch_state_data"]}
+{"question":"Which place recorded the highest rainfall yesterday?","route":"data","api_id":["fetch_district_data","fetch_station_with_max_rainfall"]}
+{"question":"List districts with rainfall above 100 mm today.","route":"data","api_id":["fetch_district_data"]}
+{"question":"Which stations recorded heavy rainfall last week?","route":"data","api_id":["fetch_station_with_max_rainfall","top_rainfall_stations"]}
+{"question":"What is today's rainfall for Chennai district?","route":"data","api_id":["fetch_district_data"]}
+{"question":"What is rainfall at Nungambakkam station today?","route":"data","api_id":["fetch_station_data"]}
+{"question":"District rainfall including AWS for yesterday.","route":"data","api_id":["fetch_district_data_with_aws"]}
+{"question":"Are we publishing IMD-only or IMD+AWS?","route":"data","api_id":["get_calculations_mode"]}
+{"question":"How many stations reported per district today?","route":"data","api_id":["fetch_district_station_count"]}
+{"question":"Which MCs still have stations missing today?","route":"data","api_id":["fetch_centre_station_summary"]}
+{"question":"Give me one-line state summary for the monsoon so far.","route":"data","api_id":["fetch_state_data","fetch_state_range_statistics"]}
+{"question":"What is the spatial distribution for Kerala subdivision today?","route":"data","api_id":["get_spatial_distribution_data","get_spatial_distribution_data_state"]}
+{"question":"Is monsoon Weak / Normal / Active / Vigorous over Kerala today?","route":"data","api_id":["get_monsoon_activity","get_monsoon_activity_district"]}
+{"question":"Monsoon activity for last 7 days.","route":"data","api_id":["get_monsoon_activity_subdiv_last7","get_monsoon_activity_district_last7","get_monsoon_activity"]}
+{"question":"Monsoon activity at district level for today.","route":"data","api_id":["get_monsoon_activity_district"]}
+{"question":"Which subdivisions are under active / vigorous monsoon?","route":"data","api_id":["get_monsoon_activity","get_monsoon_activity_subdiv_last7"]}
+{"question":"Where is the daily actual state rainfall map?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Open daily departure district (Pan India) map.","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is weekly departure homogenous map?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is cumulative departure country map?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is block rainfall map (actual / AWS)?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is monsoon activity?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is spatial distribution / spatial table?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is station level data?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is station statistics?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is yearly statistics?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is all statistics?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is data entry / verification?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where are annual-seasonal-monthly maps?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is All Maps home overview?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is PDF rainfall report download?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is email dissemination / send reports?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"Where is MC/RMC state / subdiv / region map?","route":"navigation","api_id":["resolve_product_route"]}
+{"question":"What does Large Deficient mean?","route":"knowledge","expect_source":"Appendix E"}
+{"question":"What are the IMD departure categories?","route":"knowledge","expect_source":"Departure"}
+{"question":"How does QPF verification work?","route":"knowledge","expect_source":"QPF"}
+{"question":"Explain the rainfall aggregation pipeline.","route":"knowledge","expect_source":"Aggregation"}
+{"question":"What is the purpose of the Data Entry module?","route":"knowledge","expect_source":"Data Entry"}
+{"question":"How is spatial distribution classified?","route":"knowledge","expect_source":"Spatial Distribution"}
+{"question":"What is the difference between Verification HQ and Verification MC?","route":"knowledge","expect_source":"Verification"}
+{"question":"Who can approve rainfall data entries?","route":"knowledge","expect_source":"Data Entry"}
+{"question":"What technology stack does iRAINS use?","route":"knowledge","expect_source":"Technology Stack"}
+{"question":"Explain the monsoon activity classification thresholds.","route":"knowledge","expect_source":"Monsoon"}
+{"question":"What is the workflow for report generation and dissemination?","route":"knowledge","expect_source":"Dissemination"}
+{"question":"What does the Log Info module record?","route":"knowledge","expect_source":"Log Info"}
+{"question":"what is iRAINS","route":"knowledge","expect_source":"iRAINS"}
+{"question":"why is this chatbot?","route":"knowledge","expect_source":"iRAINS"}
+{"question":"u knwo spatial distirbution?","route":"knowledge","expect_source":"Spatial Distribution"}
+{"question":"what is spatial distribution","route":"knowledge","expect_source":"Spatial Distribution"}
+{"question":"do you know monsoon activity","route":"knowledge","expect_source":"Monsoon"}
+{"question":"tell me about data entry","route":"knowledge","expect_source":"Data Entry"}

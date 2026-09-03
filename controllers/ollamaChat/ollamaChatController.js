@@ -6,15 +6,49 @@ const {
   SAMPLE_QUESTIONS,
   PRODUCT_ROUTES,
 } = require("./chatService");
+const { getIndexMeta } = require("./rag/indexStore");
+const { OLLAMA_NUM_CTX, OLLAMA_EMBED_MODEL } = require("./ollamaClient");
+const { getCatalogMeta } = require("./catalogLoader");
 
 /**
  * GET /api/v1/ollama-chat/health
  */
 exports.health = async (_req, res) => {
   const status = await isOllamaUp();
-  return res.status(status.up ? 200 : 503).json({
-    success: status.up,
+  const rag = getIndexMeta();
+
+  // A full-catalog prompt is ~11k tokens. Ollama's own default num_ctx is 2048
+  // and it truncates SILENTLY, so surface the comparison rather than letting a
+  // misconfigured window fail as mysterious wrong answers.
+  const catalogTokens = Math.ceil(getCatalogMeta().chars / 4) + 700;
+  const contextBudget = {
+    num_ctx: OLLAMA_NUM_CTX,
+    full_catalog_prompt_tokens: catalogTokens,
+    full_catalog_fits: catalogTokens <= OLLAMA_NUM_CTX,
+    retrieval_prompt_tokens_typical: 3000,
+    warning:
+      catalogTokens > OLLAMA_NUM_CTX && !rag.ready
+        ? "num_ctx is smaller than a full-catalog prompt AND the RAG index is unavailable. " +
+          "Ollama will truncate the catalog and the planner will invent api_id values. " +
+          "Run: npm run rag:build (or raise OLLAMA_NUM_CTX)."
+        : null,
+  };
+
+  const ok = status.up && (rag.ready || contextBudget.full_catalog_fits);
+
+  return res.status(ok ? 200 : 503).json({
+    success: ok,
     ollama: status,
+    context_budget: contextBudget,
+    rag: {
+      ...rag,
+      embed_model: rag.embed_model || OLLAMA_EMBED_MODEL,
+      rebuild_hint: rag.ready
+        ? rag.stale
+          ? "Index is STALE — a source document changed. Run: npm run rag:build"
+          : null
+        : "Run: npm run rag:build",
+    },
     catalog: getCatalogWarmupStatus(),
     demo_question: SAMPLE_QUESTIONS.rainfall[0],
     sample_questions: SAMPLE_QUESTIONS,
@@ -23,7 +57,7 @@ exports.health = async (_req, res) => {
       route_path,
     })),
     training_note:
-      "Questions are taught via docs/IRAINS_API_CATALOG.md few-shot examples (no model fine-tuning). Add more Q→API / Q→route examples there. Call POST /api/v1/ollama-chat/warmup when the chat UI opens so the catalog is read before the first question.",
+      "Questions are answered by retrieval, not fine-tuning. Rainfall/navigation questions retrieve from docs/IRAINS_API_CATALOG.md; how-it-works and terminology questions retrieve from docs/IRAINS_TECHNICAL_DOCUMENT.md. Edit those files, then run `npm run rag:build` to re-index. Call POST /api/v1/ollama-chat/warmup when the chat UI opens to load the index and warm the model.",
     install_hint: [
       "1) Install Ollama from https://ollama.com",
       "2) Run: ollama serve",

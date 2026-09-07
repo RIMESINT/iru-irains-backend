@@ -32,16 +32,86 @@ const USER_EXCLUDED_TYPES = ["schema", "sample"];
 const MIN_SCORE = 0.008; // below this the fused ranking is noise
 
 /**
- * Minimum cosine similarity for the documentation to count as an answer.
+ * Is this question answerable from the documentation at all?
  *
- * Measured on this corpus: real product questions land at 0.61-0.77
- * ("what is irains" 0.77, "spatial distribution" 0.65, "data entry" 0.61)
- * while off-domain and meta questions land at 0.41-0.45 ("capital of France"
- * 0.45, "why is this chatbot" 0.42). Without this gate the assistant answered
- * off-domain questions out of whatever chunks ranked highest and cited them,
- * which looks authoritative and is not.
+ * Cosine alone cannot decide this. Measured on this corpus, a terse but
+ * legitimate question ("what is large deficient") scores 0.476 while an
+ * off-domain one ("what is the capital of France") scores 0.453 — and BM25
+ * does not separate them either (8.86 vs 7.36), because keyword search always
+ * returns its best guess. A single threshold in that 0.02 gap is a coin flip,
+ * and an earlier gate at 0.55 refused a question the glossary answers.
+ *
+ * The signal that does separate them is vocabulary: off-domain questions
+ * contain no iRAINS terms at all. So a weak-but-plausible match is accepted
+ * only when the question actually speaks the domain's language.
  */
-const MIN_RELEVANCE = 0.55;
+const STRONG_RELEVANCE = 0.55;
+const WEAK_RELEVANCE = 0.44;
+
+/** Core meteorological and product vocabulary. */
+const CORE_TERMS = [
+  "rain", "rainfall", "rainy", "monsoon", "departure", "normal", "actual",
+  "deficient", "excess", "spatial", "distribution", "station", "district",
+  "state", "subdivision", "subdiv", "region", "block", "basin", "imd",
+  "irains", "aws", "arg", "qpf", "forecast", "verification", "cumulative",
+  "seasonal", "mm", "gauge", "observation", "dissemination", "data entry",
+  "normals", "isolated", "scattered", "widespread", "vigorous", "subdued",
+  "mc", "rmc", "hydromet", "weather", "meteorolog", "precipitation",
+  "wettest", "driest", "drought", "flood", "map", "report", "dashboard",
+  "statistics", "log", "role", "verification hq", "verification mc",
+];
+
+let domainVocab = null;
+
+/**
+ * Vocabulary is the CORE_TERMS plus every significant word used in a heading
+ * anywhere in the corpus, so it stays in step with the documentation rather
+ * than drifting from it.
+ */
+function getDomainVocab() {
+  if (domainVocab) return domainVocab;
+  domainVocab = new Set(CORE_TERMS);
+  try {
+    const { loadIndex } = require("./indexStore");
+    for (const chunk of loadIndex().chunks) {
+      for (const part of chunk.heading_path || []) {
+        for (const word of String(part).toLowerCase().split(/[^a-z0-9]+/)) {
+          if (word.length >= 4) domainVocab.add(word);
+        }
+      }
+    }
+  } catch (_) {
+    // index unavailable — CORE_TERMS alone still works
+  }
+  return domainVocab;
+}
+
+/** Words too generic to count as domain evidence on their own. */
+const STOPWORDS = new Set([
+  "what", "which", "where", "when", "how", "why", "who", "does", "do", "is",
+  "are", "the", "this", "that", "these", "those", "and", "for", "with", "you",
+  "your", "about", "tell", "know", "mean", "means", "explain", "give", "show",
+  "there", "here", "from", "into", "over", "under", "some", "any", "all",
+  "reference", "guide", "overview", "notes", "summary", "section", "document",
+  "user", "users", "system", "information", "detailed", "operational",
+]);
+
+function hasDomainVocabulary(question) {
+  const vocab = getDomainVocab();
+  const words = String(question || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+  return words.some((w) => vocab.has(w) || [...CORE_TERMS].some((t) => w.startsWith(t) && t.length >= 4));
+}
+
+function assessRelevance(chunks, question) {
+  const relevance = Math.max(0, ...chunks.map((c) => c.dense_score || 0));
+  const onTopic = hasDomainVocabulary(question);
+  const answerable =
+    relevance >= STRONG_RELEVANCE || (relevance >= WEAK_RELEVANCE && onTopic);
+  return { relevance, onTopic, answerable };
+}
 
 /**
  * Questions about the assistant itself. The technical document says nothing
@@ -109,7 +179,7 @@ async function answerKnowledgeQuestion(question, { topK = 6, includeInternal = f
   });
 
   const useful = result.chunks.filter((c) => c.score >= MIN_SCORE);
-  const relevance = Math.max(0, ...result.chunks.map((c) => c.dense_score || 0));
+  const { relevance, onTopic, answerable } = assessRelevance(result.chunks, question);
 
   // Meta questions: answer plainly rather than citing unrelated sections.
   if (isMetaQuestion(question)) {
@@ -126,7 +196,7 @@ async function answerKnowledgeQuestion(question, { topK = 6, includeInternal = f
     };
   }
 
-  if (!useful.length || relevance < MIN_RELEVANCE) {
+  if (!useful.length || !answerable) {
     return {
       success: false,
       stage: "knowledge_no_match",
@@ -145,7 +215,8 @@ async function answerKnowledgeQuestion(question, { topK = 6, includeInternal = f
       retrieval: {
         candidates: result.chunks.length,
         relevance,
-        below_threshold: relevance < MIN_RELEVANCE,
+        on_topic: onTopic,
+        answerable: false,
         timings: result.timings,
       },
     };
@@ -200,6 +271,7 @@ async function answerKnowledgeQuestion(question, { topK = 6, includeInternal = f
       used: useful.length,
       candidates: result.chunks.length,
       relevance,
+      on_topic: onTopic,
       context_tokens: Math.ceil(context.length / 4),
       timings: result.timings,
     },
@@ -220,5 +292,8 @@ module.exports = {
   buildKnowledgeSystemPrompt,
   KNOWLEDGE_TYPES,
   KNOWLEDGE_SOURCES,
-  MIN_RELEVANCE,
+  STRONG_RELEVANCE,
+  WEAK_RELEVANCE,
+  assessRelevance,
+  hasDomainVocabulary,
 };

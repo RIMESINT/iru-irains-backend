@@ -8,7 +8,8 @@
     "migrate:activity-logs": "node scripts/runMigration.js migrations/create_admin_activity_logs.sql",
     "migrate:calculations-mode": "node scripts/runMigration.js migrations/create_calculations_imd_aws.sql",
     "rag:build": "node controllers/ollamaChat/rag/buildIndex.js",
-    "rag:eval": "node controllers/ollamaChat/rag/eval.js"
+    "rag:eval": "node controllers/ollamaChat/rag/eval.js",
+    "start:nocron": "node scripts/startNoCron.js"
   },
   "keywords": [],
   "author": "",

@@ -265,6 +265,7 @@ async function retrieve(question, opts = {}) {
       // compressed and cannot be thresholded across questions.
       dense_score: r.dense?.score != null ? Number(r.dense.score.toFixed(4)) : null,
       dense_rank: r.dense?.rank ?? null,
+      lex_score: r.lex?.score != null ? Number(r.lex.score.toFixed(3)) : null,
       lex_rank: r.lex?.rank ?? null,
       boost: Number((r.boost || 0).toFixed(3)),
     };

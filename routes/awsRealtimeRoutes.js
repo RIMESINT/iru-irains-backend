@@ -10,5 +10,6 @@ router.post("/aws-realtime/unmapped-stations", ctrl.fetchUnmapped);
 router.post("/aws-realtime/timeline",          ctrl.fetchTimeline);
 router.post("/aws-realtime/cumulative",        ctrl.fetchCumulative);
 router.post("/aws-realtime/station-series",    ctrl.fetchStationSeries);
+router.post("/aws-realtime/daily-stations",    ctrl.fetchDailyStations);
 
 module.exports = router;

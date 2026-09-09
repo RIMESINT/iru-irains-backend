@@ -121,6 +121,56 @@ const SLOT_COUNT = 96;
  */
 const DAY_START_IST_MINUTES = 8 * 60 + 30;
 
+// ─── NETWORK REGISTRY ─────────────────────────────────────────────
+// Two independent daily rain-gauge networks reach this page, held in the same
+// pair of shapes (details + daily_data) but in different tables:
+//
+//   state — aws_station_details / aws_station_daily_data. Fed by the ten
+//           15-minute sources above, so it is the only network that can be
+//           replayed slot by slot.
+//   imd   — station_details / station_daily_data. One value per station per
+//           day, the day's total. No sub-daily observations exist for it
+//           anywhere, so anything slot-shaped must exclude it rather than
+//           interpolate.
+//
+// Both use the same -999.9 "no observation" sentinel and the same
+// station_code → district_code → normal_district_details path, which is what
+// lets one query cover both. station_code is NOT unique across the two, so
+// every result is keyed by (network, station_code), never station_code alone.
+const NETWORKS = [
+    {
+        key: "state", label: "State Government AWS/ARG", short: "STATE",
+        details: "aws_station_details", daily: "aws_station_daily_data",
+        sub_daily: true,
+        // aws_station_details carries nothing but ARG and AWS, so no filter.
+        types: null,
+    },
+    {
+        key: "imd", label: "IMD ARG/AWS", short: "IMD",
+        details: "station_details", daily: "station_daily_data",
+        sub_daily: false,
+        // station_details also holds ~5400 ORG manual gauges and a few CWC
+        // sites. This page is about ARG/AWS, so they stay out of every query.
+        types: ["ARG", "AWS"],
+    },
+];
+
+const NETWORK_BY_KEY = new Map(NETWORKS.map((n) => [n.key, n]));
+
+/** Resolves a `networks` request array to config objects; empty/absent = all. */
+const resolveNetworks = (keys) => {
+    if (!Array.isArray(keys) || keys.length === 0) return NETWORKS;
+    const picked = keys.map((k) => NETWORK_BY_KEY.get(String(k))).filter(Boolean);
+    return picked.length ? picked : NETWORKS;
+};
+
+/**
+ * The network's station_type restriction as a SQL fragment, or "" when it has
+ * none. The values come from NETWORKS, never from the request.
+ */
+const networkTypeClause = (net, alias = "sd") =>
+    net.types ? `AND ${alias}.station_type IN (${net.types.map((t) => `'${t}'`).join(", ")})` : "";
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 /**
@@ -671,46 +721,60 @@ exports.fetchTimeline = async (req, res) => {
 //    and state / district / centre rollups.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Shared CTE: the filtered slice of aws_station_daily_data, decorated. */
-const cumulativeBaseCte = `
+/**
+ * Shared CTE: the filtered slice of the selected networks' daily tables,
+ * decorated and stacked.
+ *
+ * Every row carries its own `network`, and every aggregate downstream groups by
+ * (network, station_id) rather than station_id — the two tables allocate
+ * station_code independently, so a bare station_id would silently fuse an IMD
+ * station with a State one the day their codes collide.
+ */
+const cumulativeBaseCte = (nets) => `
     base AS (
-        SELECT
+${nets.map((n) => `        SELECT
+            '${n.key}'::text                                        AS network,
+            '${n.short}'::text                                      AS network_short,
+            '${n.label}'::text                                      AS network_label,
+            ${n.sub_daily}                                          AS sub_daily,
             d.station_id,
             d.collection_date,
             d.data                                                  AS raw,
             CASE WHEN d.data > ${NO_DATA_FLOOR} THEN d.data END     AS val,
             (d.data >= ${RAIN_THRESHOLD})                           AS is_rain,
             (d.data > ${NO_DATA_FLOOR})                             AS is_valid,
-            asd.station_name,
-            asd.latitude,
-            asd.longitude,
-            asd.block_name,
-            asd.block_code,
-            asd.station_type,
-            asd.centre_name,
-            asd.centre_type,
-            asd.district_code,
+            sd.station_name,
+            sd.latitude,
+            sd.longitude,
+            sd.block_name,
+            sd.block_code,
+            sd.station_type,
+            sd.centre_name,
+            sd.centre_type,
+            sd.district_code,
             ndd.district_name,
             ndd.state_name,
             ndd.state_code,
             ndd.region_name,
             ndd.subdiv_name
-        FROM aws_station_daily_data d
-        JOIN aws_station_details asd
-          ON asd.station_code = d.station_id AND asd.flag <> 0
+        FROM ${n.daily} d
+        JOIN ${n.details} sd
+          ON sd.station_code = d.station_id AND sd.flag <> 0
+         ${networkTypeClause(n)}
         LEFT JOIN normal_district_details ndd
-          ON ndd.district_code = asd.district_code
+          ON ndd.district_code = sd.district_code
         WHERE d.collection_date BETWEEN $1::date AND $2::date
-          AND ($3::bigint[] IS NULL OR ndd.state_code    = ANY($3::bigint[]))
-          AND ($4::bigint[] IS NULL OR asd.district_code = ANY($4::bigint[]))
-          AND ($5::text   IS NULL OR asd.station_type  = $5::text)
+          AND ($3::bigint[] IS NULL OR ndd.state_code   = ANY($3::bigint[]))
+          AND ($4::bigint[] IS NULL OR sd.district_code = ANY($4::bigint[]))
+          AND ($5::text   IS NULL OR sd.station_type  = $5::text)`).join("\n        UNION ALL\n")}
     )
 `;
 
 exports.fetchCumulative = async (req, res) => {
     try {
-        let { startDate, endDate, stateCodes, districtCodes, stationType } = req.body;
+        let { startDate, endDate, stateCodes, districtCodes, stationType, networks } = req.body;
         ({ startDate, endDate } = resolveDates(startDate, endDate));
+        const nets = resolveNetworks(networks);
         if (moment.tz(startDate, IST).isAfter(moment.tz(endDate, IST))) {
             return res.status(400).json({ success: false, message: "startDate must be <= endDate" });
         }
@@ -729,37 +793,42 @@ exports.fetchCumulative = async (req, res) => {
         // The spell is a gaps-and-islands run: a running count of dry days
         // labels each consecutive rain streak, then the longest label wins.
         const stationsSql = `
-            WITH ${cumulativeBaseCte},
+            WITH ${cumulativeBaseCte(nets)},
             flagged AS (
                 SELECT *,
                     SUM(CASE WHEN is_rain THEN 0 ELSE 1 END)
-                        OVER (PARTITION BY station_id ORDER BY collection_date
+                        OVER (PARTITION BY network, station_id ORDER BY collection_date
                               ROWS UNBOUNDED PRECEDING) AS spell_grp
                 FROM base
             ),
             spells AS (
-                SELECT station_id, spell_grp,
+                SELECT network, station_id, spell_grp,
                        COUNT(*)                 AS spell_days,
                        SUM(val)                 AS spell_total,
                        MIN(collection_date)     AS spell_start,
                        MAX(collection_date)     AS spell_end
                 FROM flagged
                 WHERE is_rain
-                GROUP BY station_id, spell_grp
+                GROUP BY network, station_id, spell_grp
             ),
             best_spell AS (
-                SELECT DISTINCT ON (station_id)
-                       station_id, spell_days, spell_total, spell_start, spell_end
+                SELECT DISTINCT ON (network, station_id)
+                       network, station_id, spell_days, spell_total, spell_start, spell_end
                 FROM spells
-                ORDER BY station_id, spell_days DESC, spell_total DESC
+                ORDER BY network, station_id, spell_days DESC, spell_total DESC
             ),
             peak AS (
-                SELECT DISTINCT ON (station_id) station_id, collection_date AS peak_date, val AS peak_value
+                SELECT DISTINCT ON (network, station_id)
+                       network, station_id, collection_date AS peak_date, val AS peak_value
                 FROM base
                 WHERE is_valid
-                ORDER BY station_id, val DESC, collection_date
+                ORDER BY network, station_id, val DESC, collection_date
             )
             SELECT
+                b.network,
+                MIN(b.network_short)                                    AS network_short,
+                MIN(b.network_label)                                    AS network_label,
+                BOOL_OR(b.sub_daily)                                    AS sub_daily,
                 b.station_id,
                 MIN(b.station_name)                                     AS station_name,
                 MIN(b.latitude)                                         AS latitude,
@@ -790,15 +859,15 @@ exports.fetchCumulative = async (req, res) => {
                 MIN(s.spell_start)                                      AS spell_start,
                 MIN(s.spell_end)                                        AS spell_end
             FROM base b
-            LEFT JOIN best_spell s ON s.station_id = b.station_id
-            LEFT JOIN peak p       ON p.station_id = b.station_id
-            GROUP BY b.station_id
+            LEFT JOIN best_spell s ON s.network = b.network AND s.station_id = b.station_id
+            LEFT JOIN peak p       ON p.network = b.network AND p.station_id = b.station_id
+            GROUP BY b.network, b.station_id
             ORDER BY total_rainfall DESC
         `;
 
         // ── Daily network curve ──────────────────────────────────────────────
         const dailySql = `
-            WITH ${cumulativeBaseCte}
+            WITH ${cumulativeBaseCte(nets)}
             SELECT
                 TO_CHAR(collection_date, 'YYYY-MM-DD')                  AS collection_date,
                 COUNT(*)                                                AS stations_total,
@@ -816,16 +885,16 @@ exports.fetchCumulative = async (req, res) => {
 
         // ── Geographic rollups, one pass per level ───────────────────────────
         const rollupSql = (codeCol, nameCol, levelKey) => `
-            WITH ${cumulativeBaseCte},
+            WITH ${cumulativeBaseCte(nets)},
             per_station AS (
-                SELECT station_id,
+                SELECT network, station_id,
                        MIN(${codeCol}) AS group_code,
                        MIN(${nameCol}) AS group_name,
                        SUM(val)        AS station_total,
                        COUNT(*) FILTER (WHERE is_valid) AS days_reported,
                        COUNT(*) FILTER (WHERE is_rain)  AS rain_days
                 FROM base
-                GROUP BY station_id
+                GROUP BY network, station_id
             )
             SELECT
                 '${levelKey}'::text                             AS level,
@@ -853,6 +922,12 @@ exports.fetchCumulative = async (req, res) => {
         ]);
 
         const stations = stationsRes.rows.map((r) => ({
+            network: r.network,
+            network_short: r.network_short,
+            network_label: r.network_label,
+            // False for IMD: no 15-minute observations exist for it anywhere,
+            // so the client must not offer a live curve for these stations.
+            sub_daily: Boolean(r.sub_daily),
             station_code: String(r.station_id),
             station_name: r.station_name,
             latitude: num(r.latitude),
@@ -925,6 +1000,42 @@ exports.fetchCumulative = async (req, res) => {
         const totals = reporting.reduce((a, s) => a + (s.total_rainfall || 0), 0);
         const days = daily.length;
 
+        // One row per selected network. Built here rather than in SQL because
+        // the station rows already carry everything it needs, and a sixth
+        // concurrent query on a single shared pg Client is not worth the ~40
+        // numbers this produces.
+        const byNetwork = nets.map((n) => {
+            const mine = stations.filter((s) => s.network === n.key);
+            const live = mine.filter((s) => s.days_reported > 0);
+            const total = live.reduce((a, s) => a + (s.total_rainfall || 0), 0);
+            const maxDaily = live.reduce((m, s) => Math.max(m, s.max_daily ?? -1), -1);
+            const wettest = live.reduce(
+                (best, s) => (best === null || (s.total_rainfall ?? -1) > (best.total_rainfall ?? -1) ? s : best),
+                null
+            );
+            return {
+                key: n.key,
+                label: n.label,
+                short: n.short,
+                daily_table: n.daily,
+                details_table: n.details,
+                sub_daily: n.sub_daily,
+                stations_total: mine.length,
+                stations_reporting: live.length,
+                stations_silent: mine.length - live.length,
+                reporting_pct: mine.length
+                    ? Number(((live.length / mine.length) * 100).toFixed(1))
+                    : 0,
+                total_rainfall: Number(total.toFixed(1)),
+                mean_station_total: live.length ? Number((total / live.length).toFixed(1)) : null,
+                mean_rain_days: live.length
+                    ? Number((live.reduce((a, s) => a + s.rain_days, 0) / live.length).toFixed(1))
+                    : null,
+                max_daily: maxDaily >= 0 ? maxDaily : null,
+                wettest_station: wettest,
+            };
+        });
+
         res.status(200).json({
             success: true,
             message: "AWS cumulative analytics fetched",
@@ -951,6 +1062,7 @@ exports.fetchCumulative = async (req, res) => {
                         null
                     ),
                 },
+                networks: byNetwork,
                 stations,
                 daily,
                 states: mapRollup(statesRes.rows),
@@ -975,40 +1087,71 @@ exports.fetchCumulative = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.fetchStationSeries = async (req, res) => {
     try {
-        let { stationCode, startDate, endDate } = req.body;
+        let { stationCode, startDate, endDate, network } = req.body;
         if (stationCode === undefined || stationCode === null || stationCode === "") {
             return res.status(400).json({ success: false, message: "stationCode is required" });
         }
+        // Every lookup below casts to bigint. A non-numeric code would surface
+        // as a Postgres syntax error and a 500, which reads as a broken page
+        // rather than a typo — and there are now two tables to mistype into.
+        if (!/^\d+$/.test(String(stationCode).trim())) {
+            return res.status(400).json({ success: false, message: "stationCode must be numeric" });
+        }
+        stationCode = String(stationCode).trim();
         ({ startDate, endDate } = resolveDates(startDate, endDate));
 
-        const detailQ = await client.query(`
-            SELECT asd.station_code, asd.station_name, asd.station_type, asd.centre_name,
-                   asd.latitude, asd.longitude, asd.block_name, asd.block_code,
-                   asd.activationdate, asd.district_code,
-                   ndd.district_name, ndd.state_name, ndd.state_code, ndd.region_name, ndd.subdiv_name
-            FROM aws_station_details asd
-            LEFT JOIN normal_district_details ndd ON ndd.district_code = asd.district_code
-            WHERE asd.station_code = $1::bigint
-        `, [stationCode]);
+        // A code can exist in either network's details table, so the caller may
+        // name one; absent that, they are tried in registry order. Only the
+        // first hit is used — the two tables allocate codes independently, and
+        // showing a merged series would invent a station that does not exist.
+        const candidates = network ? [NETWORK_BY_KEY.get(String(network))].filter(Boolean) : NETWORKS;
+        if (!candidates.length) {
+            return res.status(400).json({ success: false, message: `Unknown network "${network}"` });
+        }
 
-        if (detailQ.rowCount === 0) {
-            return res.status(404).json({ success: false, message: "Station not found in aws_station_details" });
+        let net = null;
+        let detailQ = null;
+        for (const candidate of candidates) {
+            const q = await client.query(`
+                SELECT sd.station_code, sd.station_name, sd.station_type, sd.centre_name,
+                       sd.latitude, sd.longitude, sd.block_name, sd.block_code,
+                       sd.activationdate, sd.district_code,
+                       ndd.district_name, ndd.state_name, ndd.state_code, ndd.region_name, ndd.subdiv_name
+                FROM ${candidate.details} sd
+                LEFT JOIN normal_district_details ndd ON ndd.district_code = sd.district_code
+                WHERE sd.station_code = $1::bigint
+                  ${networkTypeClause(candidate)}
+            `, [stationCode]);
+            if (q.rowCount > 0) {
+                net = candidate;
+                detailQ = q;
+                break;
+            }
+        }
+
+        if (!net) {
+            const where = candidates.map((c) => c.details).join(" or ");
+            return res.status(404).json({ success: false, message: `Station not found in ${where}` });
         }
 
         const seriesQ = await client.query(`
             SELECT TO_CHAR(collection_date, 'YYYY-MM-DD') AS collection_date,
                    data,
                    CASE WHEN data > ${NO_DATA_FLOOR} THEN data END AS val
-            FROM aws_station_daily_data
+            FROM ${net.daily}
             WHERE station_id = $1::bigint AND collection_date BETWEEN $2::date AND $3::date
             ORDER BY collection_date
         `, [stationCode, startDate, endDate]);
 
-        // Which live table (if any) this station_code came from.
-        const sourceQ = await client.query(
-            `SELECT id, source_table FROM aws_mapping_id WHERE station_code = $1::bigint`,
-            [stationCode]
-        );
+        // Which live table (if any) this station_code came from. aws_mapping_id
+        // only ever names State codes, and querying it with an IMD code would
+        // match by coincidence, not by identity — so IMD skips it outright.
+        const sourceQ = net.sub_daily
+            ? await client.query(
+                `SELECT id, source_table FROM aws_mapping_id WHERE station_code = $1::bigint`,
+                [stationCode]
+              )
+            : { rows: [] };
 
         let running = 0;
         const series = seriesQ.rows.map((r) => {
@@ -1037,7 +1180,7 @@ exports.fetchStationSeries = async (req, res) => {
 
         // Live 15-minute curve for the last day of the range, if a source exists.
         let liveSlots = null;
-        const mapped = sourceQ.rows[0];
+        const mapped = net.sub_daily ? sourceQ.rows[0] : null;
         if (mapped) {
             const src = SOURCES.find((s) => s.table === mapped.source_table);
             if (src) {
@@ -1072,6 +1215,12 @@ exports.fetchStationSeries = async (req, res) => {
             message: "AWS station series fetched",
             data: {
                 station: {
+                    network: net.key,
+                    network_label: net.label,
+                    network_short: net.short,
+                    /** False for IMD — the client shows a daily-only note. */
+                    sub_daily: net.sub_daily,
+                    daily_table: net.daily,
                     station_code: String(d.station_code),
                     station_name: d.station_name,
                     station_type: d.station_type,
@@ -1128,22 +1277,27 @@ exports.fetchFilters = async (req, res) => {
     try {
         const date = req.body.date || getAwsToday();
 
+        // Geography spans both networks: a district that carries only IMD
+        // stations still has to appear, or selecting it becomes impossible.
         const geoQ = await client.query(`
-            SELECT DISTINCT
-                ndd.state_code, ndd.state_name,
-                asd.district_code, ndd.district_name, ndd.region_name
-            FROM aws_station_details asd
-            JOIN normal_district_details ndd ON ndd.district_code = asd.district_code
-            WHERE asd.flag <> 0
-            ORDER BY ndd.state_name, ndd.district_name
+            SELECT DISTINCT state_code, state_name, district_code, district_name, region_name
+            FROM (
+${NETWORKS.map((n) => `                SELECT ndd.state_code, ndd.state_name,
+                       sd.district_code, ndd.district_name, ndd.region_name
+                FROM ${n.details} sd
+                JOIN normal_district_details ndd ON ndd.district_code = sd.district_code
+                WHERE sd.flag <> 0 ${networkTypeClause(n)}`).join("\n                UNION\n")}
+            ) g
+            ORDER BY state_name, district_name
         `);
 
+        // Counted per network as well as in total — the Type dropdown filters
+        // both networks at once, so "AWS (3049)" needs its split spelled out.
         const typeQ = await client.query(`
-            SELECT station_type, COUNT(*) AS stations
-            FROM aws_station_details
-            WHERE flag <> 0 AND station_type IS NOT NULL
-            GROUP BY station_type
-            ORDER BY stations DESC
+${NETWORKS.map((n) => `            SELECT '${n.key}'::text AS network, station_type, COUNT(*) AS stations
+            FROM ${n.details} sd
+            WHERE flag <> 0 AND station_type IS NOT NULL ${networkTypeClause(n)}
+            GROUP BY station_type`).join("\n            UNION ALL\n")}
         `);
 
         const liveGeoParts = SOURCES.filter((s) => s.state || s.district).map((s) => `
@@ -1182,6 +1336,15 @@ exports.fetchFilters = async (req, res) => {
             }
         }
 
+        // { AWS: { state: 2394, imd: 655 }, ARG: { … } }
+        const typeTotals = new Map();
+        for (const r of typeQ.rows) {
+            const entry = typeTotals.get(r.station_type) || { stations: 0, by_network: {} };
+            entry.stations += int(r.stations);
+            entry.by_network[r.network] = int(r.stations);
+            typeTotals.set(r.station_type, entry);
+        }
+
         res.status(200).json({
             success: true,
             message: "AWS filter options fetched",
@@ -1189,10 +1352,21 @@ exports.fetchFilters = async (req, res) => {
                 aws_today: getAwsToday(),
                 states,
                 districts_by_state: districtsByState,
-                station_types: typeQ.rows.map((r) => ({
-                    station_type: r.station_type,
-                    stations: int(r.stations),
+                networks: NETWORKS.map((n) => ({
+                    key: n.key,
+                    label: n.label,
+                    short: n.short,
+                    details_table: n.details,
+                    daily_table: n.daily,
+                    sub_daily: n.sub_daily,
+                    station_types: n.types,
+                    stations: typeQ.rows
+                        .filter((r) => r.network === n.key)
+                        .reduce((a, r) => a + int(r.stations), 0),
                 })),
+                station_types: [...typeTotals.entries()]
+                    .map(([station_type, v]) => ({ station_type, ...v }))
+                    .sort((a, b) => b.stations - a.stations),
                 sources: SOURCES.map((s) => ({
                     key: s.key,
                     label: s.label,
@@ -1209,4 +1383,110 @@ exports.fetchFilters = async (req, res) => {
     }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. DAILY STATION SNAPSHOT
+//    POST /api/v1/aws-realtime/daily-stations
+//    Body: { date?, networks? }
+//
+//    One AWS day's stored total for every station in the named networks, with
+//    coordinates. This is what puts IMD on the Live map: it has no 15-minute
+//    observations, so it cannot join the scrubber, but its 24-hour total for
+//    the same day can sit beside the animation as a static overlay.
+//
+//    Silent stations come back with day_total = null rather than being dropped
+//    — the map draws them in the no-report colour, exactly as the timeline does
+//    for a State station that has not sent anything yet.
+// ─────────────────────────────────────────────────────────────────────────────
+exports.fetchDailyStations = async (req, res) => {
+    try {
+        const date = req.body.date || getAwsToday();
+        const nets = resolveNetworks(req.body.networks);
+
+        const parts = nets.map((n) => `
+            SELECT
+                '${n.key}'::text        AS network,
+                '${n.short}'::text      AS network_short,
+                '${n.label}'::text      AS network_label,
+                sd.station_code,
+                sd.station_name,
+                sd.station_type,
+                sd.centre_name,
+                sd.block_name,
+                sd.latitude,
+                sd.longitude,
+                sd.district_code,
+                ndd.district_name,
+                ndd.state_name,
+                ndd.state_code,
+                CASE WHEN d.data > ${NO_DATA_FLOOR} THEN d.data END AS day_total
+            FROM ${n.details} sd
+            LEFT JOIN ${n.daily} d
+                   ON d.station_id = sd.station_code AND d.collection_date = $1::date
+            LEFT JOIN normal_district_details ndd
+                   ON ndd.district_code = sd.district_code
+            WHERE sd.flag <> 0 ${networkTypeClause(n)}
+        `);
+
+        const { rows } = await client.query(
+            `${parts.join("\nUNION ALL\n")}\nORDER BY day_total DESC NULLS LAST`,
+            [date]
+        );
+
+        const stations = rows.map((r) => ({
+            network: r.network,
+            network_short: r.network_short,
+            network_label: r.network_label,
+            station_code: String(r.station_code),
+            station_name: r.station_name,
+            station_type: r.station_type,
+            centre_name: r.centre_name,
+            block_name: r.block_name,
+            latitude: num(r.latitude),
+            longitude: num(r.longitude),
+            district_code: r.district_code === null ? null : String(r.district_code),
+            district_name: r.district_name,
+            state_name: r.state_name,
+            state_code: r.state_code === null ? null : String(r.state_code),
+            day_total: num(r.day_total),
+            reported: r.day_total !== null,
+        }));
+
+        const byNetwork = {};
+        for (const n of nets) {
+            const mine = stations.filter((s) => s.network === n.key);
+            const reported = mine.filter((s) => s.reported);
+            const maxTotal = reported.reduce((m, s) => Math.max(m, s.day_total), -1);
+            byNetwork[n.key] = {
+                label: n.label,
+                short: n.short,
+                sub_daily: n.sub_daily,
+                stations_total: mine.length,
+                stations_reporting: reported.length,
+                stations_raining: reported.filter((s) => s.day_total >= RAIN_THRESHOLD).length,
+                stations_plotted: mine.filter((s) => s.latitude !== null && s.longitude !== null).length,
+                max_total: maxTotal >= 0 ? maxTotal : null,
+            };
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Daily station snapshot fetched",
+            data: {
+                date,
+                networks: nets.map((n) => n.key),
+                stations,
+                meta: {
+                    by_network: byNetwork,
+                    stations_total: stations.length,
+                    stations_reporting: stations.filter((s) => s.reported).length,
+                    stations_plotted: stations.filter((s) => s.latitude !== null && s.longitude !== null).length,
+                },
+            },
+        });
+    } catch (error) {
+        return fail(res, "fetchDailyStations", error);
+    }
+};
+
 exports.SOURCES = SOURCES;
+exports.NETWORKS = NETWORKS;

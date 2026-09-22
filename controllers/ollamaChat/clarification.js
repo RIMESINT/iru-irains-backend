@@ -393,6 +393,7 @@ async function loadLocationMaster() {
   const master = {
     districts: [...SAMPLE_LOCATIONS.districts],
     states: [...SAMPLE_LOCATIONS.states],
+    stations: [],
   };
 
   try {
@@ -427,8 +428,38 @@ async function loadLocationMaster() {
     if (states.rows?.length) {
       master.states = states.rows.map((r) => r.state_name).filter(Boolean);
     }
+
   } catch (_) {
     // Keep sample seed if DB lookup fails or times out.
+  }
+
+  // Stations load separately, on their own timeout.
+  //
+  // Without this pool every station question — including the documented
+  // sample "What is rainfall at Nungambakkam station today?" — was rejected
+  // as an invalid location before the planner ever saw it, even though
+  // fetch_station_data is allowlisted and the data exists.
+  //
+  // Kept out of the districts/states Promise.all deliberately: sharing one
+  // timeout meant a slow station query would drop district and state
+  // resolution back to the sample seed and break lookups that work today.
+  try {
+    const stations = await Promise.race([
+      client.query(`
+        SELECT DISTINCT station_name
+        FROM public.station_details
+        WHERE station_name IS NOT NULL
+        ORDER BY station_name
+      `),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("station master timeout")), 3000)
+      ),
+    ]);
+    if (stations.rows?.length) {
+      master.stations = stations.rows.map((r) => r.station_name).filter(Boolean);
+    }
+  } catch (_) {
+    // Stations unavailable — district/state resolution is unaffected.
   }
 
   locationCache = master;
@@ -436,25 +467,62 @@ async function loadLocationMaster() {
   return master;
 }
 
+/** "Nungambakkam station" / "Chennai AP stn" -> the bare place name. */
+function stripStationWord(name) {
+  return String(name || "")
+    .replace(/\b(station|stn|observatory|obsy|aws|arg)\b\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function bestInPool(input, pool) {
+  let best = null;
+  for (const item of pool) {
+    const score = similarityScore(input, item.name);
+    if (!best || score > best.score) best = { ...item, score, input };
+  }
+  return best;
+}
+
+/** The user wrote "… station" / "… stn": they mean a station, not a district. */
+const SAYS_STATION_RE = /\b(station|stn|observatory|obsy)\s*$/i;
+
 function fuzzyFindLocation(rawName, master, { minScore = 0.72 } = {}) {
   const input = String(rawName || "").trim();
   if (!input) return null;
+
+  const stationPool = (master.stations || []).map((name) => ({ name, type: "station" }));
+  const bare = stripStationWord(input);
+
+  const matchStation = () => {
+    if (!stationPool.length) return null;
+    for (const candidate of [bare, input].filter((v, i, a) => v && a.indexOf(v) === i)) {
+      const hit = bestInPool(candidate, stationPool);
+      if (hit && hit.score >= minScore) return { ...hit, input };
+    }
+    return null;
+  };
 
   const pools = [
     ...master.districts.map((name) => ({ name, type: "district" })),
     ...master.states.map((name) => ({ name, type: "state" })),
   ];
+  const best = bestInPool(bare || input, pools);
+  const station = matchStation();
 
-  let best = null;
-  for (const item of pools) {
-    const score = similarityScore(input, item.name);
-    if (!best || score > best.score) {
-      best = { ...item, score, input };
-    }
-  }
-
-  if (!best || best.score < minScore) return null;
-  return best;
+  // Best score wins across all three pools, with district/state taking ties.
+  //
+  // The station marker cannot be relied on to still be present here: by the
+  // time a place reaches this function, cleanExtractedPlace and STOP_TOKENS
+  // have usually stripped the trailing "station". So "CHENNAI AP station"
+  // arrives as "CHENNAI AP", which fuzzy-matches the district CHENNAI(N)
+  // above threshold and produced "did you mean Chennai(n)?" for a station
+  // that exists exactly. Comparing scores fixes that without needing the
+  // marker: an exact station beats a fuzzy district, and an exact district
+  // still beats a fuzzy station.
+  if (station && (!best || station.score > best.score)) return station;
+  if (best && best.score >= minScore) return best;
+  return station || null;
 }
 
 function scrubCategoryPhrases(question) {
@@ -798,12 +866,17 @@ function buildClarifyResponse({
   options = [],
   suggestion = null,
   action = null,
+  reason_code = null,
   extra = {},
 }) {
   return {
     success: true,
     mode: "clarify",
     needs_clarification: true,
+    // Machine-readable reason so the UI can style it and logs can tell the
+    // clarification kinds apart.
+    reason_code: reason_code || type,
+    why: answer,
     answer,
     answer_mode: "clarify",
     action: action || {
@@ -1031,10 +1104,15 @@ async function runPreChatClarifications(question) {
     const examples = master.districts.slice(0, 4).join(", ");
     return buildClarifyResponse({
       type: "invalid_location",
-      prompt: "Please enter a valid district or state name.",
+      reason_code: "unknown_place",
+      prompt: "Please enter a valid place name.",
+      // Say what was searched. "I couldn't find it" leaves the user guessing
+      // whether they misspelled it or asked at a level iRAINS does not hold.
       answer:
-        `⚠️ I couldn't find a ${/district/i.test(q) ? "district" : "location"} named ${mentioned}.\n` +
-        `Please enter a valid name, such as ${examples}.`,
+        `⚠️ I couldn't find “${mentioned}” in the iRAINS masters — I checked station, ` +
+        `block, district, state, subdivision and region names.\n` +
+        `It may be spelled differently here, or it may not be an iRAINS reporting unit.\n` +
+        `Valid examples: ${examples}.`,
       options: master.districts.slice(0, 6).map((name) => ({
         label: name,
         value: name,

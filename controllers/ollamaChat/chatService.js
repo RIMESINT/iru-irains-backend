@@ -38,6 +38,17 @@ const { retrieveForPlanner, formatContext, init: initRag } = require("./rag/retr
 const { answerKnowledgeQuestion } = require("./rag/knowledge");
 const { route: routeQuestion } = require("./rag/router");
 const { getIndexMeta } = require("./rag/indexStore");
+const {
+  checkDateWindow,
+  getDataAvailability,
+  resolveLevels,
+  buildRecommendations,
+  buildLevelOptions,
+  buildNavigationOptions,
+  REFUSAL_REASONS,
+  LEVEL_LABEL,
+  formatDate,
+} = require("./guidance");
 
 const RAG_ENABLED = String(process.env.RAG_ENABLED ?? "true").toLowerCase() !== "false";
 
@@ -138,7 +149,12 @@ function buildAnswerSystemPrompt({ didYouMean = null } = {}) {
   return `You are Varsha, IRAINS rainfall assistant.
 Answer using ONLY the provided API JSON data.
 Be concise.
-Include actual mm, normal mm, and departure % when present.
+ALWAYS give all three figures together in the same sentence: actual (mm), normal (mm) and departure (%).
+If one of them is missing from the data, say "not available" for that one — never silently omit it.
+ALWAYS name the level the figures describe: say "KERALA (state)", "CHENNAI (district)", "CHENNAI AP (station)",
+"Banda (block)", "Kerala (subdivision)" or "Central India (region)". A number without its level is ambiguous
+because the same name can exist at several levels.
+For all-India / country questions, report the country mean: actual, normal and departure for INDIA.
 CRITICAL UNITS: actual and normal are in millimetres (mm). Departure is a PERCENTAGE (%) — never write departure with "mm".
 Round rainfall to 1 decimal place. Never print a raw float like 7.238679956847527.
 When startDate and endDate differ, say the full range (e.g. "from 2026-06-01 to 2026-06-30"), never a single day.
@@ -456,14 +472,19 @@ function formatFallbackAnswer(question, action, apiResult) {
   const departure = row.departure ?? null;
   const rowDate = row.date || dateText;
 
-  const actualText = actual == null ? "No Data" : `${Number(actual).toFixed(1)} mm`;
-  const normalText = normal == null ? "No Data" : `${Number(normal).toFixed(1)} mm`;
+  const actualText = actual == null ? "not available" : `${Number(actual).toFixed(1)} mm`;
+  const normalText = normal == null ? "not available" : `${Number(normal).toFixed(1)} mm`;
   const depText =
     departure == null
-      ? "No Data"
+      ? "not available"
       : `${departure > 0 ? "+" : ""}${Number(departure).toFixed(1)}%`;
 
-  return `${notePrefix}${name} on ${rowDate}: actual ${actualText}, normal ${normalText}, departure ${depText}.`;
+  // Name the level explicitly: the same name can be a district, a block and a
+  // station, and a bare number gives the reader no way to tell which.
+  const levelWord = levelOf(row, action);
+  const place = levelWord ? `${name} (${levelWord})` : name;
+
+  return `${notePrefix}${place} on ${rowDate}: actual ${actualText}, normal ${normalText}, departure ${depText}.`;
 }
 
 
@@ -619,6 +640,75 @@ function answerHasCategoryError(answer, apiResult) {
   );
 
   return meaningful.some((name) => !truthful.has(name));
+}
+
+/**
+ * Which administrative level does a result row describe?
+ * Taken from the row's own name field first, then from the api_id, so the
+ * answer always states the level rather than leaving the reader to guess.
+ */
+function levelOf(row = {}, action = null) {
+  if (row.station_name) return "station";
+  if (row.block_name) return "block";
+  if (row.district_name) return "district";
+  if (row.subdiv_name || row.subdivision_name) return "subdivision";
+  if (row.region_name) return "region";
+  if (row.state_name) return "state";
+  const id = String(action?.api_id || "");
+  if (/station/.test(id)) return "station";
+  if (/block/.test(id)) return "block";
+  if (/district/.test(id)) return "district";
+  if (/subdivision|subdiv/.test(id)) return "subdivision";
+  if (/region/.test(id)) return "region";
+  if (/state/.test(id)) return "state";
+  if (/country|cummulative|cumulative/.test(id)) return "country";
+  return null;
+}
+
+/** The place the planner settled on, and the filter key it used. */
+function plannedPlace(action) {
+  const pf = action?.post_filter || {};
+  for (const [key, level] of [
+    ["station_name", "station"],
+    ["block_name", "block"],
+    ["district_name", "district"],
+    ["subdiv_name", "subdivision"],
+    ["subdivision_name", "subdivision"],
+    ["region_name", "region"],
+    ["state_name", "state"],
+  ]) {
+    if (pf[key]) return { name: String(pf[key]), level };
+  }
+  if (Array.isArray(pf.state_names) && pf.state_names.length === 1) {
+    return { name: String(pf.state_names[0]), level: "state" };
+  }
+  return null;
+}
+
+/** Did the user already say which level they meant? */
+function questionNamesLevel(question) {
+  return /\b(station|stn|block|district|dist\b|state|sub[- ]?division|subdiv|region|all[- ]?india|country)\b/i.test(
+    String(question || "")
+  );
+}
+
+/**
+ * Ask which level only when the name genuinely means different things at
+ * different levels AND the user did not already say. "Maharashtra" resolves to
+ * one level, so it is answered straight away; "Banda" is a station, a block
+ * and a district, so guessing silently would be a coin flip.
+ */
+async function checkLevelAmbiguity(action, question) {
+  const place = plannedPlace(action);
+  if (!place || questionNamesLevel(question)) return null;
+  let hits;
+  try {
+    hits = await resolveLevels(place.name);
+  } catch (_) {
+    return null;
+  }
+  if (!hits || hits.length < 2) return null;
+  return { place, hits };
 }
 
 function resolveActionDateTokens(action) {
@@ -782,15 +872,23 @@ function buildOutOfScopeResponse({
   action = null,
   llm_plan_raw = null,
   model = null,
+  reason = "out_of_domain",
+  detail = null,
+  question = "",
 } = {}) {
+  // Always say WHY. "I could not find that" alone tells an operator nothing —
+  // an unknown place, a date before our records, and a genuinely off-topic
+  // question each need a different next step from the user.
+  const why = detail || REFUSAL_REASONS[reason] || REFUSAL_REASONS.out_of_domain;
   return {
     success: false,
     stage: "out_of_scope",
     out_of_scope: true,
-    answer:
-      "That one is outside IRAINS, so I can't help with it. I'm Varsha — I only know " +
-      "Indian rainfall (actual, normal and departure) and where to find each product " +
-      "page. Try one of these:",
+    declined: true,
+    reason_code: reason,
+    why,
+    answer: `${why}\n\nHere is what I can answer:`,
+    recommendations: buildRecommendations({ question, action }),
     suggestions: buildScopeSuggestions(),
     sample_questions: SAMPLE_QUESTIONS,
     ...(llm_plan_raw ? { llm_plan_raw } : {}),
@@ -1049,6 +1147,17 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
         const knowledge = await answerKnowledgeQuestion(effectiveQuestion, {
           skipAnswerLlm,
         });
+        if (!knowledge.success || knowledge.stage === "knowledge_no_match") {
+          return {
+            ...knowledge,
+            routing,
+            declined: true,
+            reason_code: "no_doc_match",
+            why: REFUSAL_REASONS.no_doc_match,
+            answer: `${REFUSAL_REASONS.no_doc_match}\n\nHere is what I can answer:`,
+            recommendations: buildRecommendations({ question: effectiveQuestion }),
+          };
+        }
         return { ...knowledge, routing };
       }
     } catch (err) {
@@ -1208,6 +1317,97 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
   // Re-apply category heal after location fixes (original question keeps category words)
   action = sanitizeRainfallAction(action, question);
 
+  // Level disambiguation, before any data is fetched.
+  const ambiguity = await checkLevelAmbiguity(action, effectiveQuestion);
+  if (ambiguity) {
+    const { place, hits } = ambiguity;
+    const options = buildLevelOptions(hits, { place: place.name });
+    const levelList = hits.map((h) => LEVEL_LABEL[h.level] || h.level).join(", ");
+    return {
+      success: true,
+      mode: "clarify",
+      needs_clarification: true,
+      reason_code: "ambiguous_level",
+      why: `“${place.name}” exists at more than one level (${levelList}), and the rainfall figures differ between them.`,
+      answer:
+        `“${place.name}” exists at more than one level — ${levelList}.\n` +
+        `Which one do you mean?`,
+      answer_mode: "clarify",
+      clarify: {
+        type: "which_level",
+        prompt: `Which level of “${place.name}”?`,
+        options,
+      },
+      recommendations: buildRecommendations({
+        question: effectiveQuestion,
+        action,
+        levelHits: hits,
+        includeLevels: true,
+      }),
+      action,
+      routing,
+      model: plan.model,
+      navigation: null,
+      api: { ok: true, status: 200, request: null, row_count: 0, data: [], note: "Level clarification needed." },
+    };
+  }
+
+  // Date availability guard.
+  //
+  // iRAINS aggregate records begin 2025-06-01. Asking for anything earlier
+  // used to return an empty result that read like "no rainfall", which is a
+  // different and much more misleading statement than "we have no records
+  // that far back". Checked before the call so we never render an empty
+  // answer as if it were a measurement.
+  let dateWindow = null;
+  if (action?.body?.startDate) {
+    dateWindow = await checkDateWindow({
+      startDate: action.body.startDate,
+      endDate: action.body.endDate || action.body.startDate,
+    });
+    // Not published yet: retarget the request to the newest day that exists.
+    //
+    // Left alone, the executor answered with numbers from another day while
+    // still labelling them with the date that was asked for — "KERALA on
+    // 2026-09-22: actual 5.1 mm" when 2026-09-22 has no rows at all. Moving
+    // the date before the call keeps the executor, the row labels and the
+    // answer sentence all describing the same day, and range_note explains
+    // the substitution.
+    if (dateWindow.ok && dateWindow.pending && dateWindow.available?.to) {
+      action.body.startDate = dateWindow.available.to;
+      if (action.body.endDate) action.body.endDate = dateWindow.available.to;
+    }
+
+    if (!dateWindow.ok) {
+      return {
+        success: false,
+        mode: "declined",
+        declined: true,
+        reason_code: dateWindow.reason,
+        why: dateWindow.message,
+        answer: dateWindow.message,
+        available: dateWindow.available,
+        data_availability: dateWindow.available,
+        recommendations: buildRecommendations({
+          question: effectiveQuestion,
+          action,
+          includeTimeframe: true,
+        }),
+        action,
+        routing,
+        model: plan.model,
+        api: {
+          ok: true,
+          status: 200,
+          request: null,
+          row_count: 0,
+          data: [],
+          note: dateWindow.message,
+        },
+      };
+    }
+  }
+
   // Step 2: execute API / navigation
   const apiResult = await executeApiAction(action);
 
@@ -1326,9 +1526,20 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     }
   }
 
+  const successRecommendations = buildRecommendations({
+    question: effectiveQuestion,
+    action,
+    related: related_options,
+  });
+
   return {
     success: true,
     mode: plannerContext.retrieved ? "rag_planner" : "ollama_catalog",
+    reason_code: null,
+    level: levelOf(Array.isArray(apiResult.data) ? apiResult.data[0] || {} : {}, action),
+    data_availability: dateWindow?.available || null,
+    range_note: dateWindow?.partial || dateWindow?.pending ? dateWindow.message : null,
+    recommendations: successRecommendations,
     model: plan.model,
     routing,
     retrieval: plannerContext.retrieved

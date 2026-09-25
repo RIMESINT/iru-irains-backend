@@ -97,7 +97,7 @@ const TIME_CUES =
   /\b(today|todays|yesterday|yesterdays|tomorrow|tonight|this\s+week|last\s+week|last\s+\d+\s+days?|past\s+\d+\s+days?|this\s+month|last\s+month|monthly|seasonal|season|cumulative|forecast|historical|history|so\s+far|till\s+date|to\s+date|now|currently|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|\d{4}-\d{2}-\d{2}|\d{1,2}[-/]\d{1,2}([-/]\d{2,4})?|\d{1,2}(st|nd|rd|th)?)\b/i;
 
 const LOCATION_PREP =
-  /\b(?:in|for|of|at|on|about|regarding)\s+([A-Za-z][A-Za-z\s&.']{1,40}?)(?:\s+(?:district|state|today|todays|yesterday|yesterdays|tomorrow|tonight|monthly|historical|history|weekly|seasonal|cumulative|forecast|this|last|past|rainfall|rain|data|map|departure|normal|actual)\b|[?.!,]|$)/i;
+  /\b(?:in|for|of|at|on|about|regarding)\s+([A-Za-z][A-Za-z\s&.']{1,40}?)(?:\s+(?:district|dist|state|subdivision|subdiv|region|station|stn|block|mandal|taluk|tehsil|today|todays|yesterday|yesterdays|tomorrow|tonight|monthly|historical|history|weekly|seasonal|cumulative|forecast|this|last|past|rainfall|rain|data|map|departure|normal|actual)\b|[?.!,]|$)/i;
 
 /** e.g. "give chenai data", "give me chenai data", "show chenai rainfall" */
 const LOCATION_LOOSE =
@@ -475,13 +475,65 @@ function stripStationWord(name) {
     .trim();
 }
 
-function bestInPool(input, pool) {
+/**
+ * Strip ANY trailing level word: "BANDA station" -> "BANDA".
+ *
+ * The exactness test compared the user's words against the matched master
+ * name, so "BANDA station" never equalled "BANDA" and the assistant asked
+ * "Did you mean Banda?" about the very name it had matched exactly — an
+ * infinite loop when the question came from our own level chip.
+ */
+function stripLevelWord(name) {
+  return String(name || "")
+    .replace(/\b(station|stn|observatory|obsy|aws|arg|block|mandal|taluk|tehsil|district|dist|state|sub[- ]?division|subdiv|region)\b\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function bestInPool(input, pool, minScore = 0) {
   let best = null;
   for (const item of pool) {
     const score = similarityScore(input, item.name);
+    // Short names must clear a higher bar — see minScoreForName.
+    if (score < minScoreForName(item.name, minScore)) continue;
     if (!best || score > best.score) best = { ...item, score, input };
   }
   return best;
+}
+
+/**
+ * Words that are never a place, however well they fuzzy-match.
+ *
+ * Adding the 6,723-name station pool made short station names reachable by
+ * ordinary English: "want" scored 0.75 against the station MANT, "data" 0.80
+ * against DATIA, and "india" 0.80 against INDI — so "I want all india data"
+ * was answered with "Did you mean Mant?". A similarity score cannot tell
+ * these apart; only a vocabulary check can.
+ */
+const NEVER_A_PLACE = new Set([
+  "want","need","give","show","tell","said","says","like","last","next","past","this","that",
+  "data","date","dates","year","years","month","months","week","weeks","day","days","time",
+  "rain","rainfall","total","value","values","info","list","help","please","thanks","hello",
+  "what","when","where","which","have","has","had","can","could","would","should","does","did",
+  "all","any","some","more","most","much","many","from","into","with","about","over","under",
+  "cumulative","cummulative","seasonal","monthly","daily","weekly","actual","normal","departure",
+  "india","bharat","country","nation","map","maps","page","open","find","get","see","view",
+  "station","stations","block","blocks","district","districts","state","states","region","regions",
+  "good","morning","evening","night","yes","no","ok","okay","sure","fine","also","now","today",
+]);
+
+/** India / all-India is the country level, never a station called INDI. */
+const COUNTRY_RE = /^(all[\s-]?india|india|bharat|whole\s+india|pan[\s-]?india|country|nationwide|national)$/i;
+
+/**
+ * Short names need a near-exact match. A four-letter station colliding with a
+ * four-letter English word at 0.75 is noise, not a recognition.
+ */
+function minScoreForName(name, base) {
+  const len = String(name || "").replace(/[^a-z0-9]/gi, "").length;
+  if (len <= 4) return 0.98;
+  if (len <= 6) return Math.max(base, 0.90);
+  return base;
 }
 
 /** The user wrote "… station" / "… stn": they mean a station, not a district. */
@@ -491,13 +543,21 @@ function fuzzyFindLocation(rawName, master, { minScore = 0.72 } = {}) {
   const input = String(rawName || "").trim();
   if (!input) return null;
 
+  // All-India is the country, resolved before any similarity is computed.
+  if (COUNTRY_RE.test(input)) {
+    return { name: "INDIA", type: "country", score: 1, input };
+  }
+
+  // A single common English word is never a place name.
+  if (!/\s/.test(input) && NEVER_A_PLACE.has(input.toLowerCase())) return null;
+
   const stationPool = (master.stations || []).map((name) => ({ name, type: "station" }));
   const bare = stripStationWord(input);
 
   const matchStation = () => {
     if (!stationPool.length) return null;
     for (const candidate of [bare, input].filter((v, i, a) => v && a.indexOf(v) === i)) {
-      const hit = bestInPool(candidate, stationPool);
+      const hit = bestInPool(candidate, stationPool, minScore);
       if (hit && hit.score >= minScore) return { ...hit, input };
     }
     return null;
@@ -507,7 +567,7 @@ function fuzzyFindLocation(rawName, master, { minScore = 0.72 } = {}) {
     ...master.districts.map((name) => ({ name, type: "district" })),
     ...master.states.map((name) => ({ name, type: "state" })),
   ];
-  const best = bestInPool(bare || input, pools);
+  const best = bestInPool(bare || input, pools, minScore);
   const station = matchStation();
 
   // Best score wins across all three pools, with district/state taking ties.
@@ -550,7 +610,11 @@ function cleanExtractedPlace(raw) {
       /\s+(?:today|todays|yesterday|yesterdays|tomorrow|tonight|monthly|historical|history|weekly|seasonal|cumulative|forecast|this\s+month|last\s+month|last\s+\d+\s+days?|past\s+\d+\s+days?)\b.*$/i,
       ""
     )
-    .replace(/\b(district|state|ut|rainfall|rain|data|map)\b$/i, "")
+    // Strip the level word too. Without station/block here, "Banda block" was
+      // looked up verbatim and reported as an unknown place, and "BANDA station"
+      // never matched "BANDA" exactly so it looped on "Did you mean Banda?" —
+      // both coming from our own level chips.
+      .replace(/\b(district|dist|state|ut|subdivision|sub[- ]?division|subdiv|region|station|stn|block|mandal|taluk|tehsil|rainfall|rain|data|map)\b$/i, "")
     .replace(/\s+/g, " ")
     .trim();
   if (place.length < 2) return null;
@@ -642,7 +706,13 @@ function findLocationTypoInQuestion(question, master, { minScore = 0.72 } = {}) 
     if (STOP_TOKENS.has(raw.toLowerCase())) continue;
     const match = fuzzyFindLocation(raw, master, { minScore });
     if (!match) continue;
-    const exact = normalizeNameKey(match.name) === normalizeNameKey(raw);
+    // "BANDA station" is not a misspelling of "BANDA" — it is the name plus
+    // the level the user asked for. Comparing the raw n-gram flagged our own
+    // level chips as typos and looped on "Did you mean Banda?".
+    const bare = stripLevelWord(raw);
+    const exact =
+      normalizeNameKey(match.name) === normalizeNameKey(raw) ||
+      normalizeNameKey(match.name) === normalizeNameKey(bare);
     if (exact) continue; // already spelled correctly
     if (!best || match.score > best.score) {
       best = {
@@ -1097,7 +1167,9 @@ async function runPreChatClarifications(question) {
   // Exact / near-exact match
   const isExact =
     match &&
-    (normalizeNameKey(match.name) === normalizeNameKey(mentioned) || match.score >= 0.98);
+    (normalizeNameKey(match.name) === normalizeNameKey(mentioned) ||
+      normalizeNameKey(match.name) === normalizeNameKey(stripLevelWord(mentioned)) ||
+      match.score >= 0.98);
 
   // 2) Invalid location
   if (!match || match.score < 0.72) {
@@ -1247,7 +1319,11 @@ async function runPostPlanLocationClarifications(question, action) {
 
     // Rankings / threshold lists are all-India by default (no place required)
     const isRankingOrThreshold =
-      /\b(top\s+\d+|wettest|highest|rankings?)\b/i.test(q) ||
+      /\b(top\s+\d+|wettest|driest|highest|lowest|rankings?|heaviest)\b/i.test(q) ||
+      // "which stations recorded heavy rainfall today" is a nationwide ranking —
+      // it needs no place. Without this it fell through to "I need a place".
+      /\bheavy\s+rainfall\b/i.test(q) ||
+      /\bwhich\s+(stations?|districts?|states?|blocks?|subdivisions?|places?)\s+(recorded|had|have|received|got|reported)\b/i.test(q) ||
       /\b(above|over|greater\s+than|more\s+than|at\s+least|>=?)\s*\d+(\.\d+)?\s*(mm)?\b/i.test(
         q
       ) ||

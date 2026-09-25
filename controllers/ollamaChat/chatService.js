@@ -47,6 +47,7 @@ const {
   buildNavigationOptions,
   REFUSAL_REASONS,
   LEVEL_LABEL,
+  validatePlace,
   formatDate,
 } = require("./guidance");
 
@@ -134,11 +135,17 @@ async function buildPlannerContext(question) {
 function normalizeApiAction(action) {
   if (!action || typeof action !== "object") return action;
   const resolved = resolveAllowedApi(action);
-  if (resolved && resolved.apiId !== action.api_id) {
-    action.api_id = resolved.apiId;
-    action.method = resolved.allowed.method;
-    if (resolved.allowed.path != null) action.path = resolved.allowed.path;
-  }
+  if (!resolved) return action;
+
+  // Always re-sync path and method from the allowlist, not just when the
+  // api_id itself was wrong. The planner produced a correct
+  // fetch_cumulative_country_data with a mis-spelled path, and the executor
+  // rejected it with "Path/method mismatch" — a 400 the user saw as
+  // "I couldn't fetch that from iRAINS just now". The allowlist is the single
+  // source of truth for both, so take both from it.
+  action.api_id = resolved.apiId;
+  action.method = resolved.allowed.method;
+  if (resolved.allowed.path != null) action.path = resolved.allowed.path;
   return action;
 }
 
@@ -161,6 +168,7 @@ When startDate and endDate differ, say the full range (e.g. "from 2026-06-01 to 
 Use meteorological term "Heavy Rainfall" — never say "Heaviest Rainfall".
 CRITICAL LEVEL NAMING: name places by the field they came from — rows with district_name are DISTRICTS, state_name are STATES, subdiv_name are SUBDIVISIONS, station_name are STATIONS. Never call a district a station, or a state a district.
 For rankings (top wettest / highest / heavy rainfall), list places with actual mm in order, and say which level they are (e.g. "top 5 districts").
+For STATION ranking rows the rainfall depth is in the field "data" or "rainfall" — there is no actual/normal/departure. List them as "1. STATION (district, state) — N mm".
 For a named district, state the district rainfall first, then list station rainfall values in that district when present in api_data_sample (_level station rows).
 For a named station, state only that station’s rainfall.
 For threshold questions (above X mm), list matching places with actual mm AND the date of each row.
@@ -236,11 +244,43 @@ function formatFallbackAnswer(question, action, apiResult) {
       .slice(0, 8)
       .map((r) => {
         const name =
-          r.district_name || r.state_name || r.subdiv_name || r.name || "Area";
+          rowPlaceName(r);
         return `${name} (${Number(r.departure).toFixed(1)}%, ${r.category})`;
       })
       .join("; ");
     return `${notePrefix}For ${dateText}, found ${rows.length} area(s) in ${cats}. Examples: ${sample}.`;
+  }
+
+  // Station ranking endpoints return one row per station with the depth in
+  // `data` (fetchStationWithMaxRainfall) or `rainfall` (top-rainfall-stations)
+  // — never actual/normal/departure. Rendered with the generic formatter they
+  // came out as "KARJAT_AGRI: actual not available, normal not available".
+  if (
+    /fetch_station_with_max_rainfall|top_rainfall_stations/.test(String(action?.api_id || "")) &&
+    rows.length
+  ) {
+    const limit = action?.body?.limit || action?.query?.limit || action?.post_process?.limit || 10;
+    // The endpoint returns one row per reporting slot, so the same station can
+    // appear several times with the same total — "1. KARJAT_AGRI 117.0 mm;
+    // 2. KARJAT_AGRI 117.0 mm" reads like two different places.
+    const seenStation = new Set();
+    const unique = rows.filter((r) => {
+      const key = String(r.station_code || r.station_name || "").toLowerCase();
+      if (!key || seenStation.has(key)) return false;
+      seenStation.add(key);
+      return true;
+    });
+    const list = unique
+      .slice(0, limit)
+      .map((r, i) => {
+        const nm = r.station_name || r.name || "Station";
+        const mm = r.data ?? r.rainfall ?? r.actual ?? r.actual_rainfall;
+        const where = [r.district_name, r.state_name].filter(Boolean).join(", ");
+        const val = isSentinel(mm) || mm == null ? "no data" : `${Number(mm).toFixed(1)} mm`;
+        return `${i + 1}. ${nm}${where ? ` (${where})` : ""} — ${val}`;
+      })
+      .join("; ");
+    return `${notePrefix}Heavy Rainfall stations for ${dateText}: ${list}.`;
   }
 
   if (action?.post_process?.type === "rank_by_actual") {
@@ -261,10 +301,10 @@ function formatFallbackAnswer(question, action, apiResult) {
           r.station_name ||
           r.name ||
           "Area";
-        const actual = Number(
-          r.actual ?? r.actual_rainfall ?? r.rainfall ?? r.avg_actual ?? 0
-        );
-        return `${i + 1}. ${name} (${actual.toFixed(1)} mm)`;
+        // Station ranking rows carry the depth in `data`/`rainfall`, not `actual`.
+        const raw = r.actual ?? r.actual_rainfall ?? r.rainfall ?? r.data ?? r.avg_actual ?? 0;
+        if (isSentinel(raw)) return `${i + 1}. ${name} (no data)`;
+        return `${i + 1}. ${name} (${Number(raw).toFixed(1)} mm)`;
       })
       .join("; ");
     return `${notePrefix}Heavy Rainfall / top wettest for ${dateText}: ${list}.`;
@@ -455,11 +495,16 @@ function formatFallbackAnswer(question, action, apiResult) {
 
   const row = rows[0];
   const name =
-    row.state_name ||
+    row.station_name ||
+    row.block_name ||
     row.district_name ||
+    row.state_name ||
     row.subdiv_name ||
+    row.subdivision_name ||
+    row.region_name ||
     row.name ||
-    "Selected area";
+    // Country rows carry no place column; they are always India.
+    (/country|cummulative|cumulative/i.test(String(action?.api_id || "")) ? "INDIA" : "Selected area");
   const actual =
     row.actual_state_rainfall ??
     row.actual_rainfall ??
@@ -470,7 +515,13 @@ function formatFallbackAnswer(question, action, apiResult) {
     row.normal_rainfall ??
     null;
   const departure = row.departure ?? null;
-  const rowDate = row.date || dateText;
+  // Rows can carry a full timestamp; show the calendar date only, or the
+  // requested range. "2026-09-20T18:30:00.000Z" is both ugly and off-by-one.
+  // For a multi-day request, report the range rather than one arbitrary row.
+  const isRange = start && end && start !== end;
+  const rowDate = isRange
+    ? `${istDay(start)} to ${istDay(end)}`
+    : istDay(row.date) || istDay(start) || dateText;
 
   const actualText = actual == null ? "not available" : `${Number(actual).toFixed(1)} mm`;
   const normalText = normal == null ? "not available" : `${Number(normal).toFixed(1)} mm`;
@@ -496,6 +547,12 @@ function formatFallbackAnswer(question, action, apiResult) {
  * Every number the answer is allowed to contain: the values actually returned
  * by the API, plus their roundings, plus the row count.
  */
+/** IMD missing-data sentinels that must never be printed as rainfall. */
+function isSentinel(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && (n <= -99 || n === 9999 || n === -9999);
+}
+
 function collectAllowedNumbers(apiResult) {
   const allowed = new Set();
   const add = (value) => {
@@ -647,6 +704,42 @@ function answerHasCategoryError(answer, apiResult) {
  * Taken from the row's own name field first, then from the api_id, so the
  * answer always states the level rather than leaving the reader to guess.
  */
+/**
+ * Render a stored date as an IST calendar day.
+ *
+ * Rows come back as UTC timestamps — 2026-09-20T18:30:00.000Z is midnight IST
+ * on the 21st. Slicing the ISO string gave the previous day, so a range
+ * starting 2025-06-01 was reported as "on 2025-05-31".
+ */
+function istDay(value) {
+  if (!value) return null;
+  const str = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const m = moment(value);
+  return m.isValid() ? m.utcOffset("+05:30").format("YYYY-MM-DD") : str.slice(0, 10);
+}
+
+/**
+ * The most specific place name on a row.
+ *
+ * Block rows carry block_name, district_name AND state_name. Reading
+ * state_name first labelled four different "Banda" blocks as MADHYA PRADESH
+ * and GUJARAT, which answers a question about blocks with state names.
+ */
+function rowPlaceName(r = {}) {
+  return (
+    r.station_name ||
+    r.block_name ||
+    r.district_name ||
+    r.subdiv_name ||
+    r.subdivision_name ||
+    r.region_name ||
+    r.state_name ||
+    r.name ||
+    "Area"
+  );
+}
+
 function levelOf(row = {}, action = null) {
   if (row.station_name) return "station";
   if (row.block_name) return "block";
@@ -663,6 +756,108 @@ function levelOf(row = {}, action = null) {
   if (/state/.test(id)) return "state";
   if (/country|cummulative|cumulative/.test(id)) return "country";
   return null;
+}
+
+/**
+ * "last 2 years", "past 3 years", "2 years of data" -> an actual date range.
+ *
+ * The planner collapsed these to a single day, so "all india for last 2 years
+ * cumulative" silently answered for one date. Combined with the availability
+ * floor, a 2-year request is reported as the window we can actually cover.
+ */
+function applyMultiYearRange(action, question) {
+  if (!action?.body) return action;
+  const q = String(question || "");
+  const m = q.match(/\b(?:last|past|previous)\s+(\d{1,2})\s*(year|yr)s?\b/i)
+    || q.match(/\b(\d{1,2})\s*(year|yr)s?\s+(?:of\s+)?data\b/i);
+  if (!m) return action;
+
+  // Same-calendar-date history is a different intent and already handled.
+  if (action?.post_process?.type === "same_date_history") return action;
+
+  const years = Math.min(20, Math.max(1, Number(m[1]) || 1));
+  const end = today();
+  const d = new Date(`${end}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() - years);
+  action.body.startDate = d.toISOString().slice(0, 10);
+  action.body.endDate = end;
+  action.reason = `${action.reason || ""} [range: last ${years} year(s)]`.trim();
+  return action;
+}
+
+/**
+ * Remove a departure-category filter the user never asked for.
+ *
+ * The planner attached filter_by_departure_category ["Large Excess"] to
+ * "nellore disrict data i want for yesterday", so a plain rainfall question
+ * came back as "SPSR NELLORE was not in Large Excess" — an answer to a
+ * question nobody asked.
+ */
+function dropUnaskedCategoryFilter(action, question) {
+  if (action?.post_process?.type !== "filter_by_departure_category") return action;
+  const asked = extractCategoriesFromQuestion(question) || [];
+  if (asked.length) return action;
+  action.post_process = null;
+  return action;
+}
+
+/**
+ * post_filter may only contain place keys.
+ *
+ * The planner wrote post_filter: { type: "filter_by_departure_category" } for
+ * "which districts are deficient today", so the executor filtered rows whose
+ * `type` equalled that string — nothing matched, and the assistant reported
+ * "No Deficient for the selected area" on a day when 300 districts were
+ * deficient. A confident, specific, completely wrong answer.
+ */
+const PLACE_FILTER_KEYS = new Set([
+  "station_name", "block_name", "district_name", "state_name", "state_names",
+  "subdiv_name", "subdivision_name", "region_name", "centre_name", "mc_name",
+]);
+
+function sanitizePostFilter(action) {
+  const pf = action?.post_filter;
+  if (!pf || typeof pf !== "object") return action;
+  const cleaned = {};
+  const dropped = [];
+  for (const [k, v] of Object.entries(pf)) {
+    if (PLACE_FILTER_KEYS.has(k)) cleaned[k] = v;
+    else dropped.push(k);
+  }
+  if (dropped.length) {
+    console.warn(`[chat] dropped non-place post_filter key(s): ${dropped.join(", ")}`);
+  }
+  action.post_filter = Object.keys(cleaned).length ? cleaned : null;
+  return action;
+}
+
+/** api_id + post_filter key for each level. */
+const LEVEL_TARGET = {
+  station: { api_id: "fetch_station_data", path: "/api/v1/fetchStationData", key: "station_name" },
+  block: { api_id: "fetch_block_data", path: "/api/v1/fetchBlockData", key: "block_name" },
+  district: { api_id: "fetch_district_data", path: "/api/v1/fetchDistrictData", key: "district_name" },
+  state: { api_id: "fetch_state_data", path: "/api/v1/fetchStateData", key: "state_name" },
+  subdivision: { api_id: "fetch_subdivision_data", path: "/api/v1/fetchSubDivisionData", key: "subdiv_name" },
+  region: { api_id: "fetch_region_data", path: "/api/v1/fetchRegionData", key: "region_name" },
+  country: { api_id: "fetch_country_data", path: "/api/v1/fetchCountryData", key: null },
+};
+
+/** Point an action at a different administrative level. */
+function retargetActionToLevel(action, level, name) {
+  const t = LEVEL_TARGET[level];
+  if (!t) return action;
+  action.api_id = t.api_id;
+  action.path = t.path;
+  action.method = "POST";
+  const pf = {};
+  // Drop every other place key so two levels are never filtered at once.
+  for (const k of ["station_name", "block_name", "district_name", "state_name",
+                   "subdiv_name", "subdivision_name", "region_name", "state_names"]) {
+    if (action.post_filter && action.post_filter[k]) delete action.post_filter[k];
+  }
+  if (t.key) pf[t.key] = name;
+  action.post_filter = { ...(action.post_filter || {}), ...pf };
+  return normalizeApiAction(action);
 }
 
 /** The place the planner settled on, and the filter key it used. */
@@ -1317,11 +1512,80 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
   // Re-apply category heal after location fixes (original question keeps category words)
   action = sanitizeRainfallAction(action, question);
 
+  action = sanitizePostFilter(action);
+  action = applyMultiYearRange(action, effectiveQuestion);
+  action = dropUnaskedCategoryFilter(action, effectiveQuestion);
+
+  // Validate the planner's place against the master list for the level it
+  // chose. "amaravati district" is not a district (it is AMRAOTI here) but is
+  // an exact station and block — without this the query ran and returned zero
+  // rows, which reads as "no rainfall" instead of "wrong level".
+  const planned = plannedPlace(action);
+  let levelCorrection = null;
+  if (planned) {
+    let check;
+    try {
+      check = await validatePlace(planned.name, planned.level);
+    } catch (_) {
+      check = { ok: true };
+    }
+
+    if (check.ok && check.corrected) {
+      // Same level, official spelling: "Nellore" -> "SPSR NELLORE".
+      action = retargetActionToLevel(action, check.corrected.level, check.corrected.name);
+      levelCorrection = {
+        from: planned.name,
+        to: check.corrected.name,
+        note: `Showing ${check.corrected.name} (${check.corrected.level}) for “${planned.name}”.`,
+      };
+    } else if (!check.ok && check.reason === "wrong_level" && check.exact.length === 1) {
+      // Unambiguous: silently retarget and tell the user in the answer.
+      const hit = check.exact[0];
+      action = retargetActionToLevel(action, hit.level, hit.name);
+      levelCorrection = {
+        from: `${planned.name} (${planned.level})`,
+        to: `${hit.name} (${hit.level})`,
+        note: `“${planned.name}” is not a ${planned.level} in iRAINS — it is a ${hit.level}. Showing the ${hit.level}.`,
+      };
+    } else if (!check.ok && (check.exact.length > 1 || check.near.length)) {
+      const opts = buildLevelOptions(
+        check.exact.length ? check.exact : check.near,
+        { place: planned.name, question: effectiveQuestion }
+      );
+      const listed = opts.map((o) => o.label).join(", ");
+      return {
+        success: true,
+        mode: "clarify",
+        needs_clarification: true,
+        reason_code: check.reason,
+        why: `“${planned.name}” is not a ${planned.level} in the iRAINS masters.`,
+        answer:
+          `“${planned.name}” is not a ${planned.level} in iRAINS.\n` +
+          (check.exact.length
+            ? `It does exist as — ${listed}. Which did you mean?`
+            : `The closest matches are — ${listed}. Which did you mean?`),
+        answer_mode: "clarify",
+        clarify: { type: "which_level", prompt: `Which “${planned.name}”?`, options: opts },
+        recommendations: buildRecommendations({ question: effectiveQuestion, action }),
+        action, routing, model: plan.model, navigation: null,
+        api: { ok: true, status: 200, request: null, row_count: 0, data: [], note: "Place not valid at that level." },
+      };
+    } else if (!check.ok && check.reason === "unknown_place") {
+      return buildOutOfScopeResponse({
+        action, model: plan.model, question: effectiveQuestion,
+        reason: "unknown_place",
+        detail:
+          `“${planned.name}” is not in the iRAINS masters — I checked station, block, ` +
+          `district, state, subdivision and region names.`,
+      });
+    }
+  }
+
   // Level disambiguation, before any data is fetched.
   const ambiguity = await checkLevelAmbiguity(action, effectiveQuestion);
   if (ambiguity) {
     const { place, hits } = ambiguity;
-    const options = buildLevelOptions(hits, { place: place.name });
+    const options = buildLevelOptions(hits, { place: place.name, question: effectiveQuestion });
     const levelList = hits.map((h) => LEVEL_LABEL[h.level] || h.level).join(", ");
     return {
       success: true,
@@ -1373,6 +1637,13 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     // the date before the call keeps the executor, the row labels and the
     // answer sentence all describing the same day, and range_note explains
     // the substitution.
+    // Range starts before our records: clamp to the floor, or the query
+    // returns empty rows for dates that never existed and the answer reports
+    // the first of them ("INDIA on 2024-12-31: actual not available").
+    if (dateWindow.ok && dateWindow.partial && dateWindow.available?.from) {
+      action.body.startDate = dateWindow.available.from;
+    }
+
     if (dateWindow.ok && dateWindow.pending && dateWindow.available?.to) {
       action.body.startDate = dateWindow.available.to;
       if (action.body.endDate) action.body.endDate = dateWindow.available.to;
@@ -1431,7 +1702,17 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
         }
       : null);
 
-  if (!skipAnswerLlm) {
+  // Station rankings render as a ranked list. The model turned the same rows
+  // into several sentences of reasoning about which date they belonged to.
+  const isStationRanking =
+    /fetch_station_with_max_rainfall|top_rainfall_stations/.test(String(action?.api_id || "")) &&
+    Array.isArray(apiResult.data) &&
+    apiResult.data.length > 1;
+
+  if (isStationRanking) {
+    answer = formatFallbackAnswer(planQuestion, action, apiResult);
+    answerMode = "fallback_ranking";
+  } else if (!skipAnswerLlm) {
     try {
       const answerLlm = await askOllama(
         [
@@ -1449,8 +1730,13 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
                 used_date: apiResult.usedDate || null,
                 place_level: apiResult.place_level || null,
                 stations_count: apiResult.stations_count || null,
+                // Dates are normalised to IST here. Raw rows carry UTC
+                // timestamps (…T18:30:00Z = next day IST), and the model read
+                // them as "the data is for a different date than asked".
                 api_data_sample: Array.isArray(apiResult.data)
-                  ? apiResult.data.slice(0, 40)
+                  ? apiResult.data.slice(0, 40).map((r) =>
+                      r && r.date ? { ...r, date: istDay(r.date) } : r
+                    )
                   : apiResult.data,
                 row_count: Array.isArray(apiResult.data)
                   ? apiResult.data.length
@@ -1536,6 +1822,7 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     success: true,
     mode: plannerContext.retrieved ? "rag_planner" : "ollama_catalog",
     reason_code: null,
+    level_correction: levelCorrection,
     level: levelOf(Array.isArray(apiResult.data) ? apiResult.data[0] || {} : {}, action),
     data_availability: dateWindow?.available || null,
     range_note: dateWindow?.partial || dateWindow?.pending ? dateWindow.message : null,

@@ -216,6 +216,93 @@ async function isLevelAmbiguous(name) {
   return hits.length > 1 ? hits : null;
 }
 
+
+/* ------------------------------------------------------------------ */
+/* 2b. Validate a place against the master list for its level          */
+/* ------------------------------------------------------------------ */
+
+/** Cheap similarity for near-miss suggestions (0..1). */
+function similarity(a, b) {
+  const x = normKey(a), y = normKey(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  if (x.length > 2 && y.includes(x)) return 0.92;
+  if (y.length > 2 && x.includes(y)) return 0.90;
+  const m = Math.max(x.length, y.length);
+  const d = levenshtein(x, y);
+  return 1 - d / m;
+}
+
+function levenshtein(a, b) {
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let last = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, last + (a[i - 1] === b[j - 1] ? 0 : 1));
+      last = tmp;
+    }
+  }
+  return prev[b.length];
+}
+
+/** Closest name at each level, above a threshold. */
+async function nearestPerLevel(name, { minScore = 0.78 } = {}) {
+  const master = await loadLevelMaster();
+  const out = [];
+  for (const level of LEVELS) {
+    let best = null;
+    for (const candidate of master[level].names) {
+      const score = similarity(name, candidate);
+      if (!best || score > best.score) best = { level, name: candidate, score };
+    }
+    if (best && best.score >= minScore) out.push(best);
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Is this place actually a <level>?
+ *
+ * The planner happily writes post_filter.district_name = "Amaravati" for
+ * "amaravati district data", but there is no district of that name — it is
+ * AMRAOTI here, while AMARAVATI is a station and Amravati a block. Nothing
+ * checked, so the query ran and returned zero rows, which the user reads as
+ * "no rain" rather than "wrong level".
+ *
+ * Validating against the masters (the same lists behind getAllDistrict /
+ * getAllStates / getAllSubDivisions) turns a silent empty result into a
+ * usable answer: here is where that name does exist, pick one.
+ */
+async function validatePlace(name, plannedLevel) {
+  if (!name) return { ok: true };
+  const exact = await resolveLevels(name);
+
+  if (exact.some((h) => h.level === plannedLevel)) {
+    return { ok: true, exact };
+  }
+
+  // Before declaring the level wrong, check for a near match AT that level.
+  // "Nellore" is not an exact district, but SPSR NELLORE is — so answering
+  // "Nellore is not a district" was simply false. Districts are often stored
+  // with official prefixes (SPSR NELLORE, SAS NAGAR (MOHALI)) that a user
+  // never types.
+  const near = await nearestPerLevel(name);
+  const nearAtLevel = near.find((h) => h.level === plannedLevel && h.score >= 0.88);
+  if (nearAtLevel) {
+    return { ok: true, corrected: nearAtLevel, exact, near };
+  }
+
+  if (exact.length) {
+    return { ok: false, reason: "wrong_level", plannedLevel, exact, near };
+  }
+  if (near.length) {
+    return { ok: false, reason: "did_you_mean_level", plannedLevel, exact: [], near };
+  }
+  return { ok: false, reason: "unknown_place", plannedLevel, exact: [], near: [] };
+}
+
 /* ------------------------------------------------------------------ */
 /* 3. Recommendation chips                                            */
 /* ------------------------------------------------------------------ */
@@ -242,16 +329,48 @@ const LEVEL_LABEL = {
   region: "Region",
 };
 
-/** Offer only the levels this place actually exists at. */
-function buildLevelOptions(hits, { place = null } = {}) {
-  return (hits || []).map((h) => ({
-    label: `${LEVEL_LABEL[h.level] || h.level}: ${h.name}`,
-    value: `${h.name} (${h.level})`,
-    level: h.level,
-    name: h.name,
-    type: "level",
-    available: true,
-  }));
+/** The timeframe words from the original question, so a chip keeps them. */
+function timeframeOf(question) {
+  const q = String(question || "");
+  const m =
+    q.match(/\b(today|yesterday|tomorrow)\b/i) ||
+    q.match(/\blast\s+\d+\s+(?:days?|weeks?|months?|years?)\b/i) ||
+    q.match(/\bthis\s+(?:week|month|year|season)\b/i) ||
+    q.match(/\b\d{4}-\d{2}-\d{2}\b/) ||
+    q.match(/\b\d{1,2}\s+[a-z]{3,9}(?:\s+\d{4})?\b/i);
+  return m ? m[0] : "today";
+}
+
+const LEVEL_PHRASE = {
+  station: (n) => `at ${n} station`,
+  block: (n) => `in ${n} block`,
+  district: (n) => `in ${n} district`,
+  state: (n) => `in ${n} state`,
+  subdivision: (n) => `in ${n} subdivision`,
+  region: (n) => `in ${n} region`,
+  country: () => `for all-India`,
+};
+
+/**
+ * Offer only the levels this place actually exists at.
+ *
+ * `value` must be a COMPLETE question, not a bare name. Sending back
+ * "NELLORE (station)" dropped the timeframe and re-entered the place
+ * extractor, which looped on "Did you mean Nellore?" forever.
+ */
+function buildLevelOptions(hits, { place = null, question = "" } = {}) {
+  const when = timeframeOf(question);
+  return (hits || []).map((h) => {
+    const phrase = (LEVEL_PHRASE[h.level] || ((n) => `in ${n}`))(h.name);
+    return {
+      label: `${LEVEL_LABEL[h.level] || h.level}: ${h.name}`,
+      value: `rainfall ${phrase} ${when}`,
+      level: h.level,
+      name: h.name,
+      type: "level",
+      available: true,
+    };
+  });
 }
 
 /** Product pages relevant to the question / action. */
@@ -296,7 +415,7 @@ function buildRecommendations({
 } = {}) {
   const box = {};
   if (includeTimeframe) box.timeframe = buildTimeframeOptions();
-  if (includeLevels && levelHits?.length) box.level = buildLevelOptions(levelHits, { place });
+  if (includeLevels && levelHits?.length) box.level = buildLevelOptions(levelHits, { place, question });
   const nav = buildNavigationOptions(question, action);
   if (nav.length) box.navigation = nav;
   if (related?.length) box.related = related;
@@ -313,12 +432,14 @@ function buildRecommendations({
  * support can tell the cases apart in logs.
  */
 const REFUSAL_REASONS = {
+  // Phrased by SCOPE, not by where we looked. Telling a forecaster "I could
+  // not find that in the iRAINS documentation" describes our retrieval
+  // internals; what they need to know is that the question is outside what
+  // the assistant covers.
   out_of_domain:
-    "That is outside iRAINS. I cover Indian rainfall — actual, normal and departure — " +
-    "and where to find each product page.",
+    "I can't answer that — it's outside what iRAINS covers.",
   no_doc_match:
-    "I could not find that in the iRAINS documentation. It may not be documented yet, " +
-    "or it may be described using different wording.",
+    "I can't answer that — it's outside what iRAINS covers.",
   unknown_place:
     "That place name is not in the iRAINS masters at any level — station, block, " +
     "district, state, subdivision or region.",
@@ -372,8 +493,12 @@ module.exports = {
   loadLevelMaster,
   resolveLevels,
   isLevelAmbiguous,
+  validatePlace,
+  nearestPerLevel,
+  similarity,
   buildTimeframeOptions,
   buildLevelOptions,
+  timeframeOf,
   buildNavigationOptions,
   buildRecommendations,
   buildScopeRefusal,

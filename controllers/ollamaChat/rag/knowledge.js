@@ -202,10 +202,14 @@ async function answerKnowledgeQuestion(question, { topK = 6, includeInternal = f
       stage: "knowledge_no_match",
       mode: "rag_knowledge",
       out_of_scope: true,
+      // Scope wording, not "documentation" — the user should hear what the
+      // assistant covers, not how it searched internally.
       answer:
-        "I could not find that in the iRAINS documentation. I can explain how the " +
-        "system's modules work, what the rainfall terms mean, and where each product " +
-        "lives — or give you rainfall figures. Try one of these:",
+        "I can't answer that — it's outside what iRAINS covers.\n\n" +
+        "I can give you rainfall figures (actual, normal and departure) for a country, " +
+        "state, subdivision, district, block or station, rankings and heavy-rainfall " +
+        "lists, monsoon activity and spatial distribution, explain how the iRAINS " +
+        "modules work, and point you to any product page. For example:",
       suggestions: [
         ...(SAMPLE_QUESTIONS.rainfall || []).slice(0, 2),
         ...(SAMPLE_QUESTIONS.navigation || []).slice(0, 2),

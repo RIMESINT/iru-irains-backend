@@ -433,6 +433,27 @@ async function loadLocationMaster() {
     // Keep sample seed if DB lookup fails or times out.
   }
 
+  // Subdivisions, regions and blocks, each on its own timeout so one slow
+  // query cannot drop the others back to the sample seed.
+  const extraLevels = [
+    ["subdivisions", `SELECT DISTINCT subdiv_name AS n FROM public.normal_district_details WHERE subdiv_name IS NOT NULL`],
+    ["regions", `SELECT DISTINCT region_name AS n FROM public.normal_district_details WHERE region_name IS NOT NULL`],
+    ["blocks", `SELECT DISTINCT block_name AS n FROM public.station_details WHERE block_name IS NOT NULL`],
+  ];
+  await Promise.all(
+    extraLevels.map(async ([key, sql]) => {
+      try {
+        const res = await Promise.race([
+          client.query(sql),
+          new Promise((_, rej) => setTimeout(() => rej(new Error(`${key} timeout`)), 4000)),
+        ]);
+        if (res.rows?.length) master[key] = res.rows.map((r) => r.n).filter(Boolean);
+      } catch (_) {
+        // level unavailable — never fatal
+      }
+    })
+  );
+
   // Stations load separately, on their own timeout.
   //
   // Without this pool every station question — including the documented
@@ -566,8 +587,19 @@ function fuzzyFindLocation(rawName, master, { minScore = 0.72 } = {}) {
   const pools = [
     ...master.districts.map((name) => ({ name, type: "district" })),
     ...master.states.map((name) => ({ name, type: "state" })),
+    ...(master.subdivisions || []).map((name) => ({ name, type: "subdivision" })),
+    ...(master.regions || []).map((name) => ({ name, type: "region" })),
+    ...(master.blocks || []).map((name) => ({ name, type: "block" })),
   ];
-  const best = bestInPool(bare || input, pools, minScore);
+  const stopTrimmed = input
+    .split(/\s+/)
+    .filter((w) => w && !STOP_TOKENS.has(w.toLowerCase()))
+    .join(" ");
+  let best = null;
+  for (const cand of [input, bare, stopTrimmed].filter((v, i, a) => v && a.indexOf(v) === i)) {
+    const hit = bestInPool(cand, pools, minScore);
+    if (hit && (!best || hit.score > best.score)) best = hit;
+  }
   const station = matchStation();
 
   // Best score wins across all three pools, with district/state taking ties.
@@ -622,10 +654,15 @@ function cleanExtractedPlace(raw) {
     return null;
   }
   if (STOP_TOKENS.has(place.toLowerCase())) return null;
-  // Drop trailing stop tokens ("goa monthly" → "goa")
-  const parts = place
-    .split(/\s+/)
-    .filter((p) => p && !STOP_TOKENS.has(p.toLowerCase()));
+  // Keep the phrase intact.
+  //
+  // This filtered stop tokens at EVERY position, so "Central India"
+  // became "Central" and "Konkan and Goa" became "Konkan Goa" — both
+  // are real iRAINS units (a region and a subdivision) and neither
+  // resolved any more. Trimming now happens in fuzzyFindLocation as one
+  // candidate among several, so "goa monthly" still reduces to "goa"
+  // without wrecking genuine multi-word names.
+  const parts = place.split(/\s+/).filter(Boolean);
   if (!parts.length) return null;
   if (parts.every((p) => STOP_TOKENS.has(p.toLowerCase()))) return null;
   return parts.join(" ");

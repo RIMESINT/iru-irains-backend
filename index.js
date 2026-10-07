@@ -232,4 +232,55 @@ server.listen(port, () => {
     });
 });
 
-client.connect();
+/**
+ * Database connect, and what happens when the database goes away.
+ *
+ * Before: a bare `client.connect()`. A DB timeout became an unhandled
+ * rejection and Node killed the process — every route went down, including
+ * ones that never touch the database.
+ *
+ * But connection.js holds ONE pg Client for the whole backend, and a pg
+ * Client cannot reconnect. Under PM2 that crash-and-restart was, in effect,
+ * the reconnect. So the process must still restart when the DB is lost — just
+ * deliberately, logged, after a short grace period in which navigation and
+ * documentation answers keep working — rather than staying up forever with a
+ * dead connection, which would need a manual restart to recover.
+ *
+ *   DB_EXIT_ON_FAILURE=false   stay up without a DB (local development,
+ *                              off the IMD network); default is to restart.
+ */
+const dbStatus = require("./controllers/ollamaChat/dbStatus");
+const DB_EXIT_ON_FAILURE = String(process.env.DB_EXIT_ON_FAILURE ?? "true").toLowerCase() !== "false";
+const DB_RESTART_DELAY_MS = Number(process.env.DB_RESTART_DELAY_MS) || 15000;
+let dbRestartScheduled = false;
+
+function onDatabaseLost(reason) {
+  dbStatus.setDown(reason);
+  if (!DB_EXIT_ON_FAILURE) {
+    console.error(`[db] ${reason} — staying up without a database (DB_EXIT_ON_FAILURE=false).`);
+    return;
+  }
+  if (dbRestartScheduled) return;
+  dbRestartScheduled = true;
+  console.error(
+    `[db] ${reason} — exiting in ${DB_RESTART_DELAY_MS / 1000}s so the process manager restarts ` +
+      `and reconnects (a pg Client cannot reconnect on its own).`
+  );
+  setTimeout(() => process.exit(1), DB_RESTART_DELAY_MS);
+}
+
+client
+  .connect()
+  .then(() => {
+    dbStatus.setUp();
+    console.log(`[db] connected to ${process.env.DB_HOST}:${process.env.DB_PORT}`);
+  })
+  .catch((err) => onDatabaseLost(`connect failed ${process.env.DB_HOST}:${process.env.DB_PORT} — ${err.message}`));
+
+client.on("error", (err) => onDatabaseLost(`connection lost — ${err.message}`));
+
+// Any OTHER unhandled rejection is logged, never fatal: a failing AWS fetcher
+// or a bad request must not take the whole server down.
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandled rejection:", reason && reason.message ? reason.message : reason);
+});

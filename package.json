@@ -9,7 +9,10 @@
     "migrate:calculations-mode": "node scripts/runMigration.js migrations/create_calculations_imd_aws.sql",
     "rag:build": "node controllers/ollamaChat/rag/buildIndex.js",
     "rag:eval": "node controllers/ollamaChat/rag/eval.js",
-    "start:nocron": "node scripts/startNoCron.js"
+    "start:nocron": "node scripts/startNoCron.js",
+    "location:build": "node controllers/ollamaChat/location/buildRegistry.js",
+    "location:eval": "node controllers/ollamaChat/location/eval.js",
+    "nav:eval": "node controllers/ollamaChat/navEval.js"
   },
   "keywords": [],
   "author": "",

@@ -10,6 +10,7 @@
 
 const client = require("../../connection");
 const { PRODUCT_ROUTES } = require("./catalogLoader");
+const dbStatus = require("./dbStatus");
 
 /* ------------------------------------------------------------------ */
 /* 1. Data availability                                               */
@@ -38,6 +39,12 @@ async function getDataAvailability({ force = false } = {}) {
   }
 
   const fallback = { from: DATA_FLOOR, to: todayIso(), source: "constant" };
+  // Known down: don't wait 4s for a query that cannot succeed.
+  if (dbStatus.isDown()) {
+    availabilityCache = fallback;
+    availabilityAt = now - AVAILABILITY_TTL_MS + 60 * 1000;
+    return fallback;
+  }
   try {
     const res = await Promise.race([
       client.query(
@@ -175,6 +182,7 @@ async function loadLevelMaster({ force = false } = {}) {
 
   await Promise.all(
     LEVELS.map(async (level) => {
+      if (dbStatus.isDown()) return; // registry fallback below fills it instantly
       try {
         const res = await Promise.race([
           client.query(LEVEL_SQL[level]),
@@ -189,8 +197,29 @@ async function loadLevelMaster({ force = false } = {}) {
     })
   );
 
+  // DB unreachable or a level came back empty: take that level from the
+  // built registry instead. Without this a DB outage told users "KERALA is
+  // not in the iRAINS masters" — and that empty result was cached for an
+  // hour, so places stayed "unknown" long after the database recovered.
+  let degraded = false;
+  try {
+    const { namesByLevel } = require("./location/registry");
+    for (const level of LEVELS) {
+      if (master[level].names.length) continue;
+      const names = namesByLevel(level);
+      if (!names.length) continue;
+      degraded = true;
+      master[level].names = names;
+      names.forEach((n) => master[level].index.set(normKey(n), n));
+    }
+  } catch (_) {
+    // registry missing too — nothing more to fall back to
+  }
+  if (degraded) console.warn("[location] DB master unavailable — using the built registry");
+
   levelCache = master;
-  levelCacheAt = now;
+  // A degraded master is retried after a minute, not an hour.
+  levelCacheAt = degraded ? now - LEVEL_TTL_MS + 60 * 1000 : now;
   return master;
 }
 

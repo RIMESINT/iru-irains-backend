@@ -38,6 +38,21 @@ const { retrieveForPlanner, formatContext, init: initRag } = require("./rag/retr
 const { answerKnowledgeQuestion } = require("./rag/knowledge");
 const { route: routeQuestion } = require("./rag/router");
 const { getIndexMeta } = require("./rag/indexStore");
+const locationResolver = require("./location/resolver");
+const locationRegistry = require("./location/registry");
+const { tryFastPath, resolvePage, routeWithPages } = require("./fastPath");
+const { norm: normalizeNameKey } = require("./location/normalize");
+const dbStatus = require("./dbStatus");
+
+/** on | off — answer without a model when intent, place and time are certain. */
+const FAST_PATH = String(process.env.FAST_PATH ?? "on").toLowerCase() !== "off";
+
+/**
+ * off    — resolver never runs (behaviour identical to before it existed)
+ * shadow — resolver runs and disagreements are logged; answers are unchanged
+ * on     — resolver decides the place; the planner only picks API + timeframe
+ */
+const LOCATION_MODE = (process.env.LOCATION_RESOLVER || "shadow").toLowerCase();
 const {
   checkDateWindow,
   getDataAvailability,
@@ -831,6 +846,48 @@ function sanitizePostFilter(action) {
   return action;
 }
 
+/**
+ * Run the deterministic resolver beside the existing path and record where
+ * they disagree.
+ *
+ * Shadow mode exists because the old path is 3,392 lines of the team's own
+ * clarification logic. Replacing it outright on the strength of a 46-row eval
+ * would be a guess; logging every disagreement on real questions first turns
+ * the switchover into a decision backed by evidence.
+ */
+function shadowCompareLocation(question, action) {
+  if (LOCATION_MODE === "off" || !locationRegistry.isReady()) return null;
+
+  let res;
+  try {
+    res = locationResolver.resolve(question);
+  } catch (err) {
+    console.warn("[location] resolver threw:", err.message);
+    return null;
+  }
+
+  const planned = plannedPlace(action);
+  const plannedStr = planned ? `${planned.level}:${planned.name}` : "none";
+  const resolvedStr =
+    res.status === "resolved" ? `${res.target.level}:${res.target.name}`
+    : res.status === "country" ? "country:INDIA"
+    : res.status;
+
+  const agrees =
+    (!planned && ["none", "country"].includes(res.status)) ||
+    (planned && res.status === "resolved" &&
+      planned.level === res.target.level &&
+      normalizeNameKey(planned.name) === normalizeNameKey(res.target.name));
+
+  if (!agrees) {
+    console.warn(
+      `[location] DISAGREE  q="${question}"  planner=${plannedStr}  resolver=${resolvedStr}` +
+        (res.status === "ambiguous" ? `  (${(res.candidates || []).length} candidates)` : "")
+    );
+  }
+  return { ...res, agrees, planner: plannedStr, resolver: resolvedStr };
+}
+
 /** api_id + post_filter key for each level. */
 const LEVEL_TARGET = {
   station: { api_id: "fetch_station_data", path: "/api/v1/fetchStationData", key: "station_name" },
@@ -1308,8 +1365,19 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     throw err;
   }
 
-  // Catalog must be ingested before the planner sees a user question.
-  await warmupCatalogIntoModel();
+  // Warm up in the background — never block a question on it.
+
+  //
+
+  // This was awaited, so the first questions after a restart waited for the
+
+  // remote model to load and answer a warmup prompt: 175s and 62s measured
+
+  // on the iRAINS server, for questions the fast path answers in under a
+
+  // second without touching the model at all.
+
+  warmupCatalogIntoModel().catch(() => {});
 
   // If user only replies with all-India / whole India after a prior threshold/list Q,
   // merge into a full nationwide threshold question.
@@ -1338,6 +1406,10 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
   if (RAG_ENABLED) {
     try {
       routing = await routeQuestion(effectiveQuestion);
+      // Questions that name a product page go to navigation, even when they
+      // contain data words ("weekly departure homogenous map").
+      if (FAST_PATH) routing = await routeWithPages(effectiveQuestion, routing);
+
       if (routing.route === "knowledge") {
         const knowledge = await answerKnowledgeQuestion(effectiveQuestion, {
           skipAnswerLlm,
@@ -1357,6 +1429,45 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
       }
     } catch (err) {
       console.warn("[rag] routing failed, continuing to planner:", err.message);
+    }
+  }
+
+  // Navigation is answered here, before the place-clarification step.
+  //
+  // That step looks for a place in every question, so "station statsison"
+  // lost its page match and came back as '"statsison" is not in the iRAINS
+  // masters'. A page request has no place to validate.
+  if (FAST_PATH && routing?.route === "navigation") {
+    let page = null;
+    try {
+      page = await resolvePage(effectiveQuestion);
+    } catch (err) {
+      console.warn("[nav] page resolver failed, continuing:", err.message);
+    }
+    if (page?.clarify) {
+      return {
+        success: true, mode: "clarify", needs_clarification: true, answer_mode: "clarify",
+        reason_code: "ambiguous_page",
+        answer: `${page.clarify.prompt}\n` + page.clarify.options.map((o, i) => `${i + 1}. ${o.label}`).join("\n"),
+        clarify: page.clarify, routing, navigation: null,
+        action: { module: "clarify", api_id: "clarify_which_page", method: "CLARIFY", path: null },
+        api: { ok: true, status: 200, request: null, row_count: 0, data: [] },
+      };
+    }
+    if (page?.action) {
+      const a = page.action;
+      return {
+        success: true,
+        mode: "rag_planner",
+        model: "fast-path",
+        answer: formatNavigationAnswer(a, { data: [] }),
+        answer_mode: "fast_path",
+        action: a,
+        routing,
+        navigation: { product_name: a.product_name, route_path: a.route_path },
+        alternatives: (page.alternatives || []).map((p) => ({ product_name: p.product_name, route_path: p.route_path })),
+        api: { ok: true, status: 200, request: null, row_count: 0, data: [], note: "Navigation — no API call." },
+      };
     }
   }
 
@@ -1392,11 +1503,90 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     );
   })();
 
-  const plannerContext = await buildPlannerContext(planQuestion);
-  const plan = await askOllama(
-    [
-      {
-        role: "system",
+  // Fast path: no model call when nothing is left to infer.
+
+  //
+
+  // One planner call costs 30-50s on the iRAINS server and every question
+
+  // makes two. For ~70% of data questions the router already knows the
+
+  // intent, the resolver already knows the place and its code, and the
+
+  // timeframe is explicit — so the model adds latency and a chance to
+
+  // invent a figure, and nothing else.
+
+  let fastPath = null;
+
+  if (FAST_PATH) {
+
+    try {
+
+      fastPath = await tryFastPath(effectiveQuestion, { routing });
+
+    } catch (err) {
+
+      console.warn("[fastpath] failed, falling back to the planner:", err.message);
+
+    }
+
+  }
+
+  
+
+  if (fastPath?.clarify) {
+
+  
+
+    return {
+
+  
+
+      success: true, mode: "clarify", needs_clarification: true, answer_mode: "clarify",
+
+  
+
+      reason_code: "ambiguous_page",
+
+  
+
+      answer: `${fastPath.clarify.prompt}\n` + fastPath.clarify.options.map((o, i) => `${i + 1}. ${o.label}`).join("\n"),
+
+  
+
+      clarify: fastPath.clarify, routing, navigation: null,
+
+  
+
+      action: { module: "clarify", api_id: "clarify_which_page", method: "CLARIFY", path: null },
+
+  
+
+      api: { ok: true, status: 200, request: null, row_count: 0, data: [] },
+
+  
+
+    };
+
+  
+
+  }
+
+
+  
+
+  const plannerContext = fastPath
+
+    ? { text: "", retrieved: false, reason: "fast path — planner not called" }
+
+    : await buildPlannerContext(planQuestion);
+  const plan = fastPath
+    ? { content: JSON.stringify(fastPath.action), model: "fast-path", prompt_eval_count: 0 }
+    : await askOllama(
+      [
+        {
+          role: "system",
         content: buildPlannerSystemPrompt(plannerContext.text, {
           retrieved: plannerContext.retrieved,
         }),
@@ -1513,6 +1703,10 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
   action = sanitizeRainfallAction(action, question);
 
   action = sanitizePostFilter(action);
+
+  // Deterministic location resolution, beside the existing path.
+  const locationShadow = shadowCompareLocation(effectiveQuestion, action);
+
   action = applyMultiYearRange(action, effectiveQuestion);
   action = dropUnaskedCategoryFilter(action, effectiveQuestion);
 
@@ -1679,6 +1873,26 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     }
   }
 
+  // Database down: say so now. A query on a dead connection hung for 90s and
+  // the user saw a generic failure. Navigation and documentation answers never
+  // reach this point, so they keep working during an outage.
+  if (dbStatus.isDown() && action?.method !== "NAV" && action?.module !== "navigation") {
+    const st = dbStatus.get();
+    return {
+      success: false,
+      mode: "declined",
+      declined: true,
+      reason_code: "database_unreachable",
+      why: "The rainfall database can't be reached right now.",
+      answer:
+        "I can't fetch rainfall figures right now — the iRAINS database isn't reachable. " +
+        "This is a connection problem on our side, not a problem with your question. " +
+        "Page links and explanations still work; please try the figures again in a few minutes.",
+      action, routing,
+      api: { ok: false, status: 503, request: null, row_count: 0, data: [], note: `database down since ${st.since}` },
+    };
+  }
+
   // Step 2: execute API / navigation
   const apiResult = await executeApiAction(action);
 
@@ -1702,6 +1916,12 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
         }
       : null);
 
+  // When the fast path built the action we know the shape of the answer, and
+  // the deterministic formatter already renders it — correctly, with the level
+  // named and all three figures. Calling the model here would cost another
+  // 30-50s on this hardware to produce prose we then have to guard.
+  const fastPathAnswer = Boolean(fastPath) && Array.isArray(apiResult.data) && apiResult.data.length > 0;
+
   // Station rankings render as a ranked list. The model turned the same rows
   // into several sentences of reasoning about which date they belonged to.
   const isStationRanking =
@@ -1712,6 +1932,9 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
   if (isStationRanking) {
     answer = formatFallbackAnswer(planQuestion, action, apiResult);
     answerMode = "fallback_ranking";
+  } else if (fastPathAnswer) {
+    answer = formatFallbackAnswer(planQuestion, action, apiResult);
+    answerMode = "fast_path";
   } else if (!skipAnswerLlm) {
     try {
       const answerLlm = await askOllama(
@@ -1822,6 +2045,10 @@ async function handleOllamaChat(question, { skipAnswerLlm = false, previousQuest
     success: true,
     mode: plannerContext.retrieved ? "rag_planner" : "ollama_catalog",
     reason_code: null,
+    location: locationShadow
+      ? { mode: LOCATION_MODE, status: locationShadow.status, agrees: locationShadow.agrees,
+          planner: locationShadow.planner, resolver: locationShadow.resolver }
+      : null,
     level_correction: levelCorrection,
     level: levelOf(Array.isArray(apiResult.data) ? apiResult.data[0] || {} : {}, action),
     data_availability: dateWindow?.available || null,

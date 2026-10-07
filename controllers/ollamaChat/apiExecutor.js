@@ -144,14 +144,16 @@ function getDepartureCategory(departure) {
   if (departure === null || departure === undefined || Number.isNaN(Number(departure))) {
     return "No Data";
   }
-  const value = Number(departure);
-  if (value === -100) return "No Rain";
+  const raw = Number(departure);
+  if (raw <= -100) return "No Rain";
+  // Band the whole-number departure, as the maps do (Math.round), so values
+  // such as -59.9 or 19.5 fall in a band instead of between two.
+  const value = Math.round(raw);
   if (value >= 60) return "Large Excess";
   if (value >= 20) return "Excess";
-  if (value >= -19 && value <= 19) return "Normal";
-  if (value >= -59 && value <= -20) return "Deficient";
-  if (value >= -99 && value <= -60) return "Large Deficient";
-  return "No Data";
+  if (value >= -19) return "Normal";
+  if (value >= -59) return "Deficient";
+  return "Large Deficient";
 }
 
 function normalizeNameKey(value) {

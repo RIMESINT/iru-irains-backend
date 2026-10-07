@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "Names people use that differ from how iRAINS stores them.",
+    "Each alias maps to one or more targets by {level, name}; the builder resolves",
+    "them to codes and FAILS LOUDLY if a target does not exist, so a typo here can",
+    "never silently point at nothing. Add a row whenever a real user question misses."
+  ],
+  "aliases": {
+    "nungambakkam":   [{ "level": "station",  "name": "CHENNAI(N)" }],
+    "meenambakkam":   [{ "level": "station",  "name": "CHENNAI AP" }],
+    "madras":         [{ "level": "district", "name": "CHENNAI" }],
+    "calcutta":       [{ "level": "district", "name": "KOLKATA" }],
+    "bombay":         [{ "level": "district", "name": "MUMBAI CITY" }, { "level": "district", "name": "MUMBAI SUBURBAN" }],
+    "mumbai":         [{ "level": "district", "name": "MUMBAI CITY" }, { "level": "district", "name": "MUMBAI SUBURBAN" }],
+    "colaba":         [{ "level": "station",  "name": "COLABA - IMD OBSY" }],
+    "santacruz":      [{ "level": "station",  "name": "SANTACRUZ - IMD OBSY" }],
+    "bangalore":      [{ "level": "district", "name": "BENGALURU URBAN" }],
+    "bengaluru":      [{ "level": "district", "name": "BENGALURU URBAN" }],
+    "gurugram":       [{ "level": "district", "name": "GURGAON" }],
+    "poona":          [{ "level": "district", "name": "PUNE" }],
+    "trivandrum":     [{ "level": "district", "name": "THIRUVANANTHAPURAM" }],
+    "cochin":         [{ "level": "district", "name": "ERNAKULAM" }],
+    "kochi":          [{ "level": "district", "name": "ERNAKULAM" }],
+    "benares":        [{ "level": "district", "name": "VARANASI" }],
+    "banaras":        [{ "level": "district", "name": "VARANASI" }],
+    "kashi":          [{ "level": "district", "name": "VARANASI" }],
+    "allahabad":      [{ "level": "district", "name": "PRAYAGRAJ" }],
+    "mysore":         [{ "level": "district", "name": "MYSURU" }],
+    "amravati":       [{ "level": "district", "name": "AMRAOTI" }],
+    "nellore":        [{ "level": "district", "name": "SPSR NELLORE" }],
+    "pondicherry":    [{ "level": "district", "name": "PUDUCHERRY" }],
+    "guwahati":       [{ "level": "district", "name": "KAMRUP METROPOLITAN" }],
+    "mohali":         [{ "level": "district", "name": "SAS NAGAR (MOHALI)" }]
+  }
+}

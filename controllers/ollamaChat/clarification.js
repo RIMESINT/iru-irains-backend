@@ -5,6 +5,7 @@
  */
 const moment = require("moment");
 const client = require("../../connection");
+const dbStatus = require("./dbStatus");
 const {
   extractCategoriesFromQuestion,
   questionHasExplicitDate,
@@ -396,7 +397,10 @@ async function loadLocationMaster() {
     stations: [],
   };
 
-  try {
+  // Known down: skip every DB query (each would wait out its timeout) and let
+  // the registry fallback at the end fill the lists instantly.
+  const skipDb = dbStatus.isDown();
+  if (!skipDb) try {
     const withTimeout = (promise, ms) =>
       Promise.race([
         promise,
@@ -442,6 +446,7 @@ async function loadLocationMaster() {
   ];
   await Promise.all(
     extraLevels.map(async ([key, sql]) => {
+      if (skipDb) return;
       try {
         const res = await Promise.race([
           client.query(sql),
@@ -464,7 +469,7 @@ async function loadLocationMaster() {
   // Kept out of the districts/states Promise.all deliberately: sharing one
   // timeout meant a slow station query would drop district and state
   // resolution back to the sample seed and break lookups that work today.
-  try {
+  if (!skipDb) try {
     const stations = await Promise.race([
       client.query(`
         SELECT DISTINCT station_name
@@ -483,8 +488,31 @@ async function loadLocationMaster() {
     // Stations unavailable — district/state resolution is unaffected.
   }
 
+  // Same fallback as guidance.js: if the DB could not supply a level, take it
+  // from the built registry, and retry the DB after a minute rather than
+  // caching the degraded list for the full TTL.
+  let degraded = false;
+  try {
+    const { namesByLevel } = require("./location/registry");
+    const fill = (key, level, isSeed) => {
+      if (master[key] && master[key].length && !isSeed) return;
+      const names = namesByLevel(level);
+      if (names.length) { master[key] = names; degraded = true; }
+    };
+    const districtsFromSeed = master.districts.length <= SAMPLE_LOCATIONS.districts.length;
+    fill("districts", "district", districtsFromSeed);
+    fill("states", "state", master.states.length <= SAMPLE_LOCATIONS.states.length);
+    fill("stations", "station", false);
+    fill("subdivisions", "subdivision", false);
+    fill("regions", "region", false);
+    fill("blocks", "block", false);
+  } catch (_) {
+    // registry unavailable
+  }
+  if (degraded) console.warn("[location] clarification master: DB unavailable for some levels — using the built registry");
+
   locationCache = master;
-  locationCacheAt = now;
+  locationCacheAt = degraded ? now - CACHE_TTL_MS + 60 * 1000 : now;
   return master;
 }
 

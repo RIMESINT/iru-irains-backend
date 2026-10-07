@@ -1,0 +1,46 @@
+{"q":"what is rainfall in Kerala today","status":"resolved","level":"state","name":"KERALA"}
+{"q":"what is today rainfall for Chennai district","status":"resolved","level":"district","name":"CHENNAI"}
+{"q":"rainfall at CHENNAI AP station today","status":"resolved","level":"station","name":"CHENNAI AP"}
+{"q":"what is the departure for Maharashtra today","status":"resolved","level":"state","name":"MAHARASHTRA"}
+{"q":"rainfall in Konkan and Goa subdivision today","status":"resolved","level":"subdivision","name":"KONKAN & GOA"}
+{"q":"what is rainfall in Central India region today","status":"resolved","level":"region","name":"CENTRAL INDIA"}
+{"q":"rainfall in Konkan & Goa today","status":"resolved","level":"subdivision","name":"KONKAN & GOA"}
+{"q":"nellore district data for yesterday","status":"resolved","level":"district","name":"SPSR NELLORE"}
+{"q":"rainfall at nungambakkam station","status":"resolved","level":"station","name":"CHENNAI(N)"}
+{"q":"rainfall in Madras","status":"resolved","level":"district","name":"CHENNAI"}
+{"q":"rainfall in Calcutta today","status":"resolved","level":"district","name":"KOLKATA"}
+{"q":"rainfall in Bangalore today","status":"resolved","level":"district","name":"BENGALURU URBAN"}
+{"q":"rainfall in Allahabad today","status":"resolved","level":"district","name":"PRAYAGRAJ"}
+{"q":"rainfall in Mysore today","status":"resolved","level":"district","name":"MYSURU"}
+{"q":"rainfall in Gurugram today","status":"resolved","level":"district","name":"GURGAON"}
+{"q":"rainfall in Banda today","status":"resolved","level":"district","name":"BANDA"}
+{"q":"udaipur rainfall today","status":"resolved","level":"district","name":"UDAIPUR"}
+{"q":"rainfall in Banda block in Uttar Pradesh today","status":"resolved","level":"block","name":"Banda"}
+{"q":"rainfall at udaipur station in tripura","status":"resolved","level":"station","name":"UDAIPUR"}
+{"q":"bilaspur in himachal pradesh","status":"resolved","level":"district","name":"BILASPUR"}
+{"q":"rainfall in Mumbai city today","status":"resolved","level":"district","name":"MUMBAI CITY"}
+{"q":"compare Kerala and Tamil Nadu today","status":"resolved","level":"state","name":"KERALA","also":"TAMILNADU"}
+{"q":"rainfall in Banda block today","status":"ambiguous","level":"block"}
+{"q":"rainfall at BANDA station today","status":"ambiguous","level":"station"}
+{"q":"bilaspur district rainfall","status":"ambiguous","level":"district"}
+{"q":"rainfall in Mumbai today","status":"ambiguous","level":"district"}
+{"q":"I want amaravati district data for 21 september","status":"level_mismatch","level":"district"}
+{"q":"rainfall in chenai today","status":"did_you_mean","name":"CHENNAI"}
+{"q":"rainfall in maharastra today","status":"did_you_mean","name":"MAHARASHTRA"}
+{"q":"I want all india data","status":"country"}
+{"q":"what is rainfall in India today","status":"country"}
+{"q":"what is country rainfall today","status":"country"}
+{"q":"which states are deficient today","status":"none"}
+{"q":"which districts are deficient today","status":"none"}
+{"q":"which districts are in large excess today","status":"none"}
+{"q":"top 5 wettest districts today","status":"none"}
+{"q":"which stations recorded heavy rainfall today","status":"none"}
+{"q":"where is station statistics","status":"none"}
+{"q":"where is the block rainfall map","status":"none"}
+{"q":"what is the capital of France","status":"none"}
+{"q":"what is iRAINS","status":"none"}
+{"q":"what does Large Deficient mean","status":"none"}
+{"q":"I want all india for last 2 years of data cummulative","status":"country"}
+{"q":"list districts with rainfall above 100 mm today","status":"none"}
+{"q":"monsoon activity today","status":"none"}
+{"q":"what is spatial distribution today","status":"none"}

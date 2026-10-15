@@ -1,10 +1,11 @@
 const schedule = require('node-schedule');
 const axios = require('axios');
+const moment = require('moment-timezone');
 const { AddDailyStationData } = require("../controllers/StationDataUpdates");
 const { dailyDataUpdateReminder, dailyDataVerificationReminder } = require("../controllers/Email");
 const { sendBulkReports } = require('./emailController');
 const { aggregateCurrentSeasonData } = require('./scripts/all/calculateAndIncludeAllDatesData');
-// const { uploadMonthlyDRMSAndMetadata } = require('../controllers/ftp/shared.js');
+const { uploadMonthlyDRMSAndMetadata } = require('../controllers/ftp/Shared.js');
 const {
     fetchAndStoreUP,
     fetchAndStoreNHP,
@@ -54,15 +55,50 @@ const job3 = schedule.scheduleJob('15 10 * * *', dailyDataVerificationReminder);
 // const job4 = schedule.scheduleJob('59 14 * * *', sendBulkReports);
 
 
-// const job5 = schedule.scheduleJob('15 15 7 * *', async () => {
-//     console.log(`\n[MONTHLY CRON] Starting DRMS & Metadata generation - ${new Date().toLocaleString()}`);
-//     try {
-//         await uploadMonthlyDRMSAndMetadata();
-//         console.log("[MONTHLY CRON] Completed successfully\n");
-//     } catch (error) {
-//         console.error("[MONTHLY CRON] Failed:", error);
-//     }
-// });
+// ─── Monthly IMD FTP upload — 7th of each month, 3:15 PM IST ─────────────────
+// Sends last month's IRAINS_DATA_YYYY_MM.csv and DRMS_METADATA_YYYY_MM.csv.
+const job5 = schedule.scheduleJob({ rule: '15 15 7 * *', tz: 'Asia/Kolkata' }, async () => {
+    const ts = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    console.log(`\n[MONTHLY FTP] Starting IRAINS data + metadata upload at ${ts} IST`);
+    try {
+        const result = await uploadMonthlyDRMSAndMetadata();
+        console.log(`[MONTHLY FTP] Done: ${result.files.join(', ')} → ${result.remoteFolder}\n`);
+    } catch (error) {
+        console.error("[MONTHLY FTP] Failed:", error.message);
+    }
+});
+
+// Startup box on `npm start`, so it is obvious the Pune upload is live and when it next runs.
+const printConsoleBox = (title, lines, ansiColor) => {
+    const width = Math.max(title.length, ...lines.map((l) => l.length)) + 4;
+    const paint = (s) => (process.stdout.isTTY ? `\x1b[${ansiColor}m${s}\x1b[0m` : s);
+    console.log([
+        '',
+        `╔${'═'.repeat(width)}╗`,
+        `║  ${paint(title.padEnd(width - 2))}║`,
+        `╟${'─'.repeat(width)}╢`,
+        ...lines.map((l) => `║  ${l.padEnd(width - 2)}║`),
+        `╚${'═'.repeat(width)}╝`,
+        '',
+    ].join('\n'));
+};
+
+const nextFtpRun = job5 ? job5.nextInvocation() : null;
+if (nextFtpRun) {
+    const next = moment(nextFtpRun.toDate()).tz('Asia/Kolkata');
+    const dataMonth = next.clone().subtract(1, 'month');
+    printConsoleBox('PUNE FTP UPLOAD: RESUMED', [
+        `Sends      IRAINS_DATA_${dataMonth.format('YYYY_MM')}.csv`,
+        `           DRMS_METADATA_${dataMonth.format('YYYY_MM')}.csv`,
+        'Schedule   7th of every month, 15:15 IST',
+        `Next run   ${next.format('ddd DD MMM YYYY, HH:mm')} IST (${dataMonth.format('MMMM YYYY')} data)`,
+        'Server     IMD Pune FTP, /home/imdhydromet/irains_drmsdata',
+    ], '1;32');
+} else {
+    printConsoleBox('PUNE FTP UPLOAD: NOT SCHEDULED', [
+        'The monthly job did not start. Check job5 in controllers/CronJobs.js.',
+    ], '1;31');
+}
 
 
 // ─── Connectivity pre-check ──────────────────────────────────────────────────
